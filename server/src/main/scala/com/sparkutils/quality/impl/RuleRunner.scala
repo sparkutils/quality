@@ -303,7 +303,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
       GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
         triggerRes.ignoreTopLevelSubExpressions)
     }
-    generatorClassSource = clazz
+    setClazzSource(clazz)
     fres
   }
 }

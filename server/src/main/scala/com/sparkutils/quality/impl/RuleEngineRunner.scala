@@ -566,7 +566,7 @@ try{
         GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
 
-  generatorClassSource = clazz
+  setClazzSource( clazz )
   fres
   } catch
   {

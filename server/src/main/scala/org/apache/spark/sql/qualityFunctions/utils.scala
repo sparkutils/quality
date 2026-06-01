@@ -1,11 +1,18 @@
 package org.apache.spark.sql.qualityFunctions
 
+import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
-import org.apache.spark.sql.ShimUtils
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.io.CompressionCodec
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.catalyst.util.ArrayData
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, FileInputStream, FileOutputStream, ObjectInputStream, ObjectOutputStream, ObjectStreamClass}
+import scala.reflect.ClassTag
 
 object utils {
 
@@ -114,5 +121,49 @@ object utils {
         sys.error(s"Could not find compare function for ${dataType}")
       )
     }
+
+  // unlike serializeImpl this compresses using sparks compression which will work on executors
+  def compress(obj: Object with Serializable): Array[Byte] = {
+    val bos = new ByteArrayOutputStream()
+    val cos = CompressionCodec.createCodec(SparkContext.getActive.get.conf).compressedOutputStream(bos)
+    val os = new ObjectOutputStream(cos)
+    // get rid of List's Vectors are serializable
+    os.writeObject(obj)
+    val res = bos.toByteArray
+    os.close()
+    res
+  }
+
+  def decompress[T: ClassTag](arr: Array[Byte]) = {
+    val bis = new ByteArrayInputStream(arr)
+    val cis = CompressionCodec.createCodec(SparkContext.getActive.get.conf).compressedInputStream(bis)
+    val os = new ObjectInputStream(cis) {
+      override def resolveClass(desc: ObjectStreamClass): Class[_] =
+        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
+    }
+    val suite = os.readObject()
+    os.close()
+    suite.asInstanceOf[T]
+  }
+
+  def write(obj: Object with Serializable, path: String): Unit = {
+    val fos = new FileOutputStream(path)
+    val os = new ObjectOutputStream(fos)
+    // get rid of List's Vectors are serializable
+    os.writeObject(obj)
+    fos.flush()
+    fos.close()
+  }
+
+  def read[T: ClassTag](path: String) = {
+    val fis = new FileInputStream(path)
+    val os = new ObjectInputStream(fis) {
+      override def resolveClass(desc: ObjectStreamClass): Class[_] =
+        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
+    }
+    val suite = os.readObject()
+    fis.close()
+    suite.asInstanceOf[T]
+  }
 }
 

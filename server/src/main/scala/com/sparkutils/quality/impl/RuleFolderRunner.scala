@@ -243,7 +243,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
 
-    generatorClassSource = clazz
+    setClazzSource(clazz)
     fres
   }
 

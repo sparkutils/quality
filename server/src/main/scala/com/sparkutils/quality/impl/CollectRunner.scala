@@ -502,7 +502,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 
         GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
-    generatorClassSource = clazz
+    setClazzSource(clazz)
     fres
   }
 }

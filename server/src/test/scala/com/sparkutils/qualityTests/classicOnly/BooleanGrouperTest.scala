@@ -1,13 +1,15 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality.{ExpressionRule, Id, OutputExpression, RuleSuite, RunOnPassProcessor, groupProcessorKey, groupProcessorPercentFilter, ruleEngineRunner, showGroupingTime, showSplitCompilationTime, topLevelBooleanGrouper}
-import com.sparkutils.qualityTests.util.SharedPureConnectTests
-import org.apache.spark.sql.Column
+import com.sparkutils.quality._
+import com.sparkutils.qualityTests.RuleEngineTest
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedPureConnectTests}
+import com.sparkutils.testing.ConnectionType
+import org.apache.spark.sql.{Column, SaveMode}
 import org.scalatest.Matchers
 
-import scala.collection.JavaConverters._
+class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
-class BooleanGrouperTest extends SharedPureConnectTests with Matchers {
+  override val runWith: ConnectionType = com.sparkutils.testing.ClassicOnly
 
   val testSize = 1000 // 9k takes almost 12m on the Ryzen ai 9 hx 370
 
@@ -30,10 +32,12 @@ class BooleanGrouperTest extends SharedPureConnectTests with Matchers {
    * @return
    */
   def doTest(runner: RuleSuite => Column) = {
-    val d = data
-    import d.sparkSession.implicits._
+    // reading from 1 csv forces compilation on one executor
+    data.coalesce(1).write.option("header", true).mode(SaveMode.Overwrite).csv(outputDir + "/bgt")
+    val s = sparkSession
+    val d = s.read.option("header", true).schema("a Int, b Int, c Int, d Int").csv(outputDir + "/bgt")
     val rules = RuleEngineTest.rulesRaw(
-      (for { i <- 0 until 9000 } yield
+      (for { i <- 0 until testSize } yield
         Seq(
           (ExpressionRule(s"(((a + b) % 20) < 5) and (a = $i)"), RunOnPassProcessor(1001, Id(9000+i, 1),
             OutputExpression("named_struct('y', a + b + c + d, 'z', a)"))),
@@ -44,7 +48,7 @@ class BooleanGrouperTest extends SharedPureConnectTests with Matchers {
         )
     ).flatten)
 
-    d.coalesce(1).withColumn("r", runner(rules).getField("result")).selectExpr(s"""
+    d.withColumn("r", runner(rules).getField("result")).selectExpr(s"""
       case
        when ((a + b) % 20) < 5 then ((a + b + c + d) = r.y) and (r.z = a)
        when ((a + b) % 20) < 15 then ((a + b + c) = r.y) and (r.z = a)
@@ -74,7 +78,20 @@ class BooleanGrouperTest extends SharedPureConnectTests with Matchers {
       showGroupingTime -> "true",
       "statsEvery" -> "100",
       // default fails to group properly as it's too intolerant, the differentiators are 3 occurrences in this test, the default is 23 or so
-      groupProcessorPercentFilter -> "0.02"
+      groupProcessorPercentFilter -> "0.15"
+    )))
+  }
+
+  // as it doesn't group it's a separate code path, which impact top level ctx vars as well
+  // you'll see all the time in this group, 0.44111285ms avg per row, 8.7s total
+  // org.apache.spark.sql.catalyst.expressions.GeneratedClass$RunnerCompilationGroup0 - RunnerCompilationGroup0 avg 	48562300	14665000	 ns per every 	100	 rows
+  test("test grouping for overlapping ranges works with bad groups"){
+    doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
+      groupProcessorKey -> topLevelBooleanGrouper,
+      showSplitCompilationTime -> "true",
+      showGroupingTime -> "true",
+      "statsEvery" -> "100",
+      // default fails to group properly as it's too intolerant
     )))
   }
 }

@@ -195,7 +195,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
       GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty,
         triggerRes.ignoreTopLevelSubExpressions)
     }
-    generatorClassSource = clazz
+    setClazzSource(clazz)
     fres
   }
 
