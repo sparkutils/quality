@@ -166,7 +166,8 @@ var start = System.nanoTime()
         groupProcessorKey -> topLevelBooleanGrouper,
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
-        "statsEvery" -> "1000"
+        "statsEvery" -> "1000",
+        groupProcessorPercentFilter -> "0.0012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -184,7 +185,8 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
-        useEmptyRuleSetResults -> "true"
+        useEmptyRuleSetResults -> "true",
+        groupProcessorPercentFilter -> "0.012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)

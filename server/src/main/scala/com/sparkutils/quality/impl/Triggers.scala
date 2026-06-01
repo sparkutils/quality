@@ -273,9 +273,9 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
                       groupSalienceCheck: String => Block):
     TriggerResult = {
 
-    val targetBucket = TopLevelBoolean.params(runner)
+    val targetParams = TopLevelBoolean.params(runner)
 
-    val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetBucket)
+    val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetParams)
 
     performGrouping(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd,
       exprFunEnd, groupSalienceCheck, groups)

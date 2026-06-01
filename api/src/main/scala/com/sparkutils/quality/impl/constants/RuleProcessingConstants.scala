@@ -30,6 +30,13 @@ trait RuleProcessingConstants {
   val groupProcessorBucketSizeKey = "quality.runnerGroupProcessor.bucketSize"
 
   /**
+   * Defaulting to 0.010, this filter size can be overridden.  NOTE this is a guide to bucketing only and implies
+   * what percentage a given sub expression should be filtered out from grouping. e.g. If the subexpression is only
+   * used in less than 0.1% of the trigger rules then it should not be used as a grouping tool.
+   */
+  val groupProcessorPercentFilter = "quality.runnerGroupProcessor.percentFilter"
+
+  /**
    * Defaulting to "./", specifies the location of where to save any audit files
    */
   val groupProcessorAuditLocation = "quality.runnerGroupProcessor.auditLocation"

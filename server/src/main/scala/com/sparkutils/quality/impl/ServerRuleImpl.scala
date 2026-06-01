@@ -430,7 +430,7 @@ object UpdateFolderExpression {
 }
 
 /**
- * Used in post serializing processing to keep the rule around
+ * Used in post serializing processing to keep the rule around, processCoalesce only
  * @param expr
  */
 @SerialVersionUID(1L)

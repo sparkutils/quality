@@ -5,7 +5,9 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
 The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
-large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data down to 1m50s
+large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data down to 1m50s.
+
+Sparkless is deprecated as of this release and will be removed in subsequent releases.
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
@@ -94,8 +96,11 @@ large rule suites, the imaginatively named BigRules test case showing an improve
 > These buckets can be configured by the:
 > ```scala
 > groupProcessorBucketSizeKey /* "quality.runnerGroupProcessor.bucketSize" */: Int = 130, 
+> groupProcessorPercentFilter /* "quality.runnerGroupProcessor.percentFilter" */: Double = 0.01
 > ```
+> 
 > parameters, which aim to manage a target bucket size of 130, and is used as a guide in the bucketing approach.
+> The filter removes expressions from groups that appear in less than only present in 0.01% of the overall expressions.
 > 
 > An optional extraConfig parameter of:
 > ```scala

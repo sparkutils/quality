@@ -252,6 +252,10 @@ object SeparateCompilation {
       else
         splitGlobalSubExprs(ctx, subExpressions)
 
+    // extra params global (outer ctx subexprs and state), must be after code gen and requires QualityCodeGenUtils.clone
+    // to reflect/copy freshNames
+    fullParams.addAritySafeParamDecl(ctx)
+
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       $generate
@@ -262,8 +266,6 @@ object SeparateCompilation {
         $initDecl
         // ctx mutable states
         ${ctx.declareMutableStates()}
-        // extra params global (outer ctx subexprs and state)
-        ${fullParams.aritySafeParamDecl}
         // stats state
         $statsState
 
@@ -354,11 +356,11 @@ object SeparateCompilation {
   }
 
   /**
-   * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 20 to keep
+   * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 250 to keep
    * the main apply functions JITable, then does a split call on them
    */
   def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String): String = {
-    val preGrouped = subExpressions.split("\n").filter(_.nonEmpty)
+    val preGrouped = subExpressions.split(";").filter(_.nonEmpty).map(su => s"$su;")
     QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, 250, "subExprGroup", Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
   }
 

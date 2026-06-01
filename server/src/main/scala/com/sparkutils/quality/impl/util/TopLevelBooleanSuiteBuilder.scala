@@ -22,9 +22,9 @@ object TopLevelBooleanSuiteBuilder {
 
   def build(runner: HasOutput): Unit = {
     import runner._
-    val targetBucket = TopLevelBoolean.params(runner)
+    val targetParams = TopLevelBoolean.params(runner)
 
-    val grouped = TopLevelBoolean.bucket(triggers(runner), targetBucket)
+    val grouped = TopLevelBoolean.bucket(triggers(runner), targetParams)
 
     val rules = flattenRules(ruleSuite)
 
