@@ -215,7 +215,7 @@ trait HasOutput extends Runner {
 trait SplitCompilation extends Runner {
 
   //val generatorLocInst = java.util.UUID.randomUUID().toString
-  var generatorClassSource : Seq[Broadcast[CodeAndComment]] = _ //Seq[CodeAndComment] = _
+  var generatorClassSource : Seq[CodeAndComment] = _ //Seq[CodeAndComment] = _
 
   @transient
   lazy val generatorClazz_ : Seq[GeneratedClass] = {
@@ -230,7 +230,7 @@ trait SplitCompilation extends Runner {
         CodeGenerator.compile(utils.read[CodeAndComment](dir + "/" + index))._1
     }*/
 
-    val generatorClazz = generatorClassSource.map{b => CodeGenerator.compile(b.value)._1}
+    val generatorClazz = generatorClassSource.map{b => CodeGenerator.compile(b)._1}
 
     val end = System.nanoTime()
     val compileTime = Duration.fromNanos(end - start)
@@ -254,7 +254,7 @@ trait SplitCompilation extends Runner {
         //compress(c)
         utils.write(c, dir + "/" + index)
     }*/
-    generatorClassSource = seq.map(c => SparkSession.active.sparkContext.broadcast(c))
+    generatorClassSource = seq
   }
 
 }
