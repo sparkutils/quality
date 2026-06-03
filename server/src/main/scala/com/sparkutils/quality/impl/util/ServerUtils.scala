@@ -432,3 +432,11 @@ object TypeUtils {
     }
 } */
 
+class Counter() {
+  var counter = 0
+
+  def next(): Int = {
+    counter += 1
+    counter
+  }
+}

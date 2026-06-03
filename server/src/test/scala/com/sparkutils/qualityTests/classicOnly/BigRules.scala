@@ -250,7 +250,10 @@ var start = System.nanoTime()
     group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
 
     // verify some of it is correct
-    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a, b, c, f)"))) shouldBe true
+    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains(
+      "((((((j = 'a199998') AND (f = 'a183365')) AND (g = 'a199998')) AND (a = 'a199997')) AND (d = 'a199999')) AND (i = 'a199999'))"))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("(f = 'a192967')")))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("((abs(hash(a, b, f)) % 3) = 1)")))) shouldBe true
   }
 
 }

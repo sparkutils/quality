@@ -45,6 +45,7 @@ trait InitPartitionWholeStage {
 trait ClazzGenerator[T] {
   def apply(t: T): Int => String
   def outerResultProcessing(t: T): (CodegenContext, ExprValue) => String
+  def id(t: T): Int
 }
 
 case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue], index: Int)
@@ -59,12 +60,16 @@ object ClazzGenerator {
     override def apply(t: (ParameterInformation, String)): Int => String = classGen(t._2, _)
 
     override def outerResultProcessing(t: (ParameterInformation, String)): (CodegenContext, ExprValue) => String = (_,_) => ""
+
+    override def id(t: (ParameterInformation, String)): Int = 0
   }
   implicit val viaTerms: ClazzGenerator[CompilerTerms] = new ClazzGenerator[CompilerTerms] {
 
     override def apply(t: CompilerTerms): Int => String = classGen(t.runnerClassName, _ )
 
     override def outerResultProcessing(t: CompilerTerms): (CodegenContext, ExprValue) => String = (_,_) => ""
+
+    override def id(t: CompilerTerms): Int = 0
   }
   implicit val viaName: ClazzGenerator[SeparateClassGenerator] = new ClazzGenerator[SeparateClassGenerator] {
 
@@ -87,6 +92,8 @@ object ClazzGenerator {
             }
            """
     }
+
+    override def id(t: SeparateClassGenerator): Int = t.index
   }
 }
 
@@ -115,8 +122,8 @@ object IdGen {
 
 }
 
-case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[CodeAndComment],
-                             ignoreTopLevelSubExpressions: Boolean)
+case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[(Int, CodeAndComment)],
+                             ignoreTopLevelSubExpressions: Boolean, id: Int = 0)
 
 object SeparateCompilation {
 
@@ -134,7 +141,7 @@ object SeparateCompilation {
       outerCtx: CodegenContext, ev: ExprCode, id: I,
       createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
-    ): (Seq[CodeAndComment], ExprCode) = {
+    ): (Seq[(Int, CodeAndComment)], ExprCode) = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
     outerCtx.references += theThis
@@ -183,7 +190,7 @@ object SeparateCompilation {
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
                                   generateStatsEvery: Int = 0,
                                   createGenerateFunction: Boolean = true):
-    (Seq[CodeAndComment], ExprCode) = {
+    (Seq[(Int, CodeAndComment)], ExprCode) = {
     val fullParams = parameterInformation
 
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
@@ -352,7 +359,8 @@ object SeparateCompilation {
         """
     )
 
-    (Seq(code) ++ genResult.extraClasses , res)
+    (Seq(( implicitly[ClazzGenerator[T]].id(genResult.resultType), code)) ++
+      genResult.extraClasses , res)
   }
 
   /**

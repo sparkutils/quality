@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.{HasOutput, Trigger}
+import com.sparkutils.quality.impl.{Group, HasOutput, Trigger}
 
 object TopLevelBooleanSuiteBuilder {
 
@@ -20,6 +20,43 @@ object TopLevelBooleanSuiteBuilder {
       map(t => Trigger(t._1._1, t._1._2, t._2))
   }
 
+  def makeGroups(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: Group): (Seq[RuleSuite], RuleSuite) = {
+    val index = counter.next()
+    val (groups, processedRules) =
+      group.payload.fold[(Seq[RuleSuite], Seq[Rule])]{groups =>
+        groups.foldLeft((Seq.empty[RuleSuite], Seq.empty[Rule])){
+          case (cur, ng) =>
+            val (ggroups, grules) = makeGroup(counter, runner, rules, ng)
+            (cur._1 ++ ggroups, cur._2 ++ grules)
+        }
+      }{
+        triggers => makeTriggers(rules, triggers)
+      }
+
+    val rs =
+      RuleSuite(Id(index, 0), ruleSets = Seq(
+        RuleSet(Id(index, 0), rules = processedRules)))
+
+    (groups :+ rs, rs)
+  }
+
+  def makeGroup(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: Group): (Seq[RuleSuite], Seq[Rule]) = {
+    import runner._
+
+    val (suites, ruleSuite) = makeGroups(counter, runner, rules, group)
+    val index = counter.next()
+    val filter = Rule(Id(index, 0), ExpressionRule(group.groupFilter.sql), RunOnPassProcessor(index, Id(index, 0),
+      OutputExpression(groupedSqlCall(s"rule_suite_from(the_group, ${ruleSuite.id.id}, 0)"))))
+
+    (suites, Seq(filter))
+  }
+
+  def makeTriggers(rules: Seq[Rule], triggers: Seq[Trigger]): (Seq[RuleSuite], Seq[Rule]) =
+    (Seq.empty, triggers.map{
+      trigger =>
+        rules(trigger.index).copy(expression = ExpressionRule(trigger.expression.sql))
+    })
+
   def build(runner: HasOutput): Unit = {
     import runner._
     val targetParams = TopLevelBoolean.params(runner)
@@ -28,25 +65,18 @@ object TopLevelBooleanSuiteBuilder {
 
     val rules = flattenRules(ruleSuite)
 
-    val group =
-      grouped.zipWithIndex.foldLeft(Seq.empty[(Rule, RuleSuite)]){
-        case (cur, (group, index)) =>
+    val counter = new Counter()
 
-          val filter = Rule(Id(index, 0), ExpressionRule(group.groupFilter.sql), RunOnPassProcessor(index, Id(index, 0),
-            OutputExpression(groupedSqlCall(s"rule_suite_from(the_group, ${index + 1}, 0)"))))
-          val suite =
-            RuleSuite(Id(index + 1, 0), ruleSets = Seq(RuleSet(Id(index,0), rules = group.triggers.map{
-              trigger =>
-                rules(trigger.index).copy(expression = ExpressionRule(trigger.expression.sql))
-            })))
-
-          cur :+ (filter, suite)
+    val (nested, toprules) =
+      grouped.foldLeft((Seq.empty[RuleSuite], Seq.empty[Rule])){
+        case ((cgroups, ctoprules), group) =>
+          val (groups, toprules) =
+            makeGroup(counter, runner, rules, group)
+          (cgroups ++ groups, ctoprules ++ toprules)
       }
 
     val topRuleSuite =
-      RuleSuite(Id(0, 0), ruleSets = Seq(RuleSet(Id(0,0), rules = group.map(_._1))))
-
-    val nested = group.map(_._2)
+      RuleSuite(Id(0, 0), ruleSets = Seq(RuleSet(Id(0,0), rules = toprules)))
 
     val loc = runner.extraConfig.string(groupProcessorAuditLocation, "./")
     val name = runner.extraConfig.string(groupProcessorAuditName, runner.getClass.getSimpleName)

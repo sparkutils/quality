@@ -85,7 +85,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
   } }
 
   // as this generates a differentiator of mod 8 for a the (a+b) mod's don't work.
-  ignore("test grouping for overlapping ranges works grouped with too small buckets"){ not3_0_or_3_1 {// 0.04ms per row 0.78s in total
+  test("test grouping for overlapping ranges works grouped with too small buckets"){ not3_0_or_3_1 {// 0.04ms per row 0.78s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -98,12 +98,14 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size should be > 3
+    group.ruleSuites.size should be > 25
 
     //group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
 
     // verify some of it is correct
-    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a)"))) shouldBe true
+    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("(((a + b) % 20) < 15)"))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("abs(hash(a))")))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("a = 8")))) shouldBe true
   } }
 
   // as it doesn't group it's a separate code path, which impact top level ctx vars as well due to predicate pushdown
@@ -115,7 +117,18 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       showSplitCompilationTime -> "true",
       showGroupingTime -> "true",
       "statsEvery" -> "100",
+      groupProcessorDumpAuditKey -> "true",
+      groupProcessorAuditLocation -> outputDir
       // default fails to group properly as it's too intolerant
     )))
+
+    val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
+    group.ruleSuites.size shouldBe 2
+
+    // we still have two rulesuites, its just forwarding only
+
+    // verify some of it is correct
+    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.head.toString.contains("rule_engine_runner(rule_suite_from(the_group, 1, 0))")) shouldBe true
+    group.ruleSuites(Id(1,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("((((a + b) % 20) < 15) AND (a = 0))"))) shouldBe true
   } }
 }

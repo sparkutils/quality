@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.{Group, Runner, Trigger}
+import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
 import org.apache.spark.sql.types.BooleanType
 
@@ -158,9 +158,9 @@ object TopLevelBoolean {
     while(!found) {
       //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
       val b = bucket(triggers = expressions, targetParams = (min, trigger))
-      val bCount = b.maxBy(_.triggers.size).triggers.size + b.size
+      val bCount = b.maxBy(_.size).size + b.size
       val t = bucket(triggers = expressions, targetParams = (max, trigger))
-      val tCount = t.maxBy(_.triggers.size).triggers.size + t.size
+      val tCount = t.maxBy(_.size).size + t.size
       res =
         if (tCount <= bCount)
           if (tCount <= resCount) {
@@ -256,20 +256,22 @@ object TopLevelBoolean {
                         differentiator.bucket(t.expression, numberOfBuckets) -> t
                     }.groupBy(_._1)
 
-                  bucketed.foldLeft(Seq.empty[Group]){
-                    case (cur, (bucket, trips)) =>
-                      val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
+                  Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
+                    bucketed.foldLeft(Seq.empty[Group]){
+                      case (cur, (bucket, trips)) =>
+                        val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
-                      val corrected = addSeen(trips.map(_._2), groupParts)
-                      cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
-                  }
+                        val corrected = addSeen(trips.map(_._2), groupParts)
+                        cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
+                    }
+                  )))
               }
             cur ++ newSeqs
           } else if (triggers.size > 4) { // TODO random number
             // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
             val newTriggers = addSeen(triggers, groupParts)
-            cur :+ Group(sub, newTriggers.minBy(_.salience).salience, newTriggers)
+            cur :+ Group(sub, newTriggers.minBy(_.salience).salience, Triggers(newTriggers))
           } else
             cur
       }
@@ -278,7 +280,7 @@ object TopLevelBoolean {
     if (rest.isEmpty)
       topHitter
     else
-      (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
+      (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size > 0)
   }
 
   def differentiateFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {
