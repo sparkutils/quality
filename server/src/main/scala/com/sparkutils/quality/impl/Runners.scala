@@ -5,16 +5,13 @@ import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, Rule
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
-import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeGenerator, CodegenContext, GeneratedClass}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData}
-import org.apache.spark.sql.qualityFunctions.utils
-import org.apache.spark.sql.qualityFunctions.utils.{compress, decompress}
 import org.apache.spark.sql.types.{DataType, StructType}
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame}
 
 import scala.concurrent.duration.Duration
 
@@ -214,21 +211,11 @@ trait HasOutput extends Runner {
  */
 trait SplitCompilation extends Runner {
 
-  //val generatorLocInst = java.util.UUID.randomUUID().toString
-  var generatorClassSource : Seq[CodeAndComment] = _ //Seq[CodeAndComment] = _
+  var generatorClassSource : Seq[CodeAndComment] = _
 
   @transient
   lazy val generatorClazz_ : Seq[GeneratedClass] = {
     val start = System.nanoTime()
-
-    /*val dir = extraConfig.string("quality.separateCodeGenRoot", "./splitRoot/"+generatorLocInst)
-    //val count = utils.read[Int](dir + "/count")
-
-    generatorClazz_ = (0 until count).map {//generatorClassSource.map{CodeGenerator.compile(decompress[CodeAndComment](b))._1
-      index =>
-        //
-        CodeGenerator.compile(utils.read[CodeAndComment](dir + "/" + index))._1
-    }*/
 
     val generatorClazz = generatorClassSource.map{b => CodeGenerator.compile(b)._1}
 
@@ -240,20 +227,13 @@ trait SplitCompilation extends Runner {
     generatorClazz
   }
 
+  // used by compilation
   def generatorClazz(i: Int): GeneratedClass = {
     // allow it to be replaced
     generatorClazz_(i)
   }
 
   def setClazzSource(seq: Seq[CodeAndComment]): Unit = {
-    /*val dir = extraConfig.string("quality.separateCodeGenRoot", "./splitRoot/"+generatorLocInst)
-    new java.io.File(dir).mkdirs()
-    utils.write(seq.size, dir + "/count")
-    seq.zipWithIndex.foreach {
-      case (c, index) =>
-        //compress(c)
-        utils.write(c, dir + "/" + index)
-    }*/
     generatorClassSource = seq
   }
 

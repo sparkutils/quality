@@ -145,25 +145,5 @@ object utils {
     os.close()
     suite.asInstanceOf[T]
   }
-
-  def write(obj: Object with Serializable, path: String): Unit = {
-    val fos = new FileOutputStream(path)
-    val os = new ObjectOutputStream(fos)
-    // get rid of List's Vectors are serializable
-    os.writeObject(obj)
-    fos.flush()
-    fos.close()
-  }
-
-  def read[T: ClassTag](path: String) = {
-    val fis = new FileInputStream(path)
-    val os = new ObjectInputStream(fis) {
-      override def resolveClass(desc: ObjectStreamClass): Class[_] =
-        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
-    }
-    val suite = os.readObject()
-    fis.close()
-    suite.asInstanceOf[T]
-  }
 }
 
