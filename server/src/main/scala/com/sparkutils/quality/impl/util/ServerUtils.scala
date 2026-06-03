@@ -328,7 +328,8 @@ object Params {
     // split compilation requires the outerscope, this can be very buried and it is not always working with BooleanGrouperTest^s
     // nested case statement failing when sourced from a file
 
-    val a = (oa ++ ctx.currentVars.map(_.value) ++ ctx.currentVars.map(_.isNull)).distinct
+    val a = oa
+      //(oa ++ ctx.currentVars.map(_.value) ++ ctx.currentVars.map(_.isNull)).distinct
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)

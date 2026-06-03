@@ -104,7 +104,7 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > 
 > An optional extraConfig parameter of:
 > ```scala
-> groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false,
+> groupProcessorDumpAuditKey /* "quality.runnerGroupProcessor.dumpAudit" */ : Boolean = false,
 > groupProcessorAuditLocation /* "quality.runnerGroupProcessor.auditLocation" */ : String = "./" 
 > ```
 > will generate a RuleSuiteGroup file using the specified location (this is required on Databricks).
@@ -120,6 +120,9 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > TopLevelBooleanGrouper cannot work on 3.0 or 3.1 and, although functional on 3.2 / 3.21, is only recommended on 3.3 and
 > above as 3.2's performance is slower overall due in part to still requiring sub expressions to be evaluated multiple extra times for the entire tree.
 > 3.3 and above only uses subexpressions within the runner itself as needed by the groups.
+> 
+> NB: Testing on a cluster (e.g. Databricks or Fabric) will require 64gb, the expression trees are too large to deserialize
+> on the executors with less RAM. 
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

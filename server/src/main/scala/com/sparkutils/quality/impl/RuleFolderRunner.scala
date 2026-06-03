@@ -143,7 +143,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
+            debugMode, forceTriggerEval,
             // capture the current
             extraResult = (outArrTerm: String, _) => s"$folderV = $outArrTerm;",
             extraSetup = (_, i: Int) =>

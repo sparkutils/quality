@@ -230,8 +230,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        outerctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                        ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                        child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
-                       debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraConfig: Map[String, String],
+                       debugMode: Boolean, forceTriggerEval: Boolean,
                        extraResult: (String, Int) => String = (_ : String, _: Int) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
@@ -380,14 +379,14 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
       val realI = orderOffset(idx)
 
-      val offset = expressionOffsets(realI)
-      val funName = outExprFunTerms(offset)
+      val eoffset = expressionOffsets(realI)
+      val funName = outExprFunTerms(eoffset)
       val starter = triggerRules(realI) // the original trigger is useless
       val stepWithIf =
         (ctx: CodegenContext, params: ParameterInformation, trigger: Expression) =>
           codeGen(ctx, trigger, realI, funName(ctx, params), params)
 
-      (Trigger(starter, realI, salience(realI)), stepWithIf)
+      (Trigger(starter, realI, salience(realI), Some( realChildren(eoffset + offset) )), stepWithIf)
     }
 
     // required for any TriggerGrouping or further splitting of code
@@ -494,7 +493,7 @@ try{
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(realChildren),
             expressionOffsets, realChildren,
-            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
+            debugMode, forceTriggerEval,
             exprEnd = earlyReturn, exprFunEnd = earlyReturn, salience = salienceFromOffsets(_)
           )
 

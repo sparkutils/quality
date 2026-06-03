@@ -399,7 +399,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(children), expressionOffsets, children,
-            false, variablesPerFunc, variableFuncGroup, false, extraConfig,
+            debugMode = false, forceTriggerEval = false,
             // capture the current
             extraResult = (outArrTerm: String, i: Int) =>
               s"""

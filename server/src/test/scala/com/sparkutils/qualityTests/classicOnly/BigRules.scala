@@ -240,7 +240,7 @@ var start = System.nanoTime()
       "dump audit via TopLevelBooleanGrouper",
       extraConfig = Map(
         groupProcessorKey -> classOf[TopLevelBooleanGrouper].getName,
-        groupProcessorAuditKey -> "true",
+        groupProcessorDumpAuditKey -> "true",
         groupProcessorAuditLocation -> outputDir
       ))
 

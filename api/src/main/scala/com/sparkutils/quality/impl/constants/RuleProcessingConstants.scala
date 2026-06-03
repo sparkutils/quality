@@ -20,11 +20,11 @@ trait RuleProcessingConstants {
    * When present and true will trigger the dumpAudit process for a given group processing implementation.  By
    * default, no dumpAudit is run.
    */
-  val groupProcessorAuditKey = "quality.runnerGroupProcessor.audit"
+  val groupProcessorDumpAuditKey = "quality.runnerGroupProcessor.dumpAudit"
 
   /**
    * Defaulting to 130, the default bucket size can be overridden.  NOTE this size is a guide to bucketing only, use
-   * dumpAudit via [[groupProcessorAuditKey]] to identify the optimum size for a given rule suite, this can take many
+   * dumpAudit via [[groupProcessorDumpAuditKey]] to identify the optimum size for a given rule suite, this can take many
    * minutes to run.
    */
   val groupProcessorBucketSizeKey = "quality.runnerGroupProcessor.bucketSize"

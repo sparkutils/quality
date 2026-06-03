@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
 import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
+import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
@@ -195,7 +195,7 @@ trait HasOutput extends Runner {
    */
   def groupedSqlCall(ruleSuiteCall: String): String
 
-  private lazy val shouldAudit = extraConfig.boolean(groupProcessorAuditKey, false)
+  private lazy val shouldAudit = extraConfig.boolean(groupProcessorDumpAuditKey, false)
 
   val audited: Boolean
 
