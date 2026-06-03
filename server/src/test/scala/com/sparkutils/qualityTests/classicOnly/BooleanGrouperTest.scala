@@ -66,14 +66,14 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
   }
 
   // ensure that salience wins
-  test("test grouping for overlapping ranges works 1:1"){ // 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test grouping for overlapping ranges works 1:1"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
     )))
-  }
+  } }
 
-  test("test grouping for overlapping ranges works grouped") { // 0.025ms per row 0.5s in total
+  test("test grouping for overlapping ranges works grouped") { not3_0_or_3_1 { // 0.025ms per row 0.5s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -82,10 +82,10 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       // default fails to group properly as it's too intolerant
       groupProcessorPercentFilter -> "0.1"
     )))
-  }
+  } }
 
   // as this generates a differentiator of mod 8 for a the (a+b) mod's don't work.
-  ignore("test grouping for overlapping ranges works grouped with too small buckets"){ // 0.04ms per row 0.78s in total
+  ignore("test grouping for overlapping ranges works grouped with too small buckets"){ not3_0_or_3_1 {// 0.04ms per row 0.78s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -104,12 +104,12 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a)"))) shouldBe true
-  }
+  } }
 
   // as it doesn't group it's a separate code path, which impact top level ctx vars as well due to predicate pushdown
   // you'll see all the time in this group, 0.44111285ms avg per row, 8.7s total
   // org.apache.spark.sql.catalyst.expressions.GeneratedClass$RunnerCompilationGroup0 - RunnerCompilationGroup0 avg 	48562300	14665000	 ns per every 	100	 rows
-  test("test grouping for overlapping ranges works with bad groups"){
+  test("test grouping for overlapping ranges works with bad groups"){ not3_0_or_3_1 {
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -117,5 +117,5 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       "statsEvery" -> "100",
       // default fails to group properly as it's too intolerant
     )))
-  }
+  } }
 }
