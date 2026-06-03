@@ -323,13 +323,7 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, oa: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
-
-    // split compilation requires the outerscope, this can be very buried and it is not always working with BooleanGrouperTest^s
-    // nested case statement failing when sourced from a file
-
-    val a = oa
-      //(oa ++ ctx.currentVars.map(_.value) ++ ctx.currentVars.map(_.isNull)).distinct
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)
