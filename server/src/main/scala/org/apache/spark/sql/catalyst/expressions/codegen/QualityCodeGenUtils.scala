@@ -35,7 +35,7 @@ object QualityCodeGenUtils {
     // ensure new compilation doesn't use the same names
     val thisFresh = freshNameIds.invoke(thisCtx).asInstanceOf[mutable.HashMap[String, Int]]
     val outerFresh = freshNameIds.invoke(ctx).asInstanceOf[mutable.HashMap[String, Int]]
-    thisFresh.addAll(outerFresh)
+    thisFresh.++=(outerFresh)
 
     thisCtx
   }
