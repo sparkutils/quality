@@ -4,7 +4,8 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
 import com.sparkutils.quality.impl.TopLevelBooleanGrouper
-import com.sparkutils.qualityTests.classicOnly.BigRulesGen.{genRules1to1, testFile}
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions
+import com.sparkutils.qualityTests.classicOnly.BigRulesGen.{genRules1to1, genRulesMap, testFile}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.ConnectionType
 import org.apache.commons.io.IOUtils
@@ -27,8 +28,8 @@ object BigRulesGen {
   val f_bucket_size = 40
   val fModExpr = s"if(f = '*', 0, hash(f) % $f_bucket_size)"
 
-  def testFile(s: SparkSession, outputDir: String): String = {
-    val tmp = outputDir + "/20k_rule_suite.csv"
+  def testFile(s: SparkSession, outputDir: String, extra: String = ""): String = {
+    val tmp = outputDir + s"/20k_rule_suite$extra.csv"
     // use spark to "copy" the file so Fabric/Databricks can work with correct auth.
     val res = testfileResource
     var source: scala.io.Source = null
@@ -71,6 +72,40 @@ object BigRulesGen {
       else
         Seq.empty
     ) :_*)
+    ruleDS
+  }
+
+
+  def genRulesMap(s: SparkSession, outputDir: String, withId: Boolean = false) = {
+    import s.implicits._
+    val d = s.read.option("header",true).csv(testFile(s,outputDir))
+    val cols = (d.columns.toSet -- Set("k","l","id")).toSeq.sorted
+    def exprOf(name: String): String = s"if($name = '*', 'remove', '$name')"
+    val ruleGen = cols.map(exprOf).mkString(" || ' , ' || ")
+
+    def filterOf(name: String): String = s"if($name = '*', '$name = ''*''', '$name != ''*''')"
+    val filterGen = cols.map(filterOf).mkString(" || ' and ' || ")
+
+    val ruleDS = d.select(
+      Seq(
+        concat(lit("struct("),
+          replace(
+            replace(expr(ruleGen), lit("remove , "), lit("")),
+            lit(", remove"), lit("")
+          ), lit(")")).as("trigger"),
+        expr("'struct(k, l)'").
+          as("output"),
+        (lit(1000) -
+          aggregate(array(cols.toSeq.map(name => expr(s"if($name = '*', 0, 1)")) :_*), lit(0), (a, b) => a + b)
+          ).as("salience"),
+        expr(filterGen).as("filter")
+      ) ++ (
+        if (withId)
+          Seq(expr("id"))
+        else
+          Seq.empty
+        ) : _*
+    ).distinct()
     ruleDS
   }
 
