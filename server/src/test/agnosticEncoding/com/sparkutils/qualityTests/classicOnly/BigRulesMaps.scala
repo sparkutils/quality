@@ -26,7 +26,7 @@ class BigRulesMaps extends ClassicSharedTests with BigRulesBase {
           filter = None, Some(s"select * from mapsource where $filter"), key, value),
           s"map_contains('m$index', $key, themaps)",
           s"map_lookup('m$index', $key, themaps)",
-          salience
+          salience + index
         )
     }
     val mapConfig =
