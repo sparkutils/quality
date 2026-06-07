@@ -45,6 +45,7 @@ trait InitPartitionWholeStage {
 trait ClazzGenerator[T] {
   def apply(t: T): Int => String
   def outerResultProcessing(t: T): (CodegenContext, ExprValue) => String
+  def id(t: T): Int
 }
 
 case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue], index: Int)
@@ -59,12 +60,16 @@ object ClazzGenerator {
     override def apply(t: (ParameterInformation, String)): Int => String = classGen(t._2, _)
 
     override def outerResultProcessing(t: (ParameterInformation, String)): (CodegenContext, ExprValue) => String = (_,_) => ""
+
+    override def id(t: (ParameterInformation, String)): Int = 0
   }
   implicit val viaTerms: ClazzGenerator[CompilerTerms] = new ClazzGenerator[CompilerTerms] {
 
     override def apply(t: CompilerTerms): Int => String = classGen(t.runnerClassName, _ )
 
     override def outerResultProcessing(t: CompilerTerms): (CodegenContext, ExprValue) => String = (_,_) => ""
+
+    override def id(t: CompilerTerms): Int = 0
   }
   implicit val viaName: ClazzGenerator[SeparateClassGenerator] = new ClazzGenerator[SeparateClassGenerator] {
 
@@ -87,6 +92,8 @@ object ClazzGenerator {
             }
            """
     }
+
+    override def id(t: SeparateClassGenerator): Int = t.index
   }
 }
 
@@ -115,8 +122,8 @@ object IdGen {
 
 }
 
-case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[CodeAndComment],
-                             ignoreTopLevelSubExpressions: Boolean)
+case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[(Int, CodeAndComment)],
+                             ignoreTopLevelSubExpressions: Boolean, id: Int = 0)
 
 object SeparateCompilation {
 
@@ -134,7 +141,7 @@ object SeparateCompilation {
       outerCtx: CodegenContext, ev: ExprCode, id: I,
       createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
-    ): (Seq[CodeAndComment], ExprCode) = {
+    ): (Seq[(Int, CodeAndComment)], ExprCode) = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
     outerCtx.references += theThis
@@ -183,7 +190,7 @@ object SeparateCompilation {
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
                                   generateStatsEvery: Int = 0,
                                   createGenerateFunction: Boolean = true):
-    (Seq[CodeAndComment], ExprCode) = {
+    (Seq[(Int, CodeAndComment)], ExprCode) = {
     val fullParams = parameterInformation
 
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
@@ -252,6 +259,10 @@ object SeparateCompilation {
       else
         splitGlobalSubExprs(ctx, subExpressions)
 
+    // extra params global (outer ctx subexprs and state), must be after code gen and requires QualityCodeGenUtils.clone
+    // to reflect/copy freshNames
+    fullParams.addAritySafeParamDecl(ctx)
+
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       $generate
@@ -262,8 +273,6 @@ object SeparateCompilation {
         $initDecl
         // ctx mutable states
         ${ctx.declareMutableStates()}
-        // extra params global (outer ctx subexprs and state)
-        ${fullParams.aritySafeParamDecl}
         // stats state
         $statsState
 
@@ -350,15 +359,16 @@ object SeparateCompilation {
         """
     )
 
-    (Seq(code) ++ genResult.extraClasses , res)
+    (Seq(( implicitly[ClazzGenerator[T]].id(genResult.resultType), code)) ++
+      genResult.extraClasses , res)
   }
 
   /**
-   * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 20 to keep
+   * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 250 to keep
    * the main apply functions JITable, then does a split call on them
    */
   def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String): String = {
-    val preGrouped = subExpressions.split("\n").filter(_.nonEmpty)
+    val preGrouped = subExpressions.split(";").filter(_.nonEmpty).map(su => s"$su;")
     QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, 250, "subExprGroup", Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
   }
 

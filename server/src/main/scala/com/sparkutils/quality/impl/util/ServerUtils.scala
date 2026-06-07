@@ -2,6 +2,11 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
+import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Factory}
+import net.jpountz.xxhash.XXHashFactory
+import org.apache.spark.SparkConf
+import org.apache.spark.internal.config.IO_COMPRESSION_LZ4_BLOCKSIZE
+import org.apache.spark.io.CompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -9,6 +14,7 @@ import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, 
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
 
+import java.io.{InputStream, OutputStream}
 import scala.reflect.ClassTag
 
 sealed trait LookupType {
@@ -207,10 +213,10 @@ object SubQueryWrapper {
  * @param params pairs of variable name to java type used for declaration and the class type for boxing
  */
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
-                                params: Seq[(String, String, Class[_])], pushToTop: String = "",
+                                params: Seq[(String, String, Class[_], Boolean)], pushToTop: String = "",
                                 outerCallParams: String = "",
                                 // split expressions pairs
-                                nonCombinedParams: Seq[(String, String, Class[_])] = Seq.empty
+                                nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty
                                ) {
 
   val useArity = if (arity > 22) 1 else arity
@@ -238,29 +244,30 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   def aritySafeParamDef: String =
     if (arity <= 22)
-      params.map { p =>
+      params.map{ p=>
         s"Object ${p._2}_ppp" // only object will compile, janino no generics
-      }.mkString(",")
+      }.distinct.mkString(",")
     else
       "Object input_ppp"
 
-  def aritySafeParamDecl: String =
+  def addAritySafeParamDecl(ctx: CodegenContext): Unit =
     params.map { p =>
       val (arrayExtraDecl, arrayExtraDim) =
-        if (p._3.isArray)
-          ("[]","") // s" = new ${p._3.componentType().getName}[1][]
+        if (p._4)
+          (p._2, "[]") // s" = new ${p._3.componentType().getName}[1][]
         else
-          ("","")
+          (p._2, "")
 
-      s"private ${p._1}$arrayExtraDecl ${p._2}$arrayExtraDim;"
-    }.mkString("\n")
+      /*s"private ${p._1}$arrayExtraDim ${p._2};" */// TODO dim handling?
+      ctx.addMutableState(CodeGenerator.typeName(p._3)+arrayExtraDim, p._2, forceInline = true, useFreshName = false)
+    }
 
   def aritySafeParamConversion: String =
     if (arity <= 22)
       params.map { p =>
 
         val cast =
-          if (p._3.isPrimitive)
+          if (p._3.isPrimitive && !p._4)
             CodeGenerator.boxedType(p._3.getSimpleName)
           else
             p._1
@@ -276,7 +283,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       params.zipWithIndex.map {
         case (p, index) =>
           val cast =
-            if (p._3.isPrimitive)
+            if (p._3.isPrimitive && !p._4)
               CodeGenerator.boxedType(p._3.getSimpleName)
             else
               p._1
@@ -317,6 +324,7 @@ object Params {
   }
 
   def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)
       case _ => None
@@ -347,8 +355,8 @@ object Params {
           else
             (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
 
-        (s"$typ$array", stripped, v.javaType)
-      }
+        (s"$typ$array", stripped, v.javaType, array.nonEmpty) // if it's not empty we want to pass through
+      }.distinct
 
     val pairs = prepFields(ordered)
 
@@ -364,14 +372,14 @@ object Params {
           v.variableName
         else
           stripBrackets(v)._1
-      ).mkString(", ")
+      ).distinct.mkString(", ")
 
     ParameterInformation(pairs.map {
-      case (typ, stripped, _) =>
+      case (typ, stripped, _, _) =>
 
         s"$typ $stripped"
-      }.mkString(", ")
-      , paramsCall, size, combined, outerCallParams = paramsCall, nonCombinedParams = pairs)
+      }.distinct.mkString(", ")
+      , paramsCall, combined.size, combined, outerCallParams = paramsCall, nonCombinedParams = pairs)
   }
 }
 
@@ -423,3 +431,12 @@ object TypeUtils {
       case _ => left == right
     }
 } */
+
+class Counter() {
+  var counter = 0
+
+  def next(): Int = {
+    counter += 1
+    counter
+  }
+}

@@ -7,9 +7,16 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{GENERATE
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 import org.apache.spark.sql.internal.SQLConf
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object QualityCodeGenUtils {
+
+  lazy val freshNameIds = {
+    val method = classOf[CodegenContext].getDeclaredMethods.filter(_.getName == "freshNameIds").head
+    method.setAccessible(true)
+    method
+  }
 
   /**
    * In order to generate wholestagecodegen inputs from previous currentvars may be needed.  As such the state needs
@@ -25,6 +32,10 @@ object QualityCodeGenUtils {
     thisCtx.INPUT_ROW = ctx.INPUT_ROW
     thisCtx.currentVars = if (ctx.currentVars ne null) { ctx.currentVars.map(_.copy()) } else null
     thisCtx.references.++=(ctx.references)
+    // ensure new compilation doesn't use the same names
+    val thisFresh = freshNameIds.invoke(thisCtx).asInstanceOf[mutable.HashMap[String, Int]]
+    val outerFresh = freshNameIds.invoke(ctx).asInstanceOf[mutable.HashMap[String, Int]]
+    thisFresh.++=(outerFresh)
 
     thisCtx
   }

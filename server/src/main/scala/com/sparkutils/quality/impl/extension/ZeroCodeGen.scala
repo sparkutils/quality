@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.Runner
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -35,11 +34,4 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
         copy(child = Literal(null, newChild.dataType), realChild = newChild, wrapped = true)
       }
 
-}
-
-case class Zero(child: Expression) extends UnaryExpression with Unevaluable {
-
-  override def dataType: DataType = child.dataType
-
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 }

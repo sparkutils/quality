@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
 import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
+import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -192,7 +192,7 @@ trait HasOutput extends Runner {
    */
   def groupedSqlCall(ruleSuiteCall: String): String
 
-  private lazy val shouldAudit = extraConfig.boolean(groupProcessorAuditKey, false)
+  private lazy val shouldAudit = extraConfig.boolean(groupProcessorDumpAuditKey, false)
 
   val audited: Boolean
 
@@ -211,25 +211,30 @@ trait HasOutput extends Runner {
  */
 trait SplitCompilation extends Runner {
 
-  var generatorClassSource : Seq[CodeAndComment] = _
+  var generatorClassSource : Map[Int, CodeAndComment] = _
 
   @transient
-  var generatorClazz_ : Seq[GeneratedClass] = _
+  lazy val generatorClazz_ : Map[Int, GeneratedClass] = {
+    val start = System.nanoTime()
 
+    val generatorClazz = generatorClassSource.map{b => b._1 -> CodeGenerator.compile(b._2)._1}
+
+    val end = System.nanoTime()
+    val compileTime = Duration.fromNanos(end - start)
+    if (extraConfig.boolean(showSplitCompilationTime, false)){
+      println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
+    }
+    generatorClazz
+  }
+
+  // used by compilation
   def generatorClazz(i: Int): GeneratedClass = {
     // allow it to be replaced
-    if (generatorClazz_ == null) {
-      val start = System.nanoTime()
-
-      generatorClazz_ = generatorClassSource.map(CodeGenerator.compile(_)._1)
-
-      val end = System.nanoTime()
-      val compileTime = Duration.fromNanos(end - start)
-      if (extraConfig.boolean(showSplitCompilationTime, false)){
-        println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
-      }
-    }
     generatorClazz_(i)
+  }
+
+  def setClazzSource(seq: Seq[(Int, CodeAndComment)]): Unit = {
+    generatorClassSource = seq.toMap
   }
 
 }

@@ -4,7 +4,8 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
 import com.sparkutils.quality.impl.TopLevelBooleanGrouper
-import com.sparkutils.qualityTests.classicOnly.BigRulesGen.{genRules1to1, testFile}
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions
+import com.sparkutils.qualityTests.classicOnly.BigRulesGen.{genRules1to1, genRulesMap, testFile}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.ConnectionType
 import org.apache.commons.io.IOUtils
@@ -27,8 +28,8 @@ object BigRulesGen {
   val f_bucket_size = 40
   val fModExpr = s"if(f = '*', 0, hash(f) % $f_bucket_size)"
 
-  def testFile(s: SparkSession, outputDir: String): String = {
-    val tmp = outputDir + "/20k_rule_suite.csv"
+  def testFile(s: SparkSession, outputDir: String, extra: String = ""): String = {
+    val tmp = outputDir + s"/20k_rule_suite$extra.csv"
     // use spark to "copy" the file so Fabric/Databricks can work with correct auth.
     val res = testfileResource
     var source: scala.io.Source = null
@@ -71,6 +72,40 @@ object BigRulesGen {
       else
         Seq.empty
     ) :_*)
+    ruleDS
+  }
+
+
+  def genRulesMap(s: SparkSession, outputDir: String, withId: Boolean = false) = {
+    import s.implicits._
+    val d = s.read.option("header",true).csv(testFile(s,outputDir))
+    val cols = (d.columns.toSet -- Set("k","l","id")).toSeq.sorted
+    def exprOf(name: String): String = s"if($name = '*', 'remove', '$name')"
+    val ruleGen = cols.map(exprOf).mkString(" || ' , ' || ")
+
+    def filterOf(name: String): String = s"""if($name = '*', "$name = '*'", "$name != '*'")"""
+    val filterGen = cols.map(filterOf).mkString(" || ' and ' || ")
+
+    val ruleDS = d.select(
+      Seq(
+        concat(lit("struct("),
+          replace(
+            replace(expr(ruleGen), lit("remove , "), lit("")),
+            lit(", remove"), lit("")
+          ), lit(")")).as("trigger"),
+        expr("'struct(k, l)'").
+          as("output"),
+        (lit(1000) -
+          aggregate(array(cols.toSeq.map(name => expr(s"if($name = '*', 0, 1)")) :_*), lit(0), (a, b) => a + b)
+          ).as("salience"),
+        expr(filterGen).as("filter")
+      ) ++ (
+        if (withId)
+          Seq(expr("id"))
+        else
+          Seq.empty
+        ) : _*
+    ).distinct()
     ruleDS
   }
 
@@ -166,7 +201,8 @@ var start = System.nanoTime()
         groupProcessorKey -> topLevelBooleanGrouper,
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
-        "statsEvery" -> "1000"
+        "statsEvery" -> "1000",
+        groupProcessorPercentFilter -> "0.0012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -184,7 +220,8 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
-        useEmptyRuleSetResults -> "true"
+        useEmptyRuleSetResults -> "true",
+        groupProcessorPercentFilter -> "0.012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -238,7 +275,7 @@ var start = System.nanoTime()
       "dump audit via TopLevelBooleanGrouper",
       extraConfig = Map(
         groupProcessorKey -> classOf[TopLevelBooleanGrouper].getName,
-        groupProcessorAuditKey -> "true",
+        groupProcessorDumpAuditKey -> "true",
         groupProcessorAuditLocation -> outputDir
       ))
 
@@ -248,7 +285,13 @@ var start = System.nanoTime()
     group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
 
     // verify some of it is correct
-    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a, b, c, f)"))) shouldBe true
+    group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists{ r =>
+      val s = r.toString // the exact match isn't possible when running all the tests, so the parts are searched for which should work on all runtimes
+      s.contains("j = 'a199998'") && s.contains("f = 'a183365'") && s.contains("g = 'a199998'") &&
+        s.contains("a = 'a199997'") && s.contains("d = 'a199999'") && s.contains("i = 'a199999'")
+    }) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("(f = 'a192967')")))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("((abs(hash(a, b, f)) % 3) = 1)")))) shouldBe true
   }
 
 }

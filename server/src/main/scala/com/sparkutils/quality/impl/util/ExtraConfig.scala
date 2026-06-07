@@ -20,6 +20,9 @@ object ExtraConfig {
 
     def int(keyName: String, default: Int): Int =
       getX(keyName, config, default)(_.toInt)
+
+    def double(keyName: String, default: Double): Double =
+      getX(keyName, config, default)(_.toDouble)
   }
 
 }
