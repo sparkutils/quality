@@ -83,7 +83,7 @@ object BigRulesGen {
     def exprOf(name: String): String = s"if($name = '*', 'remove', '$name')"
     val ruleGen = cols.map(exprOf).mkString(" || ' , ' || ")
 
-    def filterOf(name: String): String = s"if($name = '*', '$name = ''*''', '$name != ''*''')"
+    def filterOf(name: String): String = s"""if($name = '*', "$name = '*'", "$name != '*'")"""
     val filterGen = cols.map(filterOf).mkString(" || ' and ' || ")
 
     val ruleDS = d.select(
