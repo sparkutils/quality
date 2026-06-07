@@ -53,6 +53,5 @@ class BigRulesMaps extends ClassicSharedTests with BigRulesBase {
       remaining.show()
     }
     remaining.count() shouldBe 0
-
   }
 }
