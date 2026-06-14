@@ -96,6 +96,17 @@ object TopLevelBoolean {
     def group: Grouper[T]
 
     def completeMerge: T
+
+    def groups(bucketed: Map[Int, ArrayBuffer[(Int, Trigger)]], numberOfBuckets: Int)(addSeen: ArrayBuffer[Trigger] => Seq[Trigger]): Groups =
+      Groups(
+        bucketed.foldLeft(Seq.empty[Group]){
+          case (cur, (bucket, trips)) =>
+            val bucketedExp = bucketer(bucket, numberOfBuckets)
+
+            val corrected = addSeen(trips.map(_._2))
+            cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
+        }
+      )
   }
 
   object EqualToDiff {
@@ -352,15 +363,9 @@ object TopLevelBoolean {
                         differentiator.bucket(t.expression, numberOfBuckets) -> t
                     }.groupBy(_._1)
 
-                  Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
-                    bucketed.foldLeft(Seq.empty[Group]){
-                      case (cur, (bucket, trips)) =>
-                        val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
-
-                        val corrected = addSeen(trips.map(_._2), groupParts)
-                        cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
-                    }
-                  )))
+                  Seq(Group(sub, triggers.minBy(_.salience).salience,
+                    differentiator.groups(bucketed, numberOfBuckets)(addSeen(_, groupParts))
+                  ))
               }
             cur ++ newSeqs
           } else if (triggers.size > 4) { // TODO random number
