@@ -2,9 +2,11 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator
 import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
-import org.apache.spark.sql.types.BooleanType
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder, StartsWith}
+import org.apache.spark.sql.types.{BooleanType, StringType}
+import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
@@ -74,11 +76,26 @@ object TopLevelBoolean {
     (res.toSeq.sortBy(_._1.collectLeaves().size).reverse, subs)
   }
 
-  sealed trait Differentiator {
+  case class Grouper[T <: Differentiator[T]](diff: T) {
+    type theType = T
+    def merged(l: theType, r: theType): Differentiator[T] = l.merged(r)
+    def completeMerge(t: Differentiator[_]): Differentiator[T] = t.completeMerge.asInstanceOf[T]
+  }
+
+  sealed trait Differentiator[T <: Differentiator[T]] {
     def bucketer(bucket: Int, bucketSize: Int): Expression
 
     // operates over the entire trigger rule to get a bucket
     def bucket(trigger: Expression, bucketSize: Int): Int
+
+    /**
+     * if diff is compatible to be merged with this differentiator then a new merged differentiator is returned
+     */
+    def merged(diff: T): T
+
+    def group: Grouper[T]
+
+    def completeMerge: T
   }
 
   object EqualToDiff {
@@ -93,7 +110,7 @@ object TopLevelBoolean {
     }
   }
 
-  case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
+  case class EqualToDiff(operands: Set[Expression]) extends Differentiator[EqualToDiff] {
 
     def bucketer(bucket: Int, bucketSize: Int) =
       EqualTo(new Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))
@@ -111,11 +128,59 @@ object TopLevelBoolean {
 
       Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
+
+    /**
+     * if diff is compatible to be merged with this differentiator then a new merged differentiator is returned
+     */
+    override def merged(diff: EqualToDiff): EqualToDiff = this
+
+    override def group: Grouper[EqualToDiff] = Grouper(this)
+
+    override def completeMerge: EqualToDiff = this
+  }
+
+  /**
+   * Buckets based on string prefixes instead of hashes
+   * @param operand
+   * @param prefixes
+   */
+  case class StringPrefixes(operand: Expression, prefixes: Seq[String]) extends Differentiator[StringPrefixes] {
+
+    override def bucketer(bucket: Int, bucketSize: Int): Expression =
+      StartsWith(operand, Literal(prefixes(bucket)))
+
+    override def bucket(trigger: Expression, bucketSize: Int): Int = {
+      val str = (trigger match {
+        case EqualTo(Literal(left, StringType), op) if op == operand => left
+        case EqualTo(op, Literal(right, StringType)) if op == operand => right
+      }).toString
+      prefixes.zipWithIndex.maxBy{ p =>
+        if (str.startsWith(p._1))
+          str.size
+        else
+          0
+      }
+    }._2
+
+    /**
+     * if diff is compatible to be merged with this differentiator then a new merged differentiator is returned.
+     * These are the values themselves not prefixes, completeMerge does prefixing
+     */
+    override def merged(diff: StringPrefixes): StringPrefixes =
+      StringPrefixes(operand, (prefixes ++ diff.prefixes).distinct)
+
+    override def group: Grouper[StringPrefixes] = Grouper(StringPrefixes(operand, Seq.empty))
+
+    override def completeMerge: StringPrefixes = {
+      val pt = new PrefixTrie[String]
+      prefixes.foreach(p => pt.addOne((p, p)))
+      this
+    }
   }
   // code can't reach this yet
   // $COVERAGE-OFF$
 
-  case class NoIdeaDiff(exprs: Seq[Expression]) extends Differentiator {
+  case class NoIdeaDiff(exprs: Seq[Expression]) extends Differentiator[NoIdeaDiff] {
     def bucketer(bucket: Int, bucketSize: Int) =
       exprs match {
         case s if s.size == 1 => s.head
@@ -123,17 +188,36 @@ object TopLevelBoolean {
       }
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = 0
+
+    /**
+     * if diff is compatible to be merged with this differentiator then a new merged differentiator is returned
+     */
+    override def merged(diff: NoIdeaDiff): NoIdeaDiff = this
+
+    override def group: Grouper[NoIdeaDiff] = Grouper(this)
+
+    override def completeMerge: NoIdeaDiff = this
   }
   // $COVERAGE-ON$
 
-  def differentiate(expressions: Set[Expression]): Differentiator = expressions match {
+  def differentiate(expressions: Set[Expression]): Differentiator[_] = expressions match {
     case s if s.forall {
       case e@ EqualTo(left: Literal, operand) => true
       case e@ EqualTo(operand, right: Literal) => true
       case e => false
     } && s.nonEmpty =>
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
-      EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
+      lazy val (strtyp, str) = {
+        (s.head match {
+          case e@ EqualTo(Literal(left: UTF8String, StringType), operand) => (true, left.toString)
+          case e@ EqualTo(operand, Literal(right: UTF8String, StringType)) => (true, right.toString)
+          case _ => (false, "")
+        })
+      }
+      //if (s.size == 1 && strtyp)
+      //  StringPrefixes(operands.head, Seq(str))
+     // else
+        EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
       System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
       NoIdeaDiff(expressions.toSeq)
@@ -226,7 +310,7 @@ object TopLevelBoolean {
           if (triggers.size > targetBucket) {
             // should be the maximal list already as all elements are subexprs, what is left are differentiators
 
-            val differentiatingBooleans = new mutable.HashMap[Differentiator, ArrayBuffer[Trigger]]()
+            val differentiatingBooleans = new mutable.HashMap[Differentiator[_], ArrayBuffer[Trigger]]()
 
             triggers.foreach {
               trigger =>
@@ -235,11 +319,23 @@ object TopLevelBoolean {
                 addToMap(differentiatingBooleans, theseParts, trigger)
             }
 
+            val mergedDifferentiatingBooleans = differentiatingBooleans.groupBy(_._1.group).map{
+              case (g, m) =>
+                val p =
+                  m.reduce{
+                    (l, r) =>
+                      g.merged(l._1.asInstanceOf[g.theType], r._1.asInstanceOf[g.theType]) ->
+                        l._2.addAll(r._2).asInstanceOf[ArrayBuffer[Trigger]]
+                  }
+
+                (g.completeMerge(p._1), p._2)
+            }
+
             //println(s"differentiating booleans from $sub for ${triggers.size} triggers of:")
             //differentiatingBooleans.keys.foreach(println)
 
             val newSeqs =
-              differentiatingBooleans.flatMap {
+              mergedDifferentiatingBooleans.flatMap {
                 case (differentiator, triggers) =>
 
                   val numberOfBuckets =

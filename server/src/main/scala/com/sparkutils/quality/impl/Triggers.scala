@@ -13,10 +13,132 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow
 
 import scala.runtime.{AbstractFunction10, AbstractFunction9}
 
-sealed trait GroupOr {
+// replace with TrEither general groups is current impl we need to allow customs Groups with different logic OR
+// the implementation is provided and the trait is not sealed.  This would allow switch based approaches for
+// switchable Differentiators (e.g. hashmods or direct string / int comparisons)
+trait GroupOr {
+
   def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T
   def size: Int
   def groupFilters: Seq[Expression] = Seq.empty
+
+  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
+                               exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+                               group: Group, simpleGrouper: DefaultTriggerGrouper,
+                               map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
+                               groupDepth: Int, params: ParameterInformation, idHolder: Counter): (String, Seq[(Int, CodeAndComment)]) = {
+    group.payload.fold { groups =>
+      val (funName, clazzes) =
+        produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
+          groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups, idHolder)
+      (s"$funName(${params.paramsCall});", clazzes.flatten)
+    } { triggers =>
+      val (body, clazzes) =
+        produceGroupTriggers(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
+          groupSalienceCheck, group, simpleGrouper, map, triggers, idHolder)
+      (body.code, clazzes)
+    }
+  }
+
+  def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
+                              exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+                              groupDepth: Int, simpleGrouper: DefaultTriggerGrouper,
+                              map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
+                              params: ParameterInformation, exprFunc: Seq[Group], idHolder: Counter
+                             ): (String, Seq[Seq[(Int, CodeAndComment)]]) = {
+    val exprFuncName = ctx.freshName(prefix + "GEFuncGroup" + groupDepth)
+
+    val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
+    val groupCalls =
+      exprFunc.map {
+        group =>
+
+          producePayload(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
+            groupSalienceCheck, group, simpleGrouper, map, groupDepth, params, idHolder)
+      }
+
+    val body =
+      QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"${exprEnd()}\n"),
+        runner.variablesPerFunc, exprFuncName, argPairs,
+        foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
+      )
+
+    (ctx.addNewFunction(exprFuncName,
+      code"""
+       private void $exprFuncName(${params.paramsDef}) {
+         $body
+       }
+      """.code
+    ), groupCalls.map(_._2))
+  }
+
+  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
+                                     exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+                                     group: Group, simpleGrouper: DefaultTriggerGrouper,
+                                     map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
+                                     triggers: Seq[Trigger], idHolder: Counter): (Block, Seq[(Int, CodeAndComment)]) = {
+    val groupIndex = idHolder.next()
+    val id = s"Group$groupIndex"
+
+    val allGroupExprs = triggers.flatMap {
+      trigger =>
+        Seq(trigger.expression) ++ trigger.outputExpression.map(Seq(_)).getOrElse(Seq.empty)
+    }
+
+    // remove the params usage, everything is in the object variables, this is top level only
+    val preCalcParams = (ctx: CodegenContext) =>
+      genParamsForNested(ctx, allGroupExprs :+ group.groupFilter, additionalParams).copy(paramsDef = "", paramsCall = "")
+
+    val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
+      VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))
+    val (body, expr) =
+      SeparateCompilation.withSubExpressions(runner, allGroupExprs, ctx, resCode,
+        SubCompilation(id, s"Trigger group $groupIndex"),
+        // we need to pipe the row in
+        extraParams = additionalParams,
+        useParams = preCalcParams
+      ) { (ctx, index, params) =>
+        // group the group, params holds any subexprs used/generated for this sub compilation
+
+        val grpResult = ctx.freshName("groupResult")
+
+        val sgr = simpleGrouper(ctx, runner, grpResult, additionalParams,
+          triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, exprFunEnd, groupSalienceCheck)
+
+        val funNames = sgr.groupCalls
+        val exprRunner =
+          ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
+            VariableValue(grpResult, classOf[GenericInternalRow])
+          )
+
+        // the top level is 0 arrays are filtered out from the row as they don't need explicit returning
+        GenerateResult(SeparateClassGenerator(runner.getClass.getName, additionalParams, groupIndex + 1), exprRunner.copy(
+          code =
+            code"""
+                              boolean ${exprRunner.isNull} = false;
+                              ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
+                              GenericInternalRow ${exprRunner.value} = new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(
+                                new Object[]{
+                                ${additionalParams.filterNot(_.javaType.isArray).map(_.variableName).mkString(",\n")}
+                                }
+                              );
+                              """
+        ), sgr.extraClasses, sgr.ignoreTopLevelSubExpressions, groupIndex + 1)
+      }
+
+    val eval = group.groupFilter.genCode(ctx)
+
+    // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
+    (
+      code"""
+        ${exprEnd()}\n
+        ${eval.code}
+        if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
+          ${expr.code}
+        }
+      """, body)
+  }
+
 }
 
 case class Triggers(triggers: Seq[Trigger]) extends GroupOr {
@@ -159,8 +281,8 @@ trait GroupBasedGrouper extends TriggerGrouper {
             for {
               exprFunc <- exprGroup
             } yield {
-              produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-                groupSalienceCheck, 0, simpleGrouper, map, params, exprFunc)
+              Groups(exprFunc).produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
+                groupSalienceCheck, 0, simpleGrouper, map, params, exprFunc, idHolder)
             }
 
           (ctx.addNewFunction(groupName,
@@ -201,122 +323,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }
   }
 
-  protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                              exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
-                              groupDepth: Int, simpleGrouper: DefaultTriggerGrouper,
-                              map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                              params: ParameterInformation, exprFunc: Seq[Group]
-                             ): (String, Seq[Seq[(Int, CodeAndComment)]]) = {
-    val exprFuncName = ctx.freshName(prefix + "GEFuncGroup" + groupDepth)
 
-    val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
-    val groupCalls =
-      exprFunc.map {
-        group =>
 
-          producePayload(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-            groupSalienceCheck, group, simpleGrouper, map, groupDepth, params)
-      }
 
-    val body =
-      QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"${exprEnd()}\n"),
-        runner.variablesPerFunc, exprFuncName, argPairs,
-        foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
-      )
-
-    (ctx.addNewFunction(exprFuncName,
-      code"""
-       private void $exprFuncName(${params.paramsDef}) {
-         $body
-       }
-      """.code
-    ), groupCalls.map(_._2))
-  }
-
-  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                              exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
-                              group: Group, simpleGrouper: DefaultTriggerGrouper,
-                              map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                              groupDepth: Int, params: ParameterInformation): (String, Seq[(Int, CodeAndComment)]) = {
-    group.payload.fold { groups =>
-      val (funName, clazzes) =
-        produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-          groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups)
-      (s"$funName(${params.paramsCall});", clazzes.flatten)
-    } { triggers =>
-      val (body, clazzes) =
-        produceGroupTriggers(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-          groupSalienceCheck, group, simpleGrouper, map, triggers)
-      (body.code, clazzes)
-    }
-  }
-
-  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                                     exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
-                                     group: Group, simpleGrouper: DefaultTriggerGrouper,
-                                     map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                                     triggers: Seq[Trigger]): (Block, Seq[(Int, CodeAndComment)]) = {
-    val groupIndex = idHolder.next()
-    val id = s"Group$groupIndex"
-
-    val allGroupExprs = triggers.flatMap {
-      trigger =>
-        Seq(trigger.expression) ++ trigger.outputExpression.map(Seq(_)).getOrElse(Seq.empty)
-    }
-
-    // remove the params usage, everything is in the object variables, this is top level only
-    val preCalcParams = (ctx: CodegenContext) =>
-      genParamsForNested(ctx, allGroupExprs :+ group.groupFilter, additionalParams).copy(paramsDef = "", paramsCall = "")
-
-    val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
-      VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))
-    val (body, expr) =
-      SeparateCompilation.withSubExpressions(runner, allGroupExprs, ctx, resCode,
-        SubCompilation(id, s"Trigger group $groupIndex"),
-        // we need to pipe the row in
-        extraParams = additionalParams,
-        useParams = preCalcParams
-      ) { (ctx, index, params) =>
-        // group the group, params holds any subexprs used/generated for this sub compilation
-
-        val grpResult = ctx.freshName("groupResult")
-
-        val sgr = simpleGrouper(ctx, runner, grpResult, additionalParams,
-          triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, exprFunEnd, groupSalienceCheck)
-
-        val funNames = sgr.groupCalls
-        val exprRunner =
-          ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
-            VariableValue(grpResult, classOf[GenericInternalRow])
-          )
-
-        // the top level is 0 arrays are filtered out from the row as they don't need explicit returning
-        GenerateResult(SeparateClassGenerator(runner.getClass.getName, additionalParams, groupIndex + 1), exprRunner.copy(
-          code =
-            code"""
-                              boolean ${exprRunner.isNull} = false;
-                              ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
-                              GenericInternalRow ${exprRunner.value} = new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(
-                                new Object[]{
-                                ${additionalParams.filterNot(_.javaType.isArray).map(_.variableName).mkString(",\n")}
-                                }
-                              );
-                              """
-        ), sgr.extraClasses, sgr.ignoreTopLevelSubExpressions, groupIndex + 1)
-      }
-
-    val eval = group.groupFilter.genCode(ctx)
-
-    // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
-    (
-      code"""
-        ${exprEnd()}\n
-        ${eval.code}
-        if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
-          ${expr.code}
-        }
-      """, body)
-  }
 }
 
 /**
