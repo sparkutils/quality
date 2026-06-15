@@ -202,8 +202,9 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
-        groupProcessorPercentFilter -> "0.0012"//,
+        groupProcessorPercentFilter -> "0.0012",
         //groupProcessorBucketSizeKey -> "130 200"
+          //groupProcessorBucketSizeKey -> "10"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)

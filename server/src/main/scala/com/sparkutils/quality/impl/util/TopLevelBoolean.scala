@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator
-import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
+import com.sparkutils.quality.impl.{Group, GroupLike, GroupOr, Groups, Runner, SwitchGroup, SwitchGroups, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder, StartsWith}
 import org.apache.spark.sql.types.{BooleanType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -97,16 +97,21 @@ object TopLevelBoolean {
 
     def completeMerge: T
 
-    def groups(bucketed: Map[Int, ArrayBuffer[(Int, Trigger)]], numberOfBuckets: Int)(addSeen: ArrayBuffer[Trigger] => Seq[Trigger]): Groups =
-      Groups(
-        bucketed.foldLeft(Seq.empty[Group]){
+    def groupOr(groups: Seq[GroupLike], bucketSize: Int): GroupOr = Groups(groups)
+
+    def groups(bucketed: Map[Int, ArrayBuffer[(Int, Trigger)]], numberOfBuckets: Int)(addSeen: ArrayBuffer[Trigger] => Seq[Trigger]): GroupOr =
+      groupOr(
+        bucketed.foldLeft(Seq.empty[GroupLike]){
           case (cur, (bucket, trips)) =>
             val bucketedExp = bucketer(bucket, numberOfBuckets)
 
             val corrected = addSeen(trips.map(_._2))
-            cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
+            cur :+ groupLike(bucketedExp, bucket, corrected.minBy(_.salience).salience, Triggers(corrected))
         }
-      )
+      , numberOfBuckets)
+
+    def groupLike(bucketedExp: Expression, bucket: Int, lowestSalience: Int, triggers: Triggers): GroupLike =
+      Group(bucketedExp, lowestSalience, triggers)
   }
 
   object EqualToDiff {
@@ -123,8 +128,10 @@ object TopLevelBoolean {
 
   case class EqualToDiff(operands: Set[Expression]) extends Differentiator[EqualToDiff] {
 
+    def bucketExpr(bucketSize: Int) = new Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize))
+
     def bucketer(bucket: Int, bucketSize: Int) =
-      EqualTo(new Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))
+      EqualTo(bucketExpr(bucketSize), Literal(bucket))
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = {
       val pairs =
@@ -148,6 +155,14 @@ object TopLevelBoolean {
     override def group: Grouper[EqualToDiff] = Grouper(this)
 
     override def completeMerge: EqualToDiff = this
+/* */
+    override def groupOr(groups: Seq[GroupLike], bucketSize: Int): GroupOr = {
+      val sorted = groups.map(_.asInstanceOf[SwitchGroup[Int]]).sortBy(_.bucketRaw)
+      SwitchGroups(sorted, bucketExpr(bucketSize), "int")
+    }
+
+    override def groupLike(bucketedExp: Expression, bucket: Int, lowestSalience: Int, triggers: Triggers): GroupLike =
+      SwitchGroup(bucket.toString, lowestSalience, triggers, bucket)
   }
 
   /**
@@ -155,12 +170,12 @@ object TopLevelBoolean {
    * @param operand
    * @param prefixes
    */
-  case class StringPrefixes(operand: Expression, prefixes: Seq[String]) extends Differentiator[StringPrefixes] {
+  case class StringLookups(operand: Expression, prefixes: Seq[String]) extends Differentiator[StringLookups] {
 
     override def bucketer(bucket: Int, bucketSize: Int): Expression =
       StartsWith(operand, Literal(prefixes(bucket)))
 
-    override def bucket(trigger: Expression, bucketSize: Int): Int = {
+    override def bucket(trigger: Expression, bucketSize: Int): Int = 0/*{
       val str = (trigger match {
         case EqualTo(Literal(left, StringType), op) if op == operand => left
         case EqualTo(op, Literal(right, StringType)) if op == operand => right
@@ -171,22 +186,42 @@ object TopLevelBoolean {
         else
           0
       }
-    }._2
+    }._2*/
 
     /**
      * if diff is compatible to be merged with this differentiator then a new merged differentiator is returned.
      * These are the values themselves not prefixes, completeMerge does prefixing
      */
-    override def merged(diff: StringPrefixes): StringPrefixes =
-      StringPrefixes(operand, (prefixes ++ diff.prefixes).distinct)
+    override def merged(diff: StringLookups): StringLookups =
+      StringLookups(operand, (prefixes ++ diff.prefixes).distinct)
 
-    override def group: Grouper[StringPrefixes] = Grouper(StringPrefixes(operand, Seq.empty))
+    override def group: Grouper[StringLookups] = Grouper(StringLookups(operand, Seq.empty))
 
-    override def completeMerge: StringPrefixes = {
+    override def completeMerge: StringLookups = {
       val pt = new PrefixTrie[String]
       prefixes.foreach(p => pt.addOne((p, p)))
       this
     }
+
+    override def groupOr(groups: Seq[GroupLike], bucketSize: Int): GroupOr = {
+      // 1 with all the triggers
+      require(groups.size == 1)
+      val values = groups.head.payload.asInstanceOf[Triggers].triggers.map{
+        trigger =>
+          val str = (trigger.expression match {
+            case EqualTo(Literal(left, StringType), op) if op == operand => left
+            case EqualTo(op, Literal(right, StringType)) if op == operand => right
+          }).toString
+          SwitchGroup(s""" "$str" """, trigger.salience, Triggers(Seq(trigger)), str)
+      }
+
+      val sorted = values.sortBy(_.bucketRaw)
+      SwitchGroups(sorted, operand, "String", v => s"$v.toString()")
+    }
+
+    override def groupLike(bucketedExp: Expression, bucket: Int, lowestSalience: Int, triggers: Triggers): GroupLike =
+      SwitchGroup("", lowestSalience, triggers, "")
+
   }
   // code can't reach this yet
   // $COVERAGE-OFF$
@@ -225,9 +260,9 @@ object TopLevelBoolean {
           case _ => (false, "")
         })
       }
-      //if (s.size == 1 && strtyp)
-      //  StringPrefixes(operands.head, Seq(str))
-     // else
+      if (s.size == 1 && strtyp)
+        StringLookups(operands.head, Seq(str))
+      else
         EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
       System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")

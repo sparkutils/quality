@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.{Group, HasOutput, Trigger}
+import com.sparkutils.quality.impl.{Group, GroupLike, HasOutput, Trigger}
 
 object TopLevelBooleanSuiteBuilder {
 
@@ -20,7 +20,7 @@ object TopLevelBooleanSuiteBuilder {
       map(t => Trigger(t._1._1, t._1._2, t._2))
   }
 
-  def makeGroups(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: Group): (Seq[RuleSuite], RuleSuite) = {
+  def makeGroups(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: GroupLike): (Seq[RuleSuite], RuleSuite) = {
     val index = counter.next()
     val (groups, processedRules) =
       group.payload.fold[(Seq[RuleSuite], Seq[Rule])]{groups =>
@@ -40,12 +40,12 @@ object TopLevelBooleanSuiteBuilder {
     (groups :+ rs, rs)
   }
 
-  def makeGroup(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: Group): (Seq[RuleSuite], Seq[Rule]) = {
+  def makeGroup(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: GroupLike): (Seq[RuleSuite], Seq[Rule]) = {
     import runner._
 
     val (suites, ruleSuite) = makeGroups(counter, runner, rules, group)
     val index = counter.next()
-    val filter = Rule(Id(index, 0), ExpressionRule(group.groupFilter.sql), RunOnPassProcessor(index, Id(index, 0),
+    val filter = Rule(Id(index, 0), ExpressionRule(group.groupExpression.sql), RunOnPassProcessor(index, Id(index, 0),
       OutputExpression(groupedSqlCall(s"rule_suite_from(the_group, ${ruleSuite.id.id}, 0)"))))
 
     (suites, Seq(filter))

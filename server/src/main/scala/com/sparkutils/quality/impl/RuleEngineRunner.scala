@@ -294,7 +294,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String, params: ParameterInformation) = {
+    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String, params: ParameterInformation,
+                itsAlreadyPassed: Boolean) = {
       import params._
 
       val (evalPre, eval) =
@@ -383,8 +384,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val funName = outExprFunTerms(eoffset)
       val starter = triggerRules(realI) // the original trigger is useless
       val stepWithIf =
-        (ctx: CodegenContext, params: ParameterInformation, trigger: Expression) =>
-          codeGen(ctx, trigger, realI, funName(ctx, params), params)
+        (ctx: CodegenContext, params: ParameterInformation, trigger: Expression, alreadyPassed: Boolean) =>
+          codeGen(ctx, trigger, realI, funName(ctx, params), params, alreadyPassed)
 
       (Trigger(starter, realI, salience(realI), Some( realChildren(eoffset + offset) )), stepWithIf)
     }
