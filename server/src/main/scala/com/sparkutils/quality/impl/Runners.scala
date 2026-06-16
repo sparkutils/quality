@@ -211,13 +211,13 @@ trait HasOutput extends Runner {
  */
 trait SplitCompilation extends Runner {
 
-  var generatorClassSource : Seq[CodeAndComment] = _
+  var generatorClassSource : Map[Int, CodeAndComment] = _
 
   @transient
-  lazy val generatorClazz_ : Seq[GeneratedClass] = {
+  lazy val generatorClazz_ : Map[Int, GeneratedClass] = {
     val start = System.nanoTime()
 
-    val generatorClazz = generatorClassSource.map{b => CodeGenerator.compile(b)._1}
+    val generatorClazz = generatorClassSource.map{b => b._1 -> CodeGenerator.compile(b._2)._1}
 
     val end = System.nanoTime()
     val compileTime = Duration.fromNanos(end - start)
@@ -233,8 +233,8 @@ trait SplitCompilation extends Runner {
     generatorClazz_(i)
   }
 
-  def setClazzSource(seq: Seq[CodeAndComment]): Unit = {
-    generatorClassSource = seq
+  def setClazzSource(seq: Seq[(Int, CodeAndComment)]): Unit = {
+    generatorClassSource = seq.toMap
   }
 
 }

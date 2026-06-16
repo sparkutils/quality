@@ -57,9 +57,7 @@ class IntegerArray(val ints: Array[Int]) extends GenericArrayData(null: Array[An
   override def numElements(): Int = ints.length
 
   override def copy(): IntegerArray = {
-    val nar = Array.ofDim[Int](ints.length)
-    System.arraycopy(ints, 0, nar, 0, ints.length)
-    new IntegerArray(nar)
+    new IntegerArray(ints.clone())
   }
 
   override def isNullAt(ordinal: Int): Boolean = false
@@ -81,9 +79,7 @@ class LongArray(val longs: Array[Long]) extends GenericArrayData(null: Array[Any
   override def numElements(): Int = longs.length
 
   override def copy(): LongArray = {
-    val nar = Array.ofDim[Long](longs.length)
-    System.arraycopy(longs, 0, nar, 0, longs.length)
-    new LongArray(nar)
+    new LongArray(longs.clone())
   }
 
   override def isNullAt(ordinal: Int): Boolean = false
