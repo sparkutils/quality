@@ -213,7 +213,11 @@ case class Groups(groups: Seq[GroupLike]) extends GroupsBase(groups) {
  * @param groups
  */
 case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, typ: String,
-                        conversion: String => String = identity) extends GroupsBase(groups) {
+                        conversion: String => String = identity, lessThan: (String, String) => String,
+                        greaterThanOrEqual: (String, String) => String, zero: String,
+                        lessThanSpark: (String, String) => String,
+                        greaterThanSpark: (String, String) => String,
+                        sparkType: String, initSpark: (String, String) => String) extends GroupsBase(groups) {
 
   override def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
                     exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
@@ -224,23 +228,24 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
 
     require(exprFunc.forall(_.isInstanceOf[SwitchGroup[_]]), "All SwitchGroups groups must be of type SwitchGroup")
 
-    val inline = Try{exprFunc.forall(_.asInstanceOf[SwitchGroup[_]].payload.asInstanceOf[Triggers].triggers.size == 1)}.
+    val groups = exprFunc.map(_.asInstanceOf[SwitchGroup[_]])
+
+    val inline = Try{groups.forall(_.payload.asInstanceOf[Triggers].triggers.size == 1)}.
       getOrElse(false)
 
-    if (!inline) {
+    if (!inline || groups.size == 1) {
 
       val groupCalls: Seq[(String, (String, Seq[(Int, CodeAndComment)]))] =
-        exprFunc.map {
-          group =>
-            val sg = group.asInstanceOf[SwitchGroup[_]]
+        groups.map {
+          sg =>
             sg.bucket ->
               sg.payload.producePayload(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-                groupSalienceCheck, group, simpleGrouper, map, groupDepth, params, idHolder)
+                groupSalienceCheck, sg, simpleGrouper, map, groupDepth, params, idHolder)
         }
 
       generateSwitch(ctx, prefix, groupDepth, params, groupCalls)
     } else {
-      val triggers = exprFunc.map(_.asInstanceOf[SwitchGroup[_]].payload.asInstanceOf[Triggers])
+      val triggers = groups.map(_.payload.asInstanceOf[Triggers])
       val allGroupExprs = triggers.flatMap {
         triggers => triggers.triggers.flatMap {
           trigger =>
@@ -262,7 +267,7 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
                 val sg = group.asInstanceOf[SwitchGroup[_]]
 
                 val trigger = sg.payload.asInstanceOf[Triggers].triggers.map(t => (t, map(t.index))).head
-                val code = trigger._2(ctx, params, trigger._1.expression, true) // alreadyPassed, so don't generate test
+                val code = trigger._2(ctx, params, trigger._1.expression, false) // alreadyPassed, so don't generate test only makes sense when an outer layer tests
 
                 sg.bucket -> (code.code, Seq.empty)
 
@@ -298,7 +303,7 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
       val fun = ctx.addNewFunction(exprFuncName,
         code"""
          private void $exprFuncName(${params.paramsDef}) {
-             ${b.code}
+           ${b.code}
          }
         """.code
       )
@@ -310,6 +315,8 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
                              groupCalls: Seq[(String, (String, Seq[(Int, CodeAndComment)]))]) = {
     val exprFuncName = ctx.freshName(prefix + "GEFuncSwitchGroups" + groupDepth)
 
+    val (min, max) = (groupCalls.head._1, groupCalls.last._1)
+
     val cases = groupCalls.map {
       case (bucket, (codeToRun, _)) =>
         val exprFuncName = ctx.freshName(prefix + "callGEFuncSwitchGroup" + groupDepth)
@@ -320,7 +327,7 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
            }
           """.code
         )
-        code"""
+        bucket -> code"""
           case $bucket:
             $callFun(${params.paramsCall});
             break;
@@ -329,12 +336,12 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
 
     val expr = groupingExpression.genCode(ctx)
 
-    def buildSwitch(switchVal: String, cases: Seq[Block], default: String): String = {
+    def buildSwitch(switchVal: String, cases: Seq[(String,Block)], default: String): String = {
       val folded = cases.foldLeft(code"") {
         case (cur, n) =>
           code"""
           $cur
-          $n
+          ${n._2}
         """
       }
       s"""
@@ -352,26 +359,79 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
          """
     }
 
-    def buildSwitches(switchVal: String, chunked: Seq[Seq[Block]]): String = {
+    def buildSwitches(switchVal: String, chunked: Seq[Seq[(String,Block)]]): String = {
       if (chunked.size == 1) {
         buildSwitch(switchVal, chunked.head, "")
       } else {
         // we have more chunks
         val head = chunked.head
-        val switch = buildSwitches(switchVal, chunked.tail)
+        val (restLeft, restRight) = chunked.tail.splitAt((chunked.size / 2) - 1)
 
-        val exprFuncName = ctx.freshName(prefix + s"GEFuncSwitchGroupsNested_" + groupDepth)
-        val callFun = ctx.addNewFunction(exprFuncName,
-          code"""
-           private void $exprFuncName($typ $switchVal, ${params.paramsDef}) {
-             $switch
-           }
-          """.code
-        )
+        def headVal(chunked: Seq[Seq[(String,Block)]]): String =
+          (for {
+            first <- chunked.headOption
+            second <- first.headOption
+          } yield second._1).getOrElse(zero)
 
-        buildSwitch(switchVal, head, s"$callFun($switchVal, ${params.paramsCall});")
+        val (restLeftStartBucket, restRightStartBucket) = (headVal(restLeft), headVal(restRight))
+
+        def switches(chunked: Seq[Seq[(String,Block)]]): Option[String] =
+          if (chunked.isEmpty)
+            None
+          else
+            Some(buildSwitches(switchVal, chunked))
+
+        val (switchLeft, switchRight) = (switches(restLeft), switches(restRight))
+
+        def switch(switch: String, lOrR: String) = {
+          val exprFuncName = ctx.freshName(prefix + s"GEFuncSwitchGroupsNested${lOrR}_" + groupDepth)
+          val callFun = ctx.addNewFunction(exprFuncName,
+              code"""
+             private void $exprFuncName($typ $switchVal, ${params.paramsDef}) {
+               $switch
+             }
+            """.code
+            )
+          callFun
+        }
+
+        val (leftFun, rightFun) = (switchLeft.map(switch(_, "L")), switchRight.map(switch(_, "R")))
+
+        val (geLeft, lessThanRight) =
+          (greaterThanOrEqual(switchVal, restLeftStartBucket), lessThan(switchVal, restRightStartBucket))
+
+        val defalt =
+          (leftFun, rightFun) match {
+            case (Some(leftFun), Some(rightFun)) =>
+              s"""
+                if (($geLeft) && ($lessThanRight)) {
+                  $leftFun($switchVal, ${params.paramsCall});
+                } else {
+                  $rightFun($switchVal, ${params.paramsCall});
+                }
+              """
+            case (Some(leftFun), None) =>
+              s"""
+                if ($geLeft) {
+                  $leftFun($switchVal, ${params.paramsCall});
+                }
+              """
+            case (None, Some(rightFun)) =>
+              s"""
+                if (${greaterThanOrEqual(switchVal, restRightStartBucket)}) {
+                  $rightFun($switchVal, ${params.paramsCall});
+                }
+              """
+          }
+
+        val r = buildSwitch(switchVal, head, defalt)
+
+        r
       }
     }
+
+    val minSpark = ctx.addMutableState(sparkType, "minSpark", initFunc = initSpark(_,min))
+    val maxSpark = ctx.addMutableState(sparkType, "maxSpark", initFunc = initSpark(_,max))
 
     val converted = conversion(expr.value)
     val (converting, switchName) =
@@ -386,12 +446,14 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
       code"""
        private void $exprFuncName(${params.paramsDef}) {
          ${expr.code}
-         $converting
-         if (${expr.isNull}) {} else {
+         if (${expr.isNull} || (${lessThanSpark(expr.value, minSpark)}) || (${greaterThanSpark(expr.value, maxSpark)})) {
+         } else {
+           $converting
+
            ${
-        buildSwitches(switchName, /// TODO uses Spark mechanism to group, this is for PoC
-          cases.grouped(200).toSeq)
-      }
+              buildSwitches(switchName, /// TODO uses Spark mechanism to group, this is for PoC
+                cases.grouped(50).toSeq)
+            }
          }
        }
       """.code
