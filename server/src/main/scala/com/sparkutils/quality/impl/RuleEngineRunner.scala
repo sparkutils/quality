@@ -301,14 +301,21 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val (evalPre, eval) =
         if (forceTriggerEval)
           ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
-        else {
+        else if (itsAlreadyPassed) {
+          ("", PassedInt.toString)
+        } else {
           val eval = exp.genCode(ctx)
 
           // auto boxing on databricks doesn't work due to old janino see #82
           val edt = eval.value.javaType
           val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value})")
+          (eval.code,
+            if (eval.value.javaType.isPrimitive && eval.value.javaType == java.lang.Boolean.TYPE)
+              s"(${eval.isNull} ? false : ${eval.value}) ? $PassedInt : $FailedInt"
+            else
+              s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value})"
+          )
         }
 //(($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).applyResult($resultRow, $currRuleResTerm);
       val converted =

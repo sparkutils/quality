@@ -159,6 +159,7 @@ object TopLevelBoolean {
     override def groupOr(groups: Seq[GroupLike], bucketSize: Int): GroupOr = {
       val sorted = groups.map(_.asInstanceOf[SwitchGroup[Int]]).sortBy(_.bucketRaw)
       SwitchGroups(sorted, bucketExpr(bucketSize), "int", lessThan = (s, r) => s"$s < $r",
+        lessThanOrEqual = (s, l) => s"$s <= $l",
         greaterThanOrEqual = (s, l) => s"$s >= $l", zero = "0",
         lessThanSpark = (s, l) => s"$s < $l", greaterThanSpark = (s, r) => s"$s > $r",
         sparkType = "int", initSpark = (v,t) => s"$v = $t;")
@@ -220,6 +221,7 @@ object TopLevelBoolean {
 
       val sorted = values.sortBy(_.bucketRaw)
       SwitchGroups(sorted, operand, "String", v => s"$v.toString()", lessThan = (s, r) => s"$s.compareTo($r) < 0",
+        lessThanOrEqual = (s, l) => s"$s.compareTo($l) <= 0",
         greaterThanOrEqual = (s, l) => s"$s.compareTo($l) >= 0", zero = "\"\"",
         lessThanSpark = (s, l) => s"$s.binaryCompare($l) < 0",
         greaterThanSpark = (s, r) => s"$s.binaryCompare($r) > 0",

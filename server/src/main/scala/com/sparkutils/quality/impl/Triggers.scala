@@ -214,6 +214,7 @@ case class Groups(groups: Seq[GroupLike]) extends GroupsBase(groups) {
  */
 case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, typ: String,
                         conversion: String => String = identity, lessThan: (String, String) => String,
+                        lessThanOrEqual: (String, String) => String,
                         greaterThanOrEqual: (String, String) => String, zero: String,
                         lessThanSpark: (String, String) => String,
                         greaterThanSpark: (String, String) => String,
@@ -267,7 +268,7 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
                 val sg = group.asInstanceOf[SwitchGroup[_]]
 
                 val trigger = sg.payload.asInstanceOf[Triggers].triggers.map(t => (t, map(t.index))).head
-                val code = trigger._2(ctx, params, trigger._1.expression, false) // alreadyPassed, so don't generate test only makes sense when an outer layer tests
+                val code = trigger._2(ctx, params, trigger._1.expression, true) // alreadyPassed, so don't generate test only makes sense when an outer layer tests
 
                 sg.bucket -> (code.code, Seq.empty)
 
@@ -344,19 +345,42 @@ case class SwitchGroups(groups: Seq[GroupLike], groupingExpression: Expression, 
           ${n._2}
         """
       }
-      s"""
+
+      val switchIf: String => String =
+        (cases.headOption.map( v => greaterThanOrEqual(switchVal, v._1)),
+          cases.lastOption.map( v => lessThanOrEqual(switchVal, v._1))) match {
+          case (Some(min), Some(max)) =>
+            s => s"""
+                if (($min) && ($max)) {
+                  $s
+                } else {
+                  $default
+                }
+              """
+          case (Some(min), None) =>
+            s => s"""
+                if ($min) {
+                  $s
+                } else {
+                  $default
+                }
+              """
+          case (None, Some(max)) =>
+            s => s"""
+                if ($max) {
+                  $s
+                } else {
+                  $default
+                }
+              """
+        }
+
+
+      switchIf(s"""
         switch($switchVal) {
           $folded
-          ${
-        if (default.isEmpty) ""
-        else
-          s"""
-          default:
-            $default
-            """
-      }
         }
-         """
+         """)
     }
 
     def buildSwitches(switchVal: String, chunked: Seq[Seq[(String,Block)]]): String = {
