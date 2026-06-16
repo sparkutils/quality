@@ -19,10 +19,10 @@ object SwitchGroups {
     val labelsAndTrigger = triggers.map( trigger => trigger.expression match {
       case EqualTo(Literal(left, StringType), op) =>
         operands.add(op)
-        (s"\"${left.toString}\"", trigger)
+        (s""""${left.toString}"""", trigger)
       case EqualTo(op, Literal(right, StringType)) =>
         operands.add(op)
-        (s"\"${right.toString}\"", trigger)
+        (s""""${right.toString}"""", trigger)
       case _ =>
         (uuid, trigger)
     } )
