@@ -154,7 +154,8 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
                     // remove the params usage, everything is in the object variables, this is top level only
                     val preCalcParams = (ctx: CodegenContext) =>
-                      genParamsForNested(ctx, allGroupExprs :+ group.groupFilter, additionalParams).copy(paramsDef = "", paramsCall = "")
+                      genParamsForNested(ctx, allGroupExprs :+ group.groupFilter, additionalParams).
+                        copy(paramsDef = "", paramsCall = "")//, returnTyp = "Object[]")
 
                     val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
                       VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))
@@ -178,8 +179,13 @@ trait GroupBasedGrouper extends TriggerGrouper {
                         val funNames = gr.groupCalls
                         val exprRunner =
                           ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
-                            VariableValue(grpResult, classOf[GenericInternalRow])
+                            VariableValue(grpResult, classOf[Array[Object]])
                           )
+
+                        val noArrayParams = additionalParams.filterNot(_.javaType.isArray);
+
+                        val returnArray = ctx.addMutableState("Object[]","returnArray",
+                          initFunc = v => s"$v = new Object[${noArrayParams.size}];")
 
                         // the top level is 0 arrays are filtered out from the row as they don't need explicit returning
                         GenerateResult(SeparateClassGenerator(runner.getClass.getName, additionalParams, groupIndex + 1), exprRunner.copy(
@@ -187,11 +193,10 @@ trait GroupBasedGrouper extends TriggerGrouper {
                             code"""
                               boolean ${exprRunner.isNull} = false;
                               ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
-                              GenericInternalRow ${exprRunner.value} = new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(
-                                new Object[]{
-                                ${additionalParams.filterNot(_.javaType.isArray).map(_.variableName).mkString(",\n")}
-                                }
-                              );
+                              Object[] ${exprRunner.value} = $returnArray;
+                              ${noArrayParams.zipWithIndex.map{
+                                case (p, index) => s"${returnArray}[$index] = ${p.variableName};"
+                              }.mkString(";\n")}
                               """
                         ), gr.extraClasses, gr.ignoreTopLevelSubExpressions)
                       }

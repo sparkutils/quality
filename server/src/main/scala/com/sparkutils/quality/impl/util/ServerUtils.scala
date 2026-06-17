@@ -216,7 +216,8 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
                                 params: Seq[(String, String, Class[_], Boolean)], pushToTop: String = "",
                                 outerCallParams: String = "",
                                 // split expressions pairs
-                                nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty
+                                nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty,
+                                returnTyp: String = "Object"//"InternalRow"
                                ) {
 
   val useArity = if (arity > 22) 1 else arity
@@ -229,7 +230,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
    * @return
    */
   def aritySafeApplyType(prefix: String): String =
-    s"$prefix$useArity<InternalRow${if (arity > 0) "," else ""}" +
+    s"$prefix$useArity<$returnTyp${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
           params.map { p => "Object"
