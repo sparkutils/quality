@@ -113,7 +113,7 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > verification of bucketing correctness.
 > 
 > This initial experimental version brings the BigRules test case runtime from 2m on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to under
-> 27s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.09ms per row (down from >5ms) on a 20k rule RuleSuite
+> 27s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.04ms per row (down from >5ms) on a 20k rule RuleSuite
 > (across max 9 comparisons per rule, 380m expressions in total).
 > If the results from a non-grouped runner differ with grouping please raise an issue.
 > 
