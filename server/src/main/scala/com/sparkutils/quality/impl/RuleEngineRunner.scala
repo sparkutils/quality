@@ -447,13 +447,46 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
     // for debug currentOutputIndex is the count of matches
 
+    val rowCount = ctx.addMutableState("long","rowCount", v => s"$v = 0;")
+    val accTime = ctx.addMutableState("long","accTime", v => s"$v = 0;")
+    val bodyAccTime = ctx.addMutableState("long","bodyAccTime", v => s"$v = 0;")
+    val start = ctx.freshName("start")
+    val beforeCodeBody = ctx.freshName("statBeforeCodeBody")
+    val end = ctx.freshName("end")
+
+    val generateStatsEvery = 1000
+    val id = "Engine"
+    val (statsRowStart, statBeforeCodeBody, statDump) =
+      (s"""
+          $rowCount = $rowCount + 1;
+          long $start = System.nanoTime();
+          """,
+      s"""
+          long $beforeCodeBody = System.nanoTime();
+          """,
+      s"""
+          long $end = System.nanoTime();
+          $accTime = $accTime + ($end - $start);
+          $bodyAccTime = $bodyAccTime + ($end - $beforeCodeBody);
+          if ($rowCount == $generateStatsEvery) {
+            System.out.println(this.getClass().getName() + " - RunnerCompilation$id avg \t"+ $accTime +"\t"+$bodyAccTime+"\t ns per every \t$generateStatsEvery\t rows");
+            System.out.flush();
+            $rowCount = 0;
+            $accTime = 0;
+            $bodyAccTime = 0;
+          }
+          """)
+
     val pre = s"""
           $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
 
+$statsRowStart
+$statBeforeCodeBody
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
+$statDump
       """
     val post = s"""
 
