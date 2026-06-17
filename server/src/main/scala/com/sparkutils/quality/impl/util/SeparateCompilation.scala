@@ -307,7 +307,7 @@ object SeparateCompilation {
           $statsRowStart
 
           // here to use extraApplyParamDef
-          ${fullParams.aritySafeParamConversion}
+          ${fullParams.aritySafeParamConversion(ctx)}
 
           // this context common sub exprs
           $splitSubs
@@ -358,7 +358,7 @@ object SeparateCompilation {
         ${parameterInformation.pushToTop}
         // Call to ${implicitly[IdGen[I]].forComment(idParam)}
         ${fullParams.aritySafeParamCallPrep(outerctx)}
-        ${classGen.typ} ${ev.value} = ${classGen.cast} (($funX)$runner).apply(${fullParams.aritySafeParamCall});
+        ${classGen.typ} ${ev.value} = ${classGen.cast} ($runner).apply(${fullParams.aritySafeParamCall});
         ${classGen.outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;
           """)

@@ -263,7 +263,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       ctx.addMutableState(CodeGenerator.typeName(p._3)+arrayExtraDim, p._2, forceInline = true, useFreshName = false)
     }
 
-  def aritySafeParamConversion: String =
+  def aritySafeParamConversion(ctx: CodegenContext): String =
     if (arity <= 22)
       params.map { p =>
 
@@ -280,7 +280,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
         s"${p._2} = ($cast$arrayExtraDim) ${p._2}_ppp;"
       }.mkString("\n")
-    else
+    else {
+      val pp = ctx.freshName("ppp_ar")
+      s"""
+        Object[] $pp = (Object[])input_ppp;
+         """ +
       params.zipWithIndex.map {
         case (p, index) =>
           val cast =
@@ -294,8 +298,9 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
             else
               ("")
 
-          s"${p._2} = ($cast$arrayExtraDim) ((Object[])input_ppp)[$index];"
+          s"${p._2} = ($cast$arrayExtraDim) $pp[$index];"
       }.mkString("\n")
+    }
 
   protected[quality] var paramCallObject = ""
 
