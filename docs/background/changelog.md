@@ -113,7 +113,7 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > verification of bucketing correctness.
 > 
 > This initial experimental version brings the BigRules test case runtime from 2m on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to under
-> 27s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.04ms per row (down from >5ms) on a 20k rule RuleSuite
+> 27s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.04ms per row (down from 3.68 #137 or >5ms pre #137) on a 20k rule RuleSuite
 > (across max 9 comparisons per rule, 380m expressions in total).
 > If the results from a non-grouped runner differ with grouping please raise an issue.
 > 
@@ -123,6 +123,13 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > 
 > NB: Testing on a cluster (e.g. Databricks or Fabric) will require 64gb, the expression trees are too large to deserialize
 > on the executors with less RAM. 
+
+#137 Performance improvements for #129 for String based lookups and overall performance improvements in processing
+
+> When using TopLevelBooleanGrouper any remaining tests that are "field = 'value'" EqualTo relationships with the same field
+> are converted to String switches for optimised lookups.
+> All rule execution (including DQ) are optimised for the classic boolean triggers and for large test sets.  Using the 
+> linear BigRules test (20k rules) has an in Quality row processing time of 3.68 down from 5.03ms per row, a 37% improvement. 
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
