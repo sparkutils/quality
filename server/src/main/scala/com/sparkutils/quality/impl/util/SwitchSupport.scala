@@ -47,15 +47,6 @@ object SwitchGroups {
     greaterThanOrEqual = (s, l) => s"$s >= $l", zero = "0",
     lessThanSpark = (s, l) => s"$s < $l", greaterThanSpark = (s, r) => s"$s > $r",
     sparkType = "int", initSpark = (v,t) => s"$v = $t;")
-
-    SwitchGroups(sorted, operand, "String", v => s"$v.toString()", lessThan = (s, r) => s"$s.compareTo($r) < 0",
-        lessThanOrEqual = (s, l) => s"$s.compareTo($l) <= 0",
-        greaterThanOrEqual = (s, l) => s"$s.compareTo($l) >= 0", zero = "\"\"",
-        lessThanSpark = (s, l) => s"$s.binaryCompare($l) < 0",
-        greaterThanSpark = (s, r) => s"$s.binaryCompare($r) > 0",
-        sparkType = "org.apache.spark.unsafe.types.UTF8String",
-        initSpark = (v, t) => s"$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);")
-
  */
 }
 
