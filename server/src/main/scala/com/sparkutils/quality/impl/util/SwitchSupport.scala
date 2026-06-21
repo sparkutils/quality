@@ -11,10 +11,10 @@ import scala.collection.mutable
 
 object SwitchGroups {
 
+  private val uuid = UUID.randomUUID().toString
+
   def groups(triggers: Seq[Trigger]): Option[SwitchGroups] = {
     val operands = mutable.Set.empty[Expression]
-
-    val uuid = UUID.randomUUID().toString
 
     val labelsAndTrigger = triggers.map( trigger => trigger.expression match {
       case EqualTo(Literal(left, StringType), op) =>
