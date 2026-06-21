@@ -242,7 +242,17 @@ trait GroupBasedGrouper extends TriggerGrouper {
       val (funName, clazzes) =
         produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
           groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups)
-      (s"$funName(${params.paramsCall});", clazzes.flatten)
+
+      val eval = group.groupFilter.genCode(ctx)
+
+      // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
+      (code"""
+        ${exprEnd()}\n
+        ${eval.code}
+        if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
+          $funName(${params.paramsCall});
+        }
+      """.code, clazzes.flatten)
     } { triggers =>
       val (body, clazzes) =
         produceGroupTriggers(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
