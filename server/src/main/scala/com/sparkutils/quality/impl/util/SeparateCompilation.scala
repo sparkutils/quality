@@ -46,6 +46,9 @@ trait ClazzGenerator[T] {
   def apply(t: T): Int => String
   def outerResultProcessing(t: T): (CodegenContext, ExprValue) => String
   def id(t: T): Int
+  def typ: String = "InternalRow"
+  def cast: String = s"($typ)"
+  def box: String = s"(Object)"
 }
 
 case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue], index: Int)
@@ -63,6 +66,7 @@ object ClazzGenerator {
 
     override def id(t: (ParameterInformation, String)): Int = 0
   }
+  // top level runners
   implicit val viaTerms: ClazzGenerator[CompilerTerms] = new ClazzGenerator[CompilerTerms] {
 
     override def apply(t: CompilerTerms): Int => String = classGen(t.runnerClassName, _ )
@@ -70,7 +74,10 @@ object ClazzGenerator {
     override def outerResultProcessing(t: CompilerTerms): (CodegenContext, ExprValue) => String = (_,_) => ""
 
     override def id(t: CompilerTerms): Int = 0
+
+  //  override def box: String = ""
   }
+  // typically groupers
   implicit val viaName: ClazzGenerator[SeparateClassGenerator] = new ClazzGenerator[SeparateClassGenerator] {
 
     override def apply(t: SeparateClassGenerator): Int => String = i => classGen(t.className, i, t.index)
@@ -79,7 +86,7 @@ object ClazzGenerator {
       case (ctx, e) =>
         val tmpArr = ctx.freshName("tempArr")
         s"""
-           Object[] $tmpArr = ((org.apache.spark.sql.catalyst.expressions.GenericInternalRow)${e.code}).values();
+           Object[] $tmpArr = ${e.code};
            ${t.extraParams.filterNot(_.javaType.isArray).zipWithIndex.map{
               case (v,index) =>
                 val cast =
@@ -92,6 +99,10 @@ object ClazzGenerator {
             }
            """
     }
+
+    override def typ: String = "Object[]"
+
+    override def box: String = ""
 
     override def id(t: SeparateClassGenerator): Int = t.index
   }
@@ -259,9 +270,13 @@ object SeparateCompilation {
       else
         splitGlobalSubExprs(ctx, subExpressions)
 
+    val initCode = splitGlobalSubExprs(ctx, ctx.initPartition(), name = "initCode", groupSize = 150)
+
     // extra params global (outer ctx subexprs and state), must be after code gen and requires QualityCodeGenUtils.clone
     // to reflect/copy freshNames
     fullParams.addAritySafeParamDecl(ctx)
+
+    val classGen = implicitly[ClazzGenerator[T]]
 
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
@@ -284,15 +299,15 @@ object SeparateCompilation {
           ${ctx.initMutableStates()}
           $initConversion
 
-          ${ctx.initPartition()}
+          ${initCode}
         }
 
-        public java.lang.Object apply(${fullParams.aritySafeParamDef}) {
+        public ${fullParams.returnTyp} apply(${fullParams.aritySafeParamDef}) {
 
           $statsRowStart
 
           // here to use extraApplyParamDef
-          ${fullParams.aritySafeParamConversion}
+          ${fullParams.aritySafeParamConversion(ctx)}
 
           // this context common sub exprs
           $splitSubs
@@ -305,7 +320,7 @@ object SeparateCompilation {
           // stat dump
           $statDump
 
-          return ${genResult.resultExpr.isNull} ? ((Object)null) : ((Object)${genResult.resultExpr.value});
+          return ${genResult.resultExpr.isNull} ? (${classGen.box}null) : (${classGen.box}${genResult.resultExpr.value});
         }
 
         ${ctx.emitExtraCode()}
@@ -335,7 +350,7 @@ object SeparateCompilation {
 
     // this needs to be after bump so the states aren't reset
     val runner = outerctx.addMutableState(s"$funX  ", "runner", initFunc = // new reference stack
-      v => s"$v = ($funX) ${implicitly[ClazzGenerator[T]].apply(genResult.resultType)(ruleRunnerExpressionIdx)};")
+      v => s"$v = ($funX) ${classGen.apply(genResult.resultType)(ruleRunnerExpressionIdx)};")
 
     val res = ev.copy( code =
       code"""
@@ -343,8 +358,8 @@ object SeparateCompilation {
         ${parameterInformation.pushToTop}
         // Call to ${implicitly[IdGen[I]].forComment(idParam)}
         ${fullParams.aritySafeParamCallPrep(outerctx)}
-        InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply(${fullParams.aritySafeParamCall});
-        ${implicitly[ClazzGenerator[T]].outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
+        ${classGen.typ} ${ev.value} = ${classGen.cast} ($runner).apply(${fullParams.aritySafeParamCall});
+        ${classGen.outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;
           """)
 
@@ -359,7 +374,7 @@ object SeparateCompilation {
         """
     )
 
-    (Seq(( implicitly[ClazzGenerator[T]].id(genResult.resultType), code)) ++
+    (Seq(( classGen.id(genResult.resultType), code)) ++
       genResult.extraClasses , res)
   }
 
@@ -367,9 +382,9 @@ object SeparateCompilation {
    * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 250 to keep
    * the main apply functions JITable, then does a split call on them
    */
-  def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String): String = {
+  def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String, name: String = "subExprGroup", groupSize: Int = 250): String = {
     val preGrouped = subExpressions.split(";").filter(_.nonEmpty).map(su => s"$su;")
-    QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, 250, "subExprGroup", Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
+    QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, groupSize, name, Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
   }
 
 }
