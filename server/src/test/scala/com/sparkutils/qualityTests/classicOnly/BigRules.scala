@@ -280,9 +280,10 @@ var start = System.nanoTime()
       ))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size should be > 180
+    group.ruleSuites.size should be > 50
 
-    group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
+    // the 16k population is a single group converted to switch
+    group.ruleSuites.count(_._2.ruleSets.head.rules.size < 200) shouldBe (group.ruleSuites.size - 1)
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists{ r =>

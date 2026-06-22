@@ -4,7 +4,7 @@ import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercen
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
-import org.apache.spark.sql.types.BooleanType
+import org.apache.spark.sql.types.{BooleanType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
@@ -112,6 +112,15 @@ object TopLevelBoolean {
       Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
   }
+
+  // everything goes into the same bucket for switching on strings
+  case class SwitchStringDiff(operand: Expression) extends Differentiator {
+
+    def bucketer(bucket: Int, bucketSize: Int) = Literal(true)
+
+    override def bucket(trigger: Expression, bucketSize: Int): Int = 0
+  }
+
   // code can't reach this yet
   // $COVERAGE-OFF$
 
@@ -133,7 +142,11 @@ object TopLevelBoolean {
       case e => false
     } && s.nonEmpty =>
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
-      EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
+
+      if (operands.size == 1 && operands.head.dataType == StringType)
+        SwitchStringDiff(operands.head)
+      else
+        EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
       System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
       NoIdeaDiff(expressions.toSeq)
@@ -256,15 +269,20 @@ object TopLevelBoolean {
                         differentiator.bucket(t.expression, numberOfBuckets) -> t
                     }.groupBy(_._1)
 
-                  Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
-                    bucketed.foldLeft(Seq.empty[Group]){
-                      case (cur, (bucket, trips)) =>
-                        val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
+                  if (bucketed.size == 1 && differentiator.bucketer(0,numberOfBuckets) == Literal(true)) {
+                    // if it's "true" lift it back up
+                    val corrected = addSeen(bucketed.head._2.map(_._2), groupParts)
+                    Seq(Group(sub, corrected.minBy(_.salience).salience, Triggers(corrected)))
+                  } else
+                    Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
+                      bucketed.foldLeft(Seq.empty[Group]){
+                        case (cur, (bucket, trips)) =>
+                          val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
-                        val corrected = addSeen(trips.map(_._2), groupParts)
-                        cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
-                    }
-                  )))
+                          val corrected = addSeen(trips.map(_._2), groupParts)
+                          cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
+                      }
+                    )))
               }
             cur ++ newSeqs
           } else if (triggers.size > 4) { // TODO random number
