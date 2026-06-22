@@ -33,8 +33,8 @@ object SwitchGroups {
       Some(SwitchGroups(operands.head, "String", v => s"$v.toString()", lessThan = (s, r) => s"$s.compareTo($r) < 0",
         lessThanOrEqual = (s, l) => s"$s.compareTo($l) <= 0",
         greaterThanOrEqual = (s, l) => s"$s.compareTo($l) >= 0", zero = "\"\"",
-        lessThanSpark = (s, l) => s"$s.binaryCompare($l) < 0",
-        greaterThanSpark = (s, r) => s"$s.binaryCompare($r) > 0",
+        lessThanSpark = (s, l) => s"$s.${UTF8StringOps.compareTo}($l) < 0",
+        greaterThanSpark = (s, r) => s"$s.${UTF8StringOps.compareTo}($r) > 0",
         sparkType = "org.apache.spark.unsafe.types.UTF8String",
         initSpark = (v, t) => s"$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);",
         triggers = labelsAndTrigger.sortBy(_._1)
