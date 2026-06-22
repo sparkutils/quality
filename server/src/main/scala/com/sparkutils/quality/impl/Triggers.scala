@@ -293,7 +293,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
       VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))
 
-    val SeparateCompilation(body, expr, extraParams) =
+    val SeparateCompilation(body, expr, compilationParams) =
       SeparateCompilation.withSubExpressions(runner, allGroupExprs, ctx, resCode,
         SubCompilation(id, s"Trigger group $groupIndex"),
         // we need to pipe the row in
@@ -342,7 +342,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
         if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
           ${expr.code}
         }
-      """, body, extraParams)
+      """, body, compilationParams)
   }
 }
 
