@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.Runner
 import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.types.DataType
 
@@ -49,9 +49,18 @@ trait ClazzGenerator[T] {
   def typ: String = "InternalRow"
   def cast: String = s"($typ)"
   def box: String = s"(Object)"
+  def deeperParams(t: T): ParameterInformation = ParameterInformation.forMerging
 }
 
-case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue], index: Int)
+/**
+ *
+ * @param className
+ * @param usedParameters
+ * @param index
+ * @param biDirectionalParams These are essential input parameters and the only parameters returned.  Triggers uses this
+ *                            to process inputs, SeparateClassGenerator to create "outer" scope for response processing
+ */
+case class SeparateClassGenerator(className: String, usedParameters: ParameterInformation, index: Int, biDirectionalParams: Seq[ExprValue])
 
 object ClazzGenerator {
 
@@ -65,6 +74,8 @@ object ClazzGenerator {
     override def outerResultProcessing(t: (ParameterInformation, String)): (CodegenContext, ExprValue) => String = (_,_) => ""
 
     override def id(t: (ParameterInformation, String)): Int = 0
+
+    override def deeperParams(t: (ParameterInformation, String)): ParameterInformation = t._1
   }
   // top level runners
   implicit val viaTerms: ClazzGenerator[CompilerTerms] = new ClazzGenerator[CompilerTerms] {
@@ -75,6 +86,7 @@ object ClazzGenerator {
 
     override def id(t: CompilerTerms): Int = 0
 
+    override def deeperParams(t: CompilerTerms): ParameterInformation = t.parameterInformation
   //  override def box: String = ""
   }
   // typically groupers
@@ -87,7 +99,7 @@ object ClazzGenerator {
         val tmpArr = ctx.freshName("tempArr")
         s"""
            Object[] $tmpArr = ${e.code};
-           ${t.extraParams.filterNot(_.javaType.isArray).zipWithIndex.map{
+           ${t.biDirectionalParams.filterNot(_.javaType.isArray).zipWithIndex.map{
               case (v,index) =>
                 val cast =
                   if (v.javaType.isPrimitive)
@@ -105,6 +117,8 @@ object ClazzGenerator {
     override def box: String = ""
 
     override def id(t: SeparateClassGenerator): Int = t.index
+
+    override def deeperParams(t: SeparateClassGenerator): ParameterInformation = t.usedParameters
   }
 }
 
@@ -136,6 +150,14 @@ object IdGen {
 case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[(Int, CodeAndComment)],
                              ignoreTopLevelSubExpressions: Boolean, id: Int = 0)
 
+/**
+ * Represents a number of separate compilation units and the
+ * @param code
+ * @param callingCode
+ * @param additionalParameters may be modified from the withSubExpressions call to bubble up params, this is needed by the calling code
+ */
+case class SeparateCompilation(code: Seq[(Int, CodeAndComment)], callingCode: ExprCode, parameters: ParameterInformation)
+
 object SeparateCompilation {
 
   case class Holder(children: Seq[Expression]) extends Expression with Unevaluable {
@@ -150,9 +172,9 @@ object SeparateCompilation {
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
-      createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
+      createGenerateFunction: Boolean = true, extraParams: Seq[VariableValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
-    ): (Seq[(Int, CodeAndComment)], ExprCode) = {
+    ): SeparateCompilation = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
     outerCtx.references += theThis
@@ -164,25 +186,29 @@ object SeparateCompilation {
       else
         genParams(ctx, theThis, extraParams)
 
-    val (genResult, subExpressionCode) =
+    val (genResult, subExpressionCode, childParams) =
       if (ctx.currentVars eq null) {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
         val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, children)
         val childParams = genParams(ctx, Holder(children), Seq.empty)
-        (generate(ctx, ruleRunnerExpressionIdx, childParams), subExpressionCode)
+        (generate(ctx, ruleRunnerExpressionIdx, childParams), subExpressionCode, childParams)
       } else {
         val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
         val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
-        (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          val childParams = genParams(ctx, Holder(children), Seq.empty)
-          generate(ctx, ruleRunnerExpressionIdx, childParams)
-        }, subExpressionCode)
+        val (r, p) =
+          QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+            val childParams = genParams(ctx, Holder(children), Seq.empty)
+            (generate(ctx, ruleRunnerExpressionIdx, childParams), childParams)
+          }
+        (r, subExpressionCode, p)
       }
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
-    runnerCompilation(outerctx = outerCtx, params, genResult, ctx = ctx, ev = ev,
+    runnerCompilation(outerctx = outerCtx,
+      params.mergeParams(childParams).mergeParams(implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType)),
+      genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
         generateStatsEvery = theThis.extraConfig.int("statsEvery", 0),
       createGenerateFunction
@@ -201,7 +227,7 @@ object SeparateCompilation {
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
                                   generateStatsEvery: Int = 0,
                                   createGenerateFunction: Boolean = true):
-    (Seq[(Int, CodeAndComment)], ExprCode) = {
+    SeparateCompilation = {
     val fullParams = parameterInformation
 
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
@@ -374,8 +400,8 @@ object SeparateCompilation {
         """
     )
 
-    (Seq(( classGen.id(genResult.resultType), code)) ++
-      genResult.extraClasses , res)
+    SeparateCompilation(Seq(( classGen.id(genResult.resultType), code)) ++
+      genResult.extraClasses , res, fullParams)
   }
 
   /**

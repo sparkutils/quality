@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.Params.stripBrackets
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
 import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Factory}
 import net.jpountz.xxhash.XXHashFactory
@@ -204,8 +205,12 @@ object SubQueryWrapper {
     }.isDefined)
 }
 
+object ParameterInformation {
+  val forMerging: ParameterInformation = ParameterInformation("","",0,Seq.empty)
+}
+
 /**
- *
+ * Additional is pass through and is used to bubble up parameters to higher level callers
  * @param paramsDef drop in for function lists
  * @param paramsCall drop in for function calls
  * @param arity the arity of the parameters, abstract function only goes to 22, 255 are available
@@ -219,6 +224,30 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
                                 nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty,
                                 returnTyp: String = "Object"//"InternalRow"
                                ) {
+
+  /**
+   * Creates an "uber" seq of params and nonCombinedParams for inputadapters (e.g. row attributes) and bumps arity
+   * along with refreshing outerCallParams,
+   * all other variables are kept and should be
+   * treated as unusable.  It is expected to comb
+   * @param other
+   * @return
+   */
+  def mergeParams(other: ParameterInformation): ParameterInformation = {
+    val nparams = (params ++ other.params.filter(_._2.contains("inputadapter"))).distinct
+    copy(params = nparams,
+      nonCombinedParams = (nonCombinedParams ++ other.nonCombinedParams.filter(_._2.contains("inputadapter"))).distinct,
+        arity = nparams.size,
+      outerCallParams = nparams.map(_._2).mkString(", ")
+    )
+  }
+
+  /**
+   * Should only be called after mergeParams chains
+   * @return
+   */
+  def createAdditional(): Seq[VariableValue] =
+    params.map( p => VariableValue(p._2, p._3))
 
   val useArity = if (arity > 22) 1 else arity
 
@@ -304,13 +333,14 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   protected[quality] var paramCallObject = ""
 
-  def aritySafeParamCallPrep(ctx: CodegenContext): String = {
-    paramCallObject = ctx.addMutableState("Object[]", "paramCallAr", v => s"$v = new Object[${params.size}];")
-    params.zipWithIndex.map {
-      case (p, index) =>
-        s"$paramCallObject[$index] = ${p._2};"
-    }.mkString("\n")
-  }
+  def aritySafeParamCallPrep(ctx: CodegenContext): String =
+    if (arity <= 22) "" else {
+      paramCallObject = ctx.addMutableState("Object[]", "paramCallAr", v => s"$v = new Object[${params.size}];")
+      params.zipWithIndex.map {
+        case (p, index) =>
+          s"$paramCallObject[$index] = ${p._2};"
+      }.mkString("\n")
+    }
 
   def aritySafeParamCall: String =
     if (arity <= 22)
@@ -329,7 +359,7 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[VariableValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)
