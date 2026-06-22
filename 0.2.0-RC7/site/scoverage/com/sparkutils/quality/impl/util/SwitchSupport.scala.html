@@ -1,0 +1,4563 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/SwitchSupport.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.{DefaultTriggerGrouper, Runner, Trigger, TriggerResult, Triggers}
+</span>4 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+</span>5 <span style=''>import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, GenericInternalRow, Literal}
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, ExprCode, VariableValue}
+</span>7 <span style=''>import org.apache.spark.sql.types.StringType
+</span>8 <span style=''>
+</span>9 <span style=''>import java.util.UUID
+</span>10 <span style=''>import scala.collection.mutable
+</span>11 <span style=''>
+</span>12 <span style=''>object SwitchGroups {
+</span>13 <span style=''>
+</span>14 <span style=''>  private val uuid = </span><span style='background: #AEF1AE'>UUID.randomUUID().toString</span><span style=''>
+</span>15 <span style=''>
+</span>16 <span style=''>  def groups(triggers: Seq[Trigger]): Option[SwitchGroups] = {
+</span>17 <span style=''>    val operands = </span><span style='background: #AEF1AE'>mutable.Set.empty[Expression]</span><span style=''>
+</span>18 <span style=''>
+</span>19 <span style=''>    val labelsAndTrigger = </span><span style='background: #AEF1AE'>triggers.map( trigger =&gt; trigger.expression match {
+</span>20 <span style=''></span><span style='background: #AEF1AE'>      case EqualTo(Literal(left, StringType), op) </span><span style='background: #F0ADAD'>=&gt;
+</span>21 <span style=''></span><span style='background: #F0ADAD'>        operands.add(op)
+</span>22 <span style=''></span><span style='background: #F0ADAD'>        (s&quot;&quot;&quot;&quot;${left.toString}&quot;&quot;&quot;&quot;, trigger)</span><span style='background: #AEF1AE'>
+</span>23 <span style=''></span><span style='background: #AEF1AE'>      case EqualTo(op, Literal(right, StringType)) =&gt;
+</span>24 <span style=''></span><span style='background: #AEF1AE'>        operands.add(op)
+</span>25 <span style=''></span><span style='background: #AEF1AE'>        (s&quot;&quot;&quot;&quot;${right.toString}&quot;&quot;&quot;&quot;, trigger)
+</span>26 <span style=''></span><span style='background: #AEF1AE'>      case _ =&gt;
+</span>27 <span style=''></span><span style='background: #AEF1AE'>        (uuid, trigger)
+</span>28 <span style=''></span><span style='background: #AEF1AE'>    } )</span><span style=''>
+</span>29 <span style=''>
+</span>30 <span style=''>    if (</span><span style='background: #AEF1AE'>operands.size &gt; 1 || labelsAndTrigger.exists(_._1 == uuid)</span><span style=''>)
+</span>31 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>32 <span style=''>    else
+</span>33 <span style=''>      </span><span style='background: #AEF1AE'>Some(SwitchGroups(operands.head, &quot;String&quot;, v =&gt; s&quot;$v.toString()&quot;, lessThan = (s, r) =&gt; s&quot;$s.compareTo($r) &lt; 0&quot;,
+</span>34 <span style=''></span><span style='background: #AEF1AE'>        lessThanOrEqual = (s, l) =&gt; s&quot;$s.compareTo($l) &lt;= 0&quot;,
+</span>35 <span style=''></span><span style='background: #AEF1AE'>        greaterThanOrEqual = (s, l) =&gt; s&quot;$s.compareTo($l) &gt;= 0&quot;, zero = &quot;\&quot;\&quot;&quot;,
+</span>36 <span style=''></span><span style='background: #AEF1AE'>        lessThanSpark = (s, l) =&gt; s&quot;$s.${UTF8StringOps.compareTo}($l) &lt; 0&quot;,
+</span>37 <span style=''></span><span style='background: #AEF1AE'>        greaterThanSpark = (s, r) =&gt; s&quot;$s.${UTF8StringOps.compareTo}($r) &gt; 0&quot;,
+</span>38 <span style=''></span><span style='background: #AEF1AE'>        sparkType = &quot;org.apache.spark.unsafe.types.UTF8String&quot;,
+</span>39 <span style=''></span><span style='background: #AEF1AE'>        initSpark = (v, t) =&gt; s&quot;$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);&quot;,
+</span>40 <span style=''></span><span style='background: #AEF1AE'>        triggers = labelsAndTrigger.sortBy(_._1)
+</span>41 <span style=''></span><span style='background: #AEF1AE'>      ))</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  }
+</span>44 <span style=''>
+</span>45 <span style=''>/*  val ints = SwitchGroups(sorted, bucketExpr(bucketSize), &quot;int&quot;, lessThan = (s, r) =&gt; s&quot;$s &lt; $r&quot;,
+</span>46 <span style=''>    lessThanOrEqual = (s, l) =&gt; s&quot;$s &lt;= $l&quot;,
+</span>47 <span style=''>    greaterThanOrEqual = (s, l) =&gt; s&quot;$s &gt;= $l&quot;, zero = &quot;0&quot;,
+</span>48 <span style=''>    lessThanSpark = (s, l) =&gt; s&quot;$s &lt; $l&quot;, greaterThanSpark = (s, r) =&gt; s&quot;$s &gt; $r&quot;,
+</span>49 <span style=''>    sparkType = &quot;int&quot;, initSpark = (v,t) =&gt; s&quot;$v = $t;&quot;)
+</span>50 <span style=''> */
+</span>51 <span style=''>}
+</span>52 <span style=''>
+</span>53 <span style=''>/**
+</span>54 <span style=''> * Produces grouping via a switch, unlike normal grouping the group itself is the separate compilation and
+</span>55 <span style=''> * each sub SwitchGroup is directly inlined if there is only one trigger per group
+</span>56 <span style=''> *
+</span>57 <span style=''> * @param groups
+</span>58 <span style=''> */
+</span>59 <span style=''>case class SwitchGroups(groupingExpression: Expression, typ: String,
+</span>60 <span style=''>                        conversion: String =&gt; String = identity, lessThan: (String, String) =&gt; String,
+</span>61 <span style=''>                        lessThanOrEqual: (String, String) =&gt; String,
+</span>62 <span style=''>                        greaterThanOrEqual: (String, String) =&gt; String, zero: String,
+</span>63 <span style=''>                        lessThanSpark: (String, String) =&gt; String,
+</span>64 <span style=''>                        greaterThanSpark: (String, String) =&gt; String,
+</span>65 <span style=''>                        sparkType: String, initSpark: (String, String) =&gt; String,
+</span>66 <span style=''>                        triggers: Seq[(String, Trigger)]
+</span>67 <span style=''>                        ) {
+</span>68 <span style=''>
+</span>69 <span style=''>  def produceGroup(ctx: CodegenContext, prefix: String,
+</span>70 <span style=''>                   groupDepth: Int,
+</span>71 <span style=''>                   map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) =&gt; Block],
+</span>72 <span style=''>                   params: ParameterInformation): TriggerResult = {
+</span>73 <span style=''>
+</span>74 <span style=''>    val groupCalls: Seq[(String, Block)] = {
+</span>75 <span style=''>      </span><span style='background: #AEF1AE'>triggers.map {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>        p =&gt;
+</span>77 <span style=''></span><span style='background: #AEF1AE'>          p._1 -&gt; map(p._2.index)(ctx, params, p._2.expression, true) // alreadyPassed
+</span>78 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>79 <span style=''>    }
+</span>80 <span style=''>
+</span>81 <span style=''>    </span><span style='background: #AEF1AE'>TriggerResult( Seq(generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator, &quot;&quot;, Seq.empty, true,
+</span>82 <span style=''></span><span style='background: #AEF1AE'>      params)</span><span style=''>
+</span>83 <span style=''>  }
+</span>84 <span style=''>
+</span>85 <span style=''>  private def generateSwitch(ctx: CodegenContext, prefix: String, groupDepth: Int, params: ParameterInformation,
+</span>86 <span style=''>                             groupCalls: Seq[(String, Block)]) = {
+</span>87 <span style=''>    val exprFuncName = </span><span style='background: #AEF1AE'>ctx.freshName(prefix + &quot;GEFuncSwitchGroups&quot; + groupDepth)</span><span style=''>
+</span>88 <span style=''>
+</span>89 <span style=''>    val </span><span style='background: #AEF1AE'>(min, max)</span><span style=''> = </span><span style='background: #AEF1AE'>(groupCalls.head._1, groupCalls.last._1)</span><span style=''>
+</span>90 <span style=''>
+</span>91 <span style=''>    val cases = </span><span style='background: #AEF1AE'>groupCalls.map {
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      case (bucket, codeToRun) =&gt;
+</span>93 <span style=''></span><span style='background: #AEF1AE'>        val exprFuncName = ctx.freshName(prefix + &quot;callGEFuncSwitchGroup&quot; + groupDepth)
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        val callFun = ctx.addNewFunction(exprFuncName,
+</span>95 <span style=''></span><span style='background: #AEF1AE'>          code&quot;&quot;&quot;
+</span>96 <span style=''></span><span style='background: #AEF1AE'>           private void $exprFuncName(${params.paramsDef}) {
+</span>97 <span style=''></span><span style='background: #AEF1AE'>             $codeToRun
+</span>98 <span style=''></span><span style='background: #AEF1AE'>           }
+</span>99 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;.code
+</span>100 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        bucket -&gt; code&quot;&quot;&quot;
+</span>102 <span style=''></span><span style='background: #AEF1AE'>          case $bucket:
+</span>103 <span style=''></span><span style='background: #AEF1AE'>            $callFun(${params.paramsCall});
+</span>104 <span style=''></span><span style='background: #AEF1AE'>            break;
+</span>105 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
+</span>106 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>107 <span style=''>
+</span>108 <span style=''>    val expr = </span><span style='background: #AEF1AE'>groupingExpression.genCode(ctx)</span><span style=''>
+</span>109 <span style=''>
+</span>110 <span style=''>    def buildSwitch(switchVal: String, cases: Seq[(String,Block)], default: String, single: Boolean): String = {
+</span>111 <span style=''>      val folded = </span><span style='background: #AEF1AE'>cases.foldLeft(code&quot;&quot;) {
+</span>112 <span style=''></span><span style='background: #AEF1AE'>        case (cur, n) =&gt;
+</span>113 <span style=''></span><span style='background: #AEF1AE'>          code&quot;&quot;&quot;
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          $cur
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          ${n._2}
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
+</span>117 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>118 <span style=''>
+</span>119 <span style=''>      val switchIf: String =&gt; String =
+</span>120 <span style=''>        if (single)
+</span>121 <span style=''>          </span><span style='background: #AEF1AE'>identity</span><span style=''>
+</span>122 <span style=''>        else
+</span>123 <span style=''>        </span><span style='background: #AEF1AE'>(cases.headOption.map( v =&gt; greaterThanOrEqual(switchVal, v._1)),
+</span>124 <span style=''></span><span style='background: #AEF1AE'>          cases.lastOption.map( v =&gt; lessThanOrEqual(switchVal, v._1))) match {
+</span>125 <span style=''></span><span style='background: #AEF1AE'>          case (Some(min), Some(max)) =&gt;
+</span>126 <span style=''></span><span style='background: #AEF1AE'>            s =&gt; s&quot;&quot;&quot;
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                if (($min) &amp;&amp; ($max)) {
+</span>128 <span style=''></span><span style='background: #AEF1AE'>                  $s
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                  $default
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>132 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          case (Some(min), None) =&gt;
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            s =&gt; s&quot;&quot;&quot;
+</span>135 <span style=''></span><span style='background: #AEF1AE'>                if ($min) {
+</span>136 <span style=''></span><span style='background: #AEF1AE'>                  $s
+</span>137 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>138 <span style=''></span><span style='background: #AEF1AE'>                  $default
+</span>139 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>140 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>141 <span style=''></span><span style='background: #AEF1AE'>          case (None, Some(max)) =&gt;
+</span>142 <span style=''></span><span style='background: #AEF1AE'>            s =&gt; s&quot;&quot;&quot;
+</span>143 <span style=''></span><span style='background: #AEF1AE'>                if ($max) {
+</span>144 <span style=''></span><span style='background: #AEF1AE'>                  $s
+</span>145 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>146 <span style=''></span><span style='background: #AEF1AE'>                  $default
+</span>147 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>148 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>149 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>150 <span style=''>
+</span>151 <span style=''>
+</span>152 <span style=''>      </span><span style='background: #AEF1AE'>switchIf(s&quot;&quot;&quot;
+</span>153 <span style=''></span><span style='background: #AEF1AE'>        switch($switchVal) {
+</span>154 <span style=''></span><span style='background: #AEF1AE'>          $folded
+</span>155 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>156 <span style=''></span><span style='background: #AEF1AE'>         &quot;&quot;&quot;)</span><span style=''>
+</span>157 <span style=''>    }
+</span>158 <span style=''>
+</span>159 <span style=''>    def buildSwitches(switchVal: String, chunked: Seq[Seq[(String,Block)]]): String = {
+</span>160 <span style=''>      if (</span><span style='background: #AEF1AE'>chunked.size == 1</span><span style=''>) {
+</span>161 <span style=''>        </span><span style='background: #AEF1AE'>buildSwitch(switchVal, chunked.head, &quot;&quot;, true)</span><span style=''>
+</span>162 <span style=''>      } else </span><span style='background: #AEF1AE'>{
+</span>163 <span style=''></span><span style='background: #AEF1AE'>        // we have more chunks
+</span>164 <span style=''></span><span style='background: #AEF1AE'>        val head = chunked.head
+</span>165 <span style=''></span><span style='background: #AEF1AE'>        val (restLeft, restRight) = chunked.tail.splitAt((chunked.size / 2) - 1)
+</span>166 <span style=''></span><span style='background: #AEF1AE'>
+</span>167 <span style=''></span><span style='background: #AEF1AE'>        def headVal(chunked: Seq[Seq[(String,Block)]]): String =
+</span>168 <span style=''></span><span style='background: #AEF1AE'>          (for {
+</span>169 <span style=''></span><span style='background: #AEF1AE'>            first &lt;- chunked.headOption
+</span>170 <span style=''></span><span style='background: #AEF1AE'>            second &lt;- first.headOption
+</span>171 <span style=''></span><span style='background: #AEF1AE'>          } yield second._1).getOrElse(zero)
+</span>172 <span style=''></span><span style='background: #AEF1AE'>
+</span>173 <span style=''></span><span style='background: #AEF1AE'>        val (restLeftStartBucket, restRightStartBucket) = (headVal(restLeft), headVal(restRight))
+</span>174 <span style=''></span><span style='background: #AEF1AE'>
+</span>175 <span style=''></span><span style='background: #AEF1AE'>        def switches(chunked: Seq[Seq[(String,Block)]]): Option[String] =
+</span>176 <span style=''></span><span style='background: #AEF1AE'>          if (chunked.isEmpty)
+</span>177 <span style=''></span><span style='background: #AEF1AE'>            None
+</span>178 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>179 <span style=''></span><span style='background: #AEF1AE'>            Some(buildSwitches(switchVal, chunked))
+</span>180 <span style=''></span><span style='background: #AEF1AE'>
+</span>181 <span style=''></span><span style='background: #AEF1AE'>        val (switchLeft, switchRight) = (switches(restLeft), switches(restRight))
+</span>182 <span style=''></span><span style='background: #AEF1AE'>
+</span>183 <span style=''></span><span style='background: #AEF1AE'>        def switch(switch: String, lOrR: String) = {
+</span>184 <span style=''></span><span style='background: #AEF1AE'>          val exprFuncName = ctx.freshName(prefix + s&quot;GEFuncSwitchGroupsNested${lOrR}_&quot; + groupDepth)
+</span>185 <span style=''></span><span style='background: #AEF1AE'>          val callFun = ctx.addNewFunction(exprFuncName,
+</span>186 <span style=''></span><span style='background: #AEF1AE'>            code&quot;&quot;&quot;
+</span>187 <span style=''></span><span style='background: #AEF1AE'>             private void $exprFuncName($typ $switchVal, ${params.paramsDef}) {
+</span>188 <span style=''></span><span style='background: #AEF1AE'>               $switch
+</span>189 <span style=''></span><span style='background: #AEF1AE'>             }
+</span>190 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;.code
+</span>191 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>192 <span style=''></span><span style='background: #AEF1AE'>          callFun
+</span>193 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>194 <span style=''></span><span style='background: #AEF1AE'>
+</span>195 <span style=''></span><span style='background: #AEF1AE'>        val (leftFun, rightFun) = (switchLeft.map(switch(_, &quot;L&quot;)), switchRight.map(switch(_, &quot;R&quot;)))
+</span>196 <span style=''></span><span style='background: #AEF1AE'>
+</span>197 <span style=''></span><span style='background: #AEF1AE'>        val (geLeft, lessThanRight) =
+</span>198 <span style=''></span><span style='background: #AEF1AE'>          (greaterThanOrEqual(switchVal, restLeftStartBucket), lessThan(switchVal, restRightStartBucket))
+</span>199 <span style=''></span><span style='background: #AEF1AE'>
+</span>200 <span style=''></span><span style='background: #AEF1AE'>        val defalt =
+</span>201 <span style=''></span><span style='background: #AEF1AE'>          (leftFun, rightFun) match {
+</span>202 <span style=''></span><span style='background: #AEF1AE'>            case (Some(leftFun), Some(rightFun)) =&gt;
+</span>203 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
+</span>204 <span style=''></span><span style='background: #AEF1AE'>                if (($geLeft) &amp;&amp; ($lessThanRight)) {
+</span>205 <span style=''></span><span style='background: #AEF1AE'>                  $leftFun($switchVal, ${params.paramsCall});
+</span>206 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>207 <span style=''></span><span style='background: #AEF1AE'>                  $rightFun($switchVal, ${params.paramsCall});
+</span>208 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>209 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>210 <span style=''></span><span style='background: #AEF1AE'>            case (Some(leftFun), None) =&gt;
+</span>211 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
+</span>212 <span style=''></span><span style='background: #AEF1AE'>                if ($geLeft) {
+</span>213 <span style=''></span><span style='background: #AEF1AE'>                  $leftFun($switchVal, ${params.paramsCall});
+</span>214 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>215 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>216 <span style=''></span><span style='background: #AEF1AE'>            case (None, Some(rightFun)) =&gt;
+</span>217 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
+</span>218 <span style=''></span><span style='background: #AEF1AE'>                if (${greaterThanOrEqual(switchVal, restRightStartBucket)}) {
+</span>219 <span style=''></span><span style='background: #AEF1AE'>                  $rightFun($switchVal, ${params.paramsCall});
+</span>220 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>221 <span style=''></span><span style='background: #AEF1AE'>              &quot;&quot;&quot;
+</span>222 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>223 <span style=''></span><span style='background: #AEF1AE'>
+</span>224 <span style=''></span><span style='background: #AEF1AE'>        val r = buildSwitch(switchVal, head, defalt, false)
+</span>225 <span style=''></span><span style='background: #AEF1AE'>
+</span>226 <span style=''></span><span style='background: #AEF1AE'>        r
+</span>227 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>228 <span style=''>    }
+</span>229 <span style=''>
+</span>230 <span style=''>    val minSpark = </span><span style='background: #AEF1AE'>ctx.addMutableState(sparkType, &quot;minSpark&quot;, initFunc = initSpark(_,min))</span><span style=''>
+</span>231 <span style=''>    val maxSpark = </span><span style='background: #AEF1AE'>ctx.addMutableState(sparkType, &quot;maxSpark&quot;, initFunc = initSpark(_,max))</span><span style=''>
+</span>232 <span style=''>
+</span>233 <span style=''>    val converted = </span><span style='background: #AEF1AE'>conversion(expr.value)</span><span style=''>
+</span>234 <span style=''>    val </span><span style='background: #AEF1AE'>(converting, switchName)</span><span style=''> =
+</span>235 <span style=''>      if (</span><span style='background: #AEF1AE'>converted.isEmpty || converted == expr.value.code</span><span style=''>)
+</span>236 <span style=''>        </span><span style='background: #F0ADAD'>(&quot;&quot;, expr.value.code)</span><span style=''>
+</span>237 <span style=''>      else </span><span style='background: #AEF1AE'>{
+</span>238 <span style=''></span><span style='background: #AEF1AE'>        val fresh = ctx.freshName(&quot;converted&quot;)
+</span>239 <span style=''></span><span style='background: #AEF1AE'>        (s&quot;$typ $fresh = $converted;&quot;, fresh)
+</span>240 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>241 <span style=''>
+</span>242 <span style=''>    val groupSize = </span><span style='background: #AEF1AE'>200</span><span style=''>
+</span>243 <span style=''>    val rangeCheck =
+</span>244 <span style=''>      if (</span><span style='background: #AEF1AE'>cases.size &gt; groupSize</span><span style=''>)
+</span>245 <span style=''>        s&quot;|| (${lessThanSpark(expr.value, minSpark)}) || (${greaterThanSpark(expr.value, maxSpark)})&quot;
+</span>246 <span style=''>      else
+</span>247 <span style=''>        </span><span style='background: #AEF1AE'>&quot;&quot;</span><span style=''>
+</span>248 <span style=''>
+</span>249 <span style=''>    </span><span style='background: #AEF1AE'>ctx.addNewFunction(exprFuncName,
+</span>250 <span style=''></span><span style='background: #AEF1AE'>      code&quot;&quot;&quot;
+</span>251 <span style=''></span><span style='background: #AEF1AE'>       private void $exprFuncName(${params.paramsDef}) {
+</span>252 <span style=''></span><span style='background: #AEF1AE'>         ${expr.code}
+</span>253 <span style=''></span><span style='background: #AEF1AE'>         if (${expr.isNull} $rangeCheck) {
+</span>254 <span style=''></span><span style='background: #AEF1AE'>         } else {
+</span>255 <span style=''></span><span style='background: #AEF1AE'>           $converting
+</span>256 <span style=''></span><span style='background: #AEF1AE'>
+</span>257 <span style=''></span><span style='background: #AEF1AE'>           ${
+</span>258 <span style=''></span><span style='background: #AEF1AE'>            buildSwitches(switchName, /// TODO uses Spark mechanism to group, this is for PoC
+</span>259 <span style=''></span><span style='background: #AEF1AE'>              cases.grouped(groupSize).toSeq)
+</span>260 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>261 <span style=''></span><span style='background: #AEF1AE'>         }
+</span>262 <span style=''></span><span style='background: #AEF1AE'>       }
+</span>263 <span style=''></span><span style='background: #AEF1AE'>      &quot;&quot;&quot;.code
+</span>264 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>265 <span style=''>  }
+</span>266 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          14
+        </td>
+        <td>
+          11882
+        </td>
+        <td>
+          585
+          -
+          611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.UUID.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.UUID.randomUUID().toString()
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          11883
+        </td>
+        <td>
+          695
+          -
+          724
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.IterableFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Set.empty[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          11893
+        </td>
+        <td>
+          753
+          -
+          1100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.map[(String, com.sparkutils.quality.impl.Trigger)](((trigger: com.sparkutils.quality.impl.Trigger) =&gt; trigger.expression match {
+  case (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((value: Any, dataType: org.apache.spark.sql.types.DataType): org.apache.spark.sql.catalyst.expressions.Literal((left @ _), org.apache.spark.sql.types.StringType), (op @ _)) =&gt; {
+    operands.add(op);
+    scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(left.toString()).+(&quot;\&quot;&quot;), trigger)
+  }
+  case (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((op @ _), (value: Any, dataType: org.apache.spark.sql.types.DataType): org.apache.spark.sql.catalyst.expressions.Literal((right @ _), org.apache.spark.sql.types.StringType)) =&gt; {
+    operands.add(op);
+    scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(right.toString()).+(&quot;\&quot;&quot;), trigger)
+  }
+  case _ =&gt; scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](SwitchGroups.this.uuid, trigger)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          11886
+        </td>
+        <td>
+          855
+          -
+          927
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  operands.add(op);
+  scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(left.toString()).+(&quot;\&quot;&quot;), trigger)
+}
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          11884
+        </td>
+        <td>
+          866
+          -
+          882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.SetOps.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          operands.add(op)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          11885
+        </td>
+        <td>
+          891
+          -
+          927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(left.toString()).+(&quot;\&quot;&quot;), trigger)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          11889
+        </td>
+        <td>
+          979
+          -
+          1052
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  operands.add(op);
+  scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(right.toString()).+(&quot;\&quot;&quot;), trigger)
+}
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          11887
+        </td>
+        <td>
+          990
+          -
+          1006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.SetOps.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          operands.add(op)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          11888
+        </td>
+        <td>
+          1015
+          -
+          1052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](&quot;\&quot;&quot;.+(right.toString()).+(&quot;\&quot;&quot;), trigger)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          11890
+        </td>
+        <td>
+          1078
+          -
+          1082
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.uuid
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.uuid
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          11891
+        </td>
+        <td>
+          1077
+          -
+          1092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](SwitchGroups.this.uuid, trigger)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          11892
+        </td>
+        <td>
+          1077
+          -
+          1092
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, com.sparkutils.quality.impl.Trigger](SwitchGroups.this.uuid, trigger)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          11894
+        </td>
+        <td>
+          1126
+          -
+          1127
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          11895
+        </td>
+        <td>
+          1163
+          -
+          1167
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.uuid
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.uuid
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          11896
+        </td>
+        <td>
+          1155
+          -
+          1167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1.==(SwitchGroups.this.uuid)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          11897
+        </td>
+        <td>
+          1131
+          -
+          1168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          labelsAndTrigger.exists(((x$1: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$1._1.==(SwitchGroups.this.uuid)))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          11898
+        </td>
+        <td>
+          1110
+          -
+          1168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          operands.size.&gt;(1).||(labelsAndTrigger.exists(((x$1: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$1._1.==(SwitchGroups.this.uuid))))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          11899
+        </td>
+        <td>
+          1176
+          -
+          1180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          11900
+        </td>
+        <td>
+          1176
+          -
+          1180
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          11901
+        </td>
+        <td>
+          1214
+          -
+          1227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOps.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          operands.head
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          11902
+        </td>
+        <td>
+          1229
+          -
+          1237
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;String&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          11908
+        </td>
+        <td>
+          1201
+          -
+          1821
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.apply(operands.head, &quot;String&quot;, ((v: String) =&gt; &quot;&quot;.+(v).+(&quot;.toString()&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(r).+(&quot;) &lt; 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &lt;= 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &gt;= 0&quot;)), &quot;\&quot;\&quot;&quot;, ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(l).+(&quot;) &lt; 0&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(r).+(&quot;) &gt; 0&quot;)), &quot;org.apache.spark.unsafe.types.UTF8String&quot;, ((v: String, t: String) =&gt; &quot;&quot;.+(v).+(&quot; = org.apache.spark.unsafe.types.UTF8String.fromString(&quot;).+(t).+(&quot;);&quot;)), labelsAndTrigger.sortBy[String](((x$2: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$2._1))(math.this.Ordering.String))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          11909
+        </td>
+        <td>
+          1196
+          -
+          1822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.impl.util.SwitchGroups](SwitchGroups.apply(operands.head, &quot;String&quot;, ((v: String) =&gt; &quot;&quot;.+(v).+(&quot;.toString()&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(r).+(&quot;) &lt; 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &lt;= 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &gt;= 0&quot;)), &quot;\&quot;\&quot;&quot;, ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(l).+(&quot;) &lt; 0&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(r).+(&quot;) &gt; 0&quot;)), &quot;org.apache.spark.unsafe.types.UTF8String&quot;, ((v: String, t: String) =&gt; &quot;&quot;.+(v).+(&quot; = org.apache.spark.unsafe.types.UTF8String.fromString(&quot;).+(t).+(&quot;);&quot;)), labelsAndTrigger.sortBy[String](((x$2: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$2._1))(math.this.Ordering.String)))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          11910
+        </td>
+        <td>
+          1196
+          -
+          1822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.impl.util.SwitchGroups](SwitchGroups.apply(operands.head, &quot;String&quot;, ((v: String) =&gt; &quot;&quot;.+(v).+(&quot;.toString()&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(r).+(&quot;) &lt; 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &lt;= 0&quot;)), ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.compareTo(&quot;).+(l).+(&quot;) &gt;= 0&quot;)), &quot;\&quot;\&quot;&quot;, ((s: String, l: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(l).+(&quot;) &lt; 0&quot;)), ((s: String, r: String) =&gt; &quot;&quot;.+(s).+(&quot;.&quot;).+(UTF8StringOps.compareTo).+(&quot;(&quot;).+(r).+(&quot;) &gt; 0&quot;)), &quot;org.apache.spark.unsafe.types.UTF8String&quot;, ((v: String, t: String) =&gt; &quot;&quot;.+(v).+(&quot; = org.apache.spark.unsafe.types.UTF8String.fromString(&quot;).+(t).+(&quot;);&quot;)), labelsAndTrigger.sortBy[String](((x$2: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$2._1))(math.this.Ordering.String)))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          11903
+        </td>
+        <td>
+          1442
+          -
+          1448
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\&quot;\&quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          11904
+        </td>
+        <td>
+          1625
+          -
+          1667
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;org.apache.spark.unsafe.types.UTF8String&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          11905
+        </td>
+        <td>
+          1808
+          -
+          1812
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          11906
+        </td>
+        <td>
+          1807
+          -
+          1807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.String
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.String
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          11907
+        </td>
+        <td>
+          1784
+          -
+          1813
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          labelsAndTrigger.sortBy[String](((x$2: (String, com.sparkutils.quality.impl.Trigger)) =&gt; x$2._1))(math.this.Ordering.String)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          11917
+        </td>
+        <td>
+          3347
+          -
+          3469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.triggers.map[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((p: (String, com.sparkutils.quality.impl.Trigger)) =&gt; scala.Predef.ArrowAssoc[String](p._1).-&gt;[org.apache.spark.sql.catalyst.expressions.codegen.Block](map.apply(p._2.index).apply(ctx, params, p._2.expression, true))))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11911
+        </td>
+        <td>
+          3385
+          -
+          3389
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11912
+        </td>
+        <td>
+          3397
+          -
+          3407
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.index
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.index
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11913
+        </td>
+        <td>
+          3422
+          -
+          3437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.expression
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11914
+        </td>
+        <td>
+          3439
+          -
+          3443
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11915
+        </td>
+        <td>
+          3393
+          -
+          3444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function4.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.apply(p._2.index).apply(ctx, params, p._2.expression, true)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          11916
+        </td>
+        <td>
+          3385
+          -
+          3444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](p._1).-&gt;[org.apache.spark.sql.catalyst.expressions.codegen.Block](map.apply(p._2.index).apply(ctx, params, p._2.expression, true))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11918
+        </td>
+        <td>
+          3500
+          -
+          3559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.generateSwitch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.generateSwitch(ctx, prefix, groupDepth, params, groupCalls)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11919
+        </td>
+        <td>
+          3496
+          -
+          3569
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnce.iterator
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[String](SwitchGroups.this.generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11920
+        </td>
+        <td>
+          3571
+          -
+          3573
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11921
+        </td>
+        <td>
+          3575
+          -
+          3584
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11922
+        </td>
+        <td>
+          3586
+          -
+          3590
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          11923
+        </td>
+        <td>
+          3481
+          -
+          3605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.TriggerResult.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.TriggerResult.apply(scala.`package`.Seq.apply[String](SwitchGroups.this.generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator, &quot;&quot;, scala.`package`.Seq.empty[Nothing], true, params)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          11924
+        </td>
+        <td>
+          3828
+          -
+          3870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;GEFuncSwitchGroups&quot;).+(groupDepth)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          11925
+        </td>
+        <td>
+          3814
+          -
+          3871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;GEFuncSwitchGroups&quot;).+(groupDepth))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11926
+        </td>
+        <td>
+          3895
+          -
+          3913
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupCalls.head._1
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11927
+        </td>
+        <td>
+          3915
+          -
+          3933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupCalls.last._1
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11928
+        </td>
+        <td>
+          3894
+          -
+          3934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](groupCalls.head._1, groupCalls.last._1)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11929
+        </td>
+        <td>
+          3881
+          -
+          3891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](min, max)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11930
+        </td>
+        <td>
+          3881
+          -
+          3891
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](min, max)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11931
+        </td>
+        <td>
+          3882
+          -
+          3882
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11932
+        </td>
+        <td>
+          3887
+          -
+          3887
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          11944
+        </td>
+        <td>
+          3952
+          -
+          4421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupCalls.map[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((x0$1: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; x0$1 match {
+  case (_1: String, _2: org.apache.spark.sql.catalyst.expressions.codegen.Block): (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)((bucket @ _), (codeToRun @ _)) =&gt; {
+    val exprFuncName: String = ctx.freshName(prefix.+(&quot;callGEFuncSwitchGroup&quot;).+(groupDepth));
+    val callFun: String = ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n           private void &quot;, &quot;(&quot;, &quot;) {\n             &quot;, &quot;\n           }\n          &quot;)).code(exprFuncName, params.paramsDef, codeToRun).code, ctx.addNewFunction$default$3);
+    scala.Predef.ArrowAssoc[String](bucket).-&gt;[org.apache.spark.sql.catalyst.expressions.codegen.Block](org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          case &quot;, &quot;:\n            &quot;, &quot;(&quot;, &quot;);\n            break;\n        &quot;)).code(bucket, callFun, params.paramsCall))
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          11943
+        </td>
+        <td>
+          4000
+          -
+          4415
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val exprFuncName: String = ctx.freshName(prefix.+(&quot;callGEFuncSwitchGroup&quot;).+(groupDepth));
+  val callFun: String = ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n           private void &quot;, &quot;(&quot;, &quot;) {\n             &quot;, &quot;\n           }\n          &quot;)).code(exprFuncName, params.paramsDef, codeToRun).code, ctx.addNewFunction$default$3);
+  scala.Predef.ArrowAssoc[String](bucket).-&gt;[org.apache.spark.sql.catalyst.expressions.codegen.Block](org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          case &quot;, &quot;:\n            &quot;, &quot;(&quot;, &quot;);\n            break;\n        &quot;)).code(bucket, callFun, params.paramsCall))
+}
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          11933
+        </td>
+        <td>
+          4044
+          -
+          4089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;callGEFuncSwitchGroup&quot;).+(groupDepth)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          11934
+        </td>
+        <td>
+          4030
+          -
+          4090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;callGEFuncSwitchGroup&quot;).+(groupDepth))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          11938
+        </td>
+        <td>
+          4113
+          -
+          4290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n           private void &quot;, &quot;(&quot;, &quot;) {\n             &quot;, &quot;\n           }\n          &quot;)).code(exprFuncName, params.paramsDef, codeToRun).code, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          11935
+        </td>
+        <td>
+          4156
+          -
+          4275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n           private void &quot;, &quot;(&quot;, &quot;) {\n             &quot;, &quot;\n           }\n          &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          11936
+        </td>
+        <td>
+          4204
+          -
+          4220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ParameterInformation.paramsDef
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          params.paramsDef
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          11937
+        </td>
+        <td>
+          4156
+          -
+          4280
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n           private void &quot;, &quot;(&quot;, &quot;) {\n             &quot;, &quot;\n           }\n          &quot;)).code(exprFuncName, params.paramsDef, codeToRun).code
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          11939
+        </td>
+        <td>
+          4309
+          -
+          4415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n          case &quot;, &quot;:\n            &quot;, &quot;(&quot;, &quot;);\n            break;\n        &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          11941
+        </td>
+        <td>
+          4309
+          -
+          4415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          case &quot;, &quot;:\n            &quot;, &quot;(&quot;, &quot;);\n            break;\n        &quot;)).code(bucket, callFun, params.paramsCall)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          11942
+        </td>
+        <td>
+          4299
+          -
+          4415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](bucket).-&gt;[org.apache.spark.sql.catalyst.expressions.codegen.Block](org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          case &quot;, &quot;:\n            &quot;, &quot;(&quot;, &quot;);\n            break;\n        &quot;)).code(bucket, callFun, params.paramsCall))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          11940
+        </td>
+        <td>
+          4364
+          -
+          4381
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ParameterInformation.paramsCall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          params.paramsCall
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          11945
+        </td>
+        <td>
+          4438
+          -
+          4469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.groupingExpression.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          11946
+        </td>
+        <td>
+          4618
+          -
+          4624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          11951
+        </td>
+        <td>
+          4603
+          -
+          4723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cases.foldLeft[org.apache.spark.sql.catalyst.expressions.codegen.Block](org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code())(((x0$1: org.apache.spark.sql.catalyst.expressions.codegen.Block, x1$1: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.codegen.Block, (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)](x0$1, x1$1) match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.codegen.Block, _2: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)): (org.apache.spark.sql.catalyst.expressions.codegen.Block, (String, org.apache.spark.sql.catalyst.expressions.codegen.Block))((cur @ _), (n @ _)) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          &quot;, &quot;\n          &quot;, &quot;\n        &quot;)).code(cur, n._2)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          11947
+        </td>
+        <td>
+          4663
+          -
+          4715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n          &quot;, &quot;\n          &quot;, &quot;\n        &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          11949
+        </td>
+        <td>
+          4663
+          -
+          4715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          &quot;, &quot;\n          &quot;, &quot;\n        &quot;)).code(cur, n._2)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          11950
+        </td>
+        <td>
+          4663
+          -
+          4715
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n          &quot;, &quot;\n          &quot;, &quot;\n        &quot;)).code(cur, n._2)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          11948
+        </td>
+        <td>
+          4698
+          -
+          4702
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n._2
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          11952
+        </td>
+        <td>
+          4794
+          -
+          4802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.identity[String](x)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          11953
+        </td>
+        <td>
+          4794
+          -
+          4802
+        </td>
+        <td>
+          Function
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.$anonfun
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ((x: String) =&gt; scala.Predef.identity[String](x))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          11954
+        </td>
+        <td>
+          4824
+          -
+          5581
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](cases.headOption.map[String](((v: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; SwitchGroups.this.greaterThanOrEqual.apply(switchVal, v._1))), cases.lastOption.map[String](((v: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; SwitchGroups.this.lessThanOrEqual.apply(switchVal, v._1)))) match {
+  case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((value: String): Some[String]((min @ _)), (value: String): Some[String]((max @ _))) =&gt; ((s: String) =&gt; &quot;\n                if ((&quot;.+(min).+(&quot;) &amp;&amp; (&quot;).+(max).+(&quot;)) {\n                  &quot;).+(s).+(&quot;\n                } else {\n                  &quot;).+(default).+(&quot;\n                }\n              &quot;))
+  case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((value: String): Some[String]((min @ _)), scala.None) =&gt; ((s: String) =&gt; &quot;\n                if (&quot;.+(min).+(&quot;) {\n                  &quot;).+(s).+(&quot;\n                } else {\n                  &quot;).+(default).+(&quot;\n                }\n              &quot;))
+  case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])(scala.None, (value: String): Some[String]((max @ _))) =&gt; ((s: String) =&gt; &quot;\n                if (&quot;.+(max).+(&quot;) {\n                  &quot;).+(s).+(&quot;\n                } else {\n                  &quot;).+(default).+(&quot;\n                }\n              &quot;))
+}
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          11955
+        </td>
+        <td>
+          5590
+          -
+          5674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switchIf.apply(&quot;\n        switch(&quot;.+(switchVal).+(&quot;) {\n          &quot;).+(folded).+(&quot;\n        }\n         &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          11956
+        </td>
+        <td>
+          5780
+          -
+          5797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.size.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11957
+        </td>
+        <td>
+          5832
+          -
+          5844
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOps.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.head
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11958
+        </td>
+        <td>
+          5846
+          -
+          5848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11959
+        </td>
+        <td>
+          5850
+          -
+          5854
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11960
+        </td>
+        <td>
+          5809
+          -
+          5855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.buildSwitch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buildSwitch(switchVal, chunked.head, &quot;&quot;, true)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11961
+        </td>
+        <td>
+          5809
+          -
+          5855
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.buildSwitch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buildSwitch(switchVal, chunked.head, &quot;&quot;, true)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          12017
+        </td>
+        <td>
+          5869
+          -
+          8142
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val head: Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)] = chunked.head;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$4: (Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]) = (chunked.tail.splitAt(chunked.size./(2).-(1)): (Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]) @unchecked) match {
+    case (_1: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], _2: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]): (Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]])((restLeft @ _), (restRight @ _)) =&gt; scala.Tuple2.apply[Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]](restLeft, restRight)
+  };
+  val restLeft: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]] = x$4._1;
+  val restRight: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]] = x$4._2;
+  def headVal(chunked: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]): String = chunked.headOption.flatMap[String](((first: Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]) =&gt; first.headOption.map[String](((second: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; second._1)))).getOrElse[String](SwitchGroups.this.zero);
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$5: (String, String) = (scala.Tuple2.apply[String, String](headVal(restLeft), headVal(restRight)): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((restLeftStartBucket @ _), (restRightStartBucket @ _)) =&gt; scala.Tuple2.apply[String, String](restLeftStartBucket, restRightStartBucket)
+  };
+  val restLeftStartBucket: String = x$5._1;
+  val restRightStartBucket: String = x$5._2;
+  def switches(chunked: Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]): Option[String] = if (chunked.isEmpty)
+    scala.None
+  else
+    scala.Some.apply[String](buildSwitches(switchVal, chunked));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$6: (Option[String], Option[String]) = (scala.Tuple2.apply[Option[String], Option[String]](switches(restLeft), switches(restRight)): (Option[String], Option[String]) @unchecked) match {
+    case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((switchLeft @ _), (switchRight @ _)) =&gt; scala.Tuple2.apply[Option[String], Option[String]](switchLeft, switchRight)
+  };
+  val switchLeft: Option[String] = x$6._1;
+  val switchRight: Option[String] = x$6._2;
+  def switch(switch: String, lOrR: String): String = {
+    val exprFuncName: String = ctx.freshName(prefix.+(&quot;GEFuncSwitchGroupsNested&quot;.+(lOrR).+(&quot;_&quot;)).+(groupDepth));
+    val callFun: String = ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n             private void &quot;, &quot;(&quot;, &quot; &quot;, &quot;, &quot;, &quot;) {\n               &quot;, &quot;\n             }\n            &quot;)).code(exprFuncName, SwitchGroups.this.typ, switchVal, params.paramsDef, switch).code, ctx.addNewFunction$default$3);
+    callFun
+  };
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$9: (Option[String], Option[String]) = (scala.Tuple2.apply[Option[String], Option[String]](switchLeft.map[String](((x$7: String) =&gt; switch(x$7, &quot;L&quot;))), switchRight.map[String](((x$8: String) =&gt; switch(x$8, &quot;R&quot;)))): (Option[String], Option[String]) @unchecked) match {
+    case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((leftFun @ _), (rightFun @ _)) =&gt; scala.Tuple2.apply[Option[String], Option[String]](leftFun, rightFun)
+  };
+  val leftFun: Option[String] = x$9._1;
+  val rightFun: Option[String] = x$9._2;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$10: (String, String) = (scala.Tuple2.apply[String, String](SwitchGroups.this.greaterThanOrEqual.apply(switchVal, restLeftStartBucket), SwitchGroups.this.lessThan.apply(switchVal, restRightStartBucket)): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((geLeft @ _), (lessThanRight @ _)) =&gt; scala.Tuple2.apply[String, String](geLeft, lessThanRight)
+  };
+  val geLeft: String = x$10._1;
+  val lessThanRight: String = x$10._2;
+  val defalt: String = scala.Tuple2.apply[Option[String], Option[String]](leftFun, rightFun) match {
+    case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((value: String): Some[String]((leftFun @ _)), (value: String): Some[String]((rightFun @ _))) =&gt; &quot;\n                if ((&quot;.+(geLeft).+(&quot;) &amp;&amp; (&quot;).+(lessThanRight).+(&quot;)) {\n                  &quot;).+(leftFun).+(&quot;(&quot;).+(switchVal).+(&quot;, &quot;).+(params.paramsCall).+(&quot;);\n                } else {\n                  &quot;).+(rightFun).+(&quot;(&quot;).+(switchVal).+(&quot;, &quot;).+(params.paramsCall).+(&quot;);\n                }\n              &quot;)
+    case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])((value: String): Some[String]((leftFun @ _)), scala.None) =&gt; &quot;\n                if (&quot;.+(geLeft).+(&quot;) {\n                  &quot;).+(leftFun).+(&quot;(&quot;).+(switchVal).+(&quot;, &quot;).+(params.paramsCall).+(&quot;);\n                }\n              &quot;)
+    case (_1: Option[String], _2: Option[String]): (Option[String], Option[String])(scala.None, (value: String): Some[String]((rightFun @ _))) =&gt; &quot;\n                if (&quot;.+(SwitchGroups.this.greaterThanOrEqual.apply(switchVal, restRightStartBucket)).+(&quot;) {\n                  &quot;).+(rightFun).+(&quot;(&quot;).+(switchVal).+(&quot;, &quot;).+(params.paramsCall).+(&quot;);\n                }\n              &quot;)
+  };
+  val r: String = buildSwitch(switchVal, head, defalt, false);
+  r
+}
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          11962
+        </td>
+        <td>
+          5921
+          -
+          5933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOps.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.head
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11963
+        </td>
+        <td>
+          5991
+          -
+          6013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.size./(2).-(1)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11964
+        </td>
+        <td>
+          5970
+          -
+          6014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.splitAt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.tail.splitAt(chunked.size./(2).-(1))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11965
+        </td>
+        <td>
+          5946
+          -
+          5967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]](restLeft, restRight)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11966
+        </td>
+        <td>
+          5946
+          -
+          5967
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]], Seq[Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]]](restLeft, restRight)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11967
+        </td>
+        <td>
+          5947
+          -
+          5947
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11968
+        </td>
+        <td>
+          5957
+          -
+          5957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._2
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          11970
+        </td>
+        <td>
+          6150
+          -
+          6204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          first.headOption.map[String](((second: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; second._1))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          11969
+        </td>
+        <td>
+          6195
+          -
+          6204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          second._1
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          11971
+        </td>
+        <td>
+          6216
+          -
+          6220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.zero
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.zero
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          11972
+        </td>
+        <td>
+          6091
+          -
+          6221
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.headOption.flatMap[String](((first: Seq[(String, org.apache.spark.sql.catalyst.expressions.codegen.Block)]) =&gt; first.headOption.map[String](((second: (String, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; second._1)))).getOrElse[String](SwitchGroups.this.zero)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11973
+        </td>
+        <td>
+          6282
+          -
+          6299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.headVal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          headVal(restLeft)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11974
+        </td>
+        <td>
+          6301
+          -
+          6319
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.headVal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          headVal(restRight)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11975
+        </td>
+        <td>
+          6281
+          -
+          6320
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](headVal(restLeft), headVal(restRight))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11976
+        </td>
+        <td>
+          6235
+          -
+          6278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](restLeftStartBucket, restRightStartBucket)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11977
+        </td>
+        <td>
+          6235
+          -
+          6278
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](restLeftStartBucket, restRightStartBucket)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11978
+        </td>
+        <td>
+          6236
+          -
+          6236
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5._1
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11979
+        </td>
+        <td>
+          6257
+          -
+          6257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5._2
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          11980
+        </td>
+        <td>
+          6410
+          -
+          6425
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqOps.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chunked.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          11981
+        </td>
+        <td>
+          6439
+          -
+          6443
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          11982
+        </td>
+        <td>
+          6439
+          -
+          6443
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11983
+        </td>
+        <td>
+          6476
+          -
+          6509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.buildSwitches
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buildSwitches(switchVal, chunked)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11984
+        </td>
+        <td>
+          6471
+          -
+          6510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](buildSwitches(switchVal, chunked))
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11985
+        </td>
+        <td>
+          6471
+          -
+          6510
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](buildSwitches(switchVal, chunked))
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11986
+        </td>
+        <td>
+          6553
+          -
+          6571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.switches
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switches(restLeft)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11987
+        </td>
+        <td>
+          6573
+          -
+          6592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.switches
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switches(restRight)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11988
+        </td>
+        <td>
+          6552
+          -
+          6593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](switches(restLeft), switches(restRight))
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11989
+        </td>
+        <td>
+          6524
+          -
+          6549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](switchLeft, switchRight)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11990
+        </td>
+        <td>
+          6524
+          -
+          6549
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](switchLeft, switchRight)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11991
+        </td>
+        <td>
+          6525
+          -
+          6525
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6._1
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11992
+        </td>
+        <td>
+          6537
+          -
+          6537
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6._2
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          11993
+        </td>
+        <td>
+          6691
+          -
+          6748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;GEFuncSwitchGroupsNested&quot;.+(lOrR).+(&quot;_&quot;)).+(groupDepth)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          11994
+        </td>
+        <td>
+          6677
+          -
+          6749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;GEFuncSwitchGroupsNested&quot;.+(lOrR).+(&quot;_&quot;)).+(groupDepth))
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          11999
+        </td>
+        <td>
+          6774
+          -
+          6977
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n             private void &quot;, &quot;(&quot;, &quot; &quot;, &quot;, &quot;, &quot;) {\n               &quot;, &quot;\n             }\n            &quot;)).code(exprFuncName, SwitchGroups.this.typ, switchVal, params.paramsDef, switch).code, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          11995
+        </td>
+        <td>
+          6819
+          -
+          6960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n             private void &quot;, &quot;(&quot;, &quot; &quot;, &quot;, &quot;, &quot;) {\n               &quot;, &quot;\n             }\n            &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          11996
+        </td>
+        <td>
+          6868
+          -
+          6871
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.typ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.typ
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          11997
+        </td>
+        <td>
+          6886
+          -
+          6902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ParameterInformation.paramsDef
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          params.paramsDef
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          11998
+        </td>
+        <td>
+          6819
+          -
+          6965
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n             private void &quot;, &quot;(&quot;, &quot; &quot;, &quot;, &quot;, &quot;) {\n               &quot;, &quot;\n             }\n            &quot;)).code(exprFuncName, SwitchGroups.this.typ, switchVal, params.paramsDef, switch).code
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12000
+        </td>
+        <td>
+          7057
+          -
+          7071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.switch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switch(x$7, &quot;L&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12001
+        </td>
+        <td>
+          7042
+          -
+          7072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switchLeft.map[String](((x$7: String) =&gt; switch(x$7, &quot;L&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12002
+        </td>
+        <td>
+          7090
+          -
+          7104
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.switch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switch(x$8, &quot;R&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12003
+        </td>
+        <td>
+          7074
+          -
+          7105
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          switchRight.map[String](((x$8: String) =&gt; switch(x$8, &quot;R&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12004
+        </td>
+        <td>
+          7041
+          -
+          7106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](switchLeft.map[String](((x$7: String) =&gt; switch(x$7, &quot;L&quot;))), switchRight.map[String](((x$8: String) =&gt; switch(x$8, &quot;R&quot;))))
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12005
+        </td>
+        <td>
+          7019
+          -
+          7038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](leftFun, rightFun)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12006
+        </td>
+        <td>
+          7019
+          -
+          7038
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Option[String], Option[String]](leftFun, rightFun)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12007
+        </td>
+        <td>
+          7020
+          -
+          7020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$9._1
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          12008
+        </td>
+        <td>
+          7029
+          -
+          7029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$9._2
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          12012
+        </td>
+        <td>
+          7120
+          -
+          7143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](geLeft, lessThanRight)
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          12013
+        </td>
+        <td>
+          7120
+          -
+          7143
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](geLeft, lessThanRight)
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          12014
+        </td>
+        <td>
+          7121
+          -
+          7121
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$10._1
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          12015
+        </td>
+        <td>
+          7129
+          -
+          7129
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$10._2
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          12009
+        </td>
+        <td>
+          7157
+          -
+          7207
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.greaterThanOrEqual.apply(switchVal, restLeftStartBucket)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          12010
+        </td>
+        <td>
+          7209
+          -
+          7250
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.lessThan.apply(switchVal, restRightStartBucket)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          12011
+        </td>
+        <td>
+          7156
+          -
+          7251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](SwitchGroups.this.greaterThanOrEqual.apply(switchVal, restLeftStartBucket), SwitchGroups.this.lessThan.apply(switchVal, restRightStartBucket))
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          12016
+        </td>
+        <td>
+          8080
+          -
+          8123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.buildSwitch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buildSwitch(switchVal, head, defalt, false)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          12018
+        </td>
+        <td>
+          8189
+          -
+          8198
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.sparkType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.sparkType
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          12019
+        </td>
+        <td>
+          8200
+          -
+          8210
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;minSpark&quot;
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          12020
+        </td>
+        <td>
+          8223
+          -
+          8239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.initSpark.apply(x$11, min)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          12021
+        </td>
+        <td>
+          8169
+          -
+          8240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(SwitchGroups.this.sparkType, &quot;minSpark&quot;, ((x$11: String) =&gt; SwitchGroups.this.initSpark.apply(x$11, min)), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          12022
+        </td>
+        <td>
+          8280
+          -
+          8289
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.sparkType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.sparkType
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          12023
+        </td>
+        <td>
+          8291
+          -
+          8301
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;maxSpark&quot;
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          12024
+        </td>
+        <td>
+          8314
+          -
+          8330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.initSpark.apply(x$12, max)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          12025
+        </td>
+        <td>
+          8260
+          -
+          8331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(SwitchGroups.this.sparkType, &quot;maxSpark&quot;, ((x$12: String) =&gt; SwitchGroups.this.initSpark.apply(x$12, max)), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          12026
+        </td>
+        <td>
+          8364
+          -
+          8374
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.value
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          12027
+        </td>
+        <td>
+          8364
+          -
+          8374
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprValue.exprValueToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          codegen.this.ExprValue.exprValueToString(expr.value)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          12028
+        </td>
+        <td>
+          8353
+          -
+          8375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SwitchGroups.this.conversion.apply(codegen.this.ExprValue.exprValueToString(expr.value))
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          12039
+        </td>
+        <td>
+          8384
+          -
+          8408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](converting, switchName)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          12040
+        </td>
+        <td>
+          8384
+          -
+          8408
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](converting, switchName)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          12041
+        </td>
+        <td>
+          8385
+          -
+          8385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$13._1
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          12042
+        </td>
+        <td>
+          8397
+          -
+          8397
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$13._2
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          12029
+        </td>
+        <td>
+          8455
+          -
+          8470
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.value.code
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          12030
+        </td>
+        <td>
+          8442
+          -
+          8470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          converted.==(expr.value.code)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          12031
+        </td>
+        <td>
+          8421
+          -
+          8470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          converted.isEmpty().||(converted.==(expr.value.code))
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          12032
+        </td>
+        <td>
+          8481
+          -
+          8483
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          12033
+        </td>
+        <td>
+          8485
+          -
+          8500
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          expr.value.code
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          12034
+        </td>
+        <td>
+          8480
+          -
+          8501
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, String](&quot;&quot;, expr.value.code)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          12035
+        </td>
+        <td>
+          8480
+          -
+          8501
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, String](&quot;&quot;, expr.value.code)
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          12038
+        </td>
+        <td>
+          8513
+          -
+          8615
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val fresh: String = ctx.freshName(&quot;converted&quot;);
+  scala.Tuple2.apply[String, String](&quot;&quot;.+(SwitchGroups.this.typ).+(&quot; &quot;).+(fresh).+(&quot; = &quot;).+(converted).+(&quot;;&quot;), fresh)
+}
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          12036
+        </td>
+        <td>
+          8535
+          -
+          8561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;converted&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          12037
+        </td>
+        <td>
+          8570
+          -
+          8607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](&quot;&quot;.+(SwitchGroups.this.typ).+(&quot; &quot;).+(fresh).+(&quot; = &quot;).+(converted).+(&quot;;&quot;), fresh)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          12043
+        </td>
+        <td>
+          8637
+          -
+          8640
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          200
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          12044
+        </td>
+        <td>
+          8672
+          -
+          8694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cases.size.&gt;(groupSize)
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          12045
+        </td>
+        <td>
+          8795
+          -
+          8795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;|| (&quot;.+(SwitchGroups.this.lessThanSpark.apply(codegen.this.ExprValue.exprValueToString(expr.value), minSpark)).+(&quot;) || (&quot;).+(SwitchGroups.this.greaterThanSpark.apply(codegen.this.ExprValue.exprValueToString(expr.value), maxSpark)).+(&quot;)&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          12046
+        </td>
+        <td>
+          8817
+          -
+          8819
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          12047
+        </td>
+        <td>
+          8817
+          -
+          8819
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          12055
+        </td>
+        <td>
+          8825
+          -
+          9242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n       private void &quot;, &quot;(&quot;, &quot;) {\n         &quot;, &quot;\n         if (&quot;, &quot; &quot;, &quot;) {\n         } else {\n           &quot;, &quot;\n\n           &quot;, &quot;\n         }\n       }\n      &quot;)).code(exprFuncName, params.paramsDef, expr.code, expr.isNull, rangeCheck, converting, buildSwitches(switchName, cases.grouped(groupSize).toSeq)).code, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          12048
+        </td>
+        <td>
+          8864
+          -
+          9231
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n       private void &quot;, &quot;(&quot;, &quot;) {\n         &quot;, &quot;\n         if (&quot;, &quot; &quot;, &quot;) {\n         } else {\n           &quot;, &quot;\n\n           &quot;, &quot;\n         }\n       }\n      &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          12049
+        </td>
+        <td>
+          8908
+          -
+          8924
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ParameterInformation.paramsDef
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          params.paramsDef
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          12050
+        </td>
+        <td>
+          8940
+          -
+          8949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.code
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          12051
+        </td>
+        <td>
+          8966
+          -
+          8977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.isNull
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          12053
+        </td>
+        <td>
+          9062
+          -
+          9189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SwitchGroups.buildSwitches
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buildSwitches(switchName, cases.grouped(groupSize).toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          12052
+        </td>
+        <td>
+          9158
+          -
+          9188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cases.grouped(groupSize).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          12054
+        </td>
+        <td>
+          8864
+          -
+          9236
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n       private void &quot;, &quot;(&quot;, &quot;) {\n         &quot;, &quot;\n         if (&quot;, &quot; &quot;, &quot;) {\n         } else {\n           &quot;, &quot;\n\n           &quot;, &quot;\n         }\n       }\n      &quot;)).code(exprFuncName, params.paramsDef, expr.code, expr.isNull, rangeCheck, converting, buildSwitches(switchName, cases.grouped(groupSize).toSeq)).code
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
