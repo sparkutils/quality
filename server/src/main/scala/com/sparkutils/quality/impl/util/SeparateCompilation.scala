@@ -291,7 +291,7 @@ object SeparateCompilation {
       else ""
 
     val splitSubs =
-      if (genResult.ignoreTopLevelSubExpressions && subExpressions.isEmpty) // already provided by the grouper
+      if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
         ""
       else
         subExpressions

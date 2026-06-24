@@ -258,7 +258,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
     } { triggers =>
 
       def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
-        SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params)).getOrElse {
+        SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params).copy(
+          ignoreTopLevelSubExpressions = false // the group must provide its own subexpressions
+        )).getOrElse {
           simpleGrouper(ctx, runner, grpResult, additionalParams,
             triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, exprFunEnd, groupSalienceCheck)
         }
@@ -365,8 +367,10 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
     val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetParams)
 
-    performGrouping(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd,
-      exprFunEnd, groupSalienceCheck, groups)
+    performGrouping(ctx, runner, resultRow, additionalParams, expressions, params, prefix,
+      /*() => EmptyBlock, () => EmptyBlock, // TODO even with sorting with a group it needs a "no salience lower" lookup to early exit - the case is a group with multiple subgroups each with the same min salience in them but a max that is not, it should not exit early
+       // directly as-is these will short circuit without checking salience, only group salience can be used*/
+      exprEnd, exprFunEnd, groupSalienceCheck, groups)
   }
 
   override def dumpAudit(runner: HasOutput): Unit = {

@@ -41,10 +41,11 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     val rules = RuleEngineTest.rulesRaw(
       (for { i <- 0 until testSize } yield
         Seq(
-          (ExpressionRule(s"(((a + b) % 20) < 5) and (a = $i)"), RunOnPassProcessor(1001, Id(9000+i, 1),
-            OutputExpression("named_struct('y', a + b + c + d, 'z', a)"))),
           (ExpressionRule(s"(((a + b) % 20) < 15) and (a = $i)"), RunOnPassProcessor(1002, Id(90000+i, 1),
             OutputExpression("named_struct('y', a + b + c, 'z', a)"))),
+          // Don't move this up, it's out of order on purpose due to #128 regression
+          (ExpressionRule(s"(((a + b) % 20) < 5) and (a = $i)"), RunOnPassProcessor(1001, Id(9000+i, 1),
+            OutputExpression("named_struct('y', a + b + c + d, 'z', a)"))),
           (ExpressionRule(s"(((a + b) % 20) < 20) and (a = $i)"), RunOnPassProcessor(1003, Id(900000+i, 1),
             OutputExpression("named_struct('y', a + b, 'z', a)")))
         )

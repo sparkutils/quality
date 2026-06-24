@@ -239,7 +239,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        exprFunEnd: String => Block = _ => code"",
                        salience: Int => Int = _ => 0,
                        groupSalienceCheck: (String, String) => Block = // String for externalSalience as it may be a term
-                         (externalSalience, currentSalience) => code" && ($externalSalience >= $currentSalience)"
+                         (externalSalience, currentSalience) =>
+                           // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+                           code" && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -317,7 +319,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value})"
           )
         }
-//(($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).applyResult($resultRow, $currRuleResTerm);
+
       val converted =
         code"""
             $evalPre
@@ -495,14 +497,20 @@ try{
             }
           """
 
-        val salienceFromOffsets = flattenSalience(ruleSuite)
+        // order by salience
+        val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
+        val outputs = 0 until triggerCount
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(realChildren),
             expressionOffsets, realChildren,
             debugMode, forceTriggerEval,
-            exprEnd = earlyReturn, exprFunEnd = earlyReturn, salience = salienceFromOffsets(_)
+            orderOffset = (idx: Int) => reordered(idx),
+            // we shouldn't check salience as we are already ordered by it
+            salienceCheck = false,
+            exprEnd = earlyReturn, exprFunEnd = earlyReturn, salience = salience(_)
           )
 
         import compilerTerms._

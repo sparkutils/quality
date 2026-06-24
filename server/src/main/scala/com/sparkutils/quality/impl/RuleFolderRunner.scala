@@ -138,8 +138,6 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
         val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
-        val salienceFromOffsets = flattenSalience(ruleSuite)
-
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
@@ -155,7 +153,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
             orderOffset = (idx: Int) => reordered(idx),
             // we shouldn't check salience as we are already ordered by it
             salienceCheck = false,
-            sizeAdjustment = sizeAdjustment, salience = salienceFromOffsets(_)
+            sizeAdjustment = sizeAdjustment, salience = salience(_)
           )
 
         import compilerTerms._

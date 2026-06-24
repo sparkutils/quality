@@ -229,7 +229,7 @@ object TopLevelBoolean {
       val newPopSeqs = pop.filterNot(p => seen(p.expression))
       seen.++=(newPopSeqs.map(_.expression))
       newPopSeqs.toSeq.map( t =>
-        t.copy(expression = removeTopLevels(groupParts, t.expression)))
+        t.copy(expression = removeTopLevels(groupParts, t.expression))).sortBy(_.salience)
     }
 
     val topHitter =
@@ -281,7 +281,7 @@ object TopLevelBoolean {
 
                           val corrected = addSeen(trips.map(_._2), groupParts)
                           cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
-                      }
+                      }.sortBy(_.lowestSalience)
                     )))
               }
             cur ++ newSeqs
@@ -295,10 +295,12 @@ object TopLevelBoolean {
       }
 
     val rest = expressions.filterNot(p => seen(p.expression))
-    if (rest.isEmpty)
-      topHitter
-    else
-      (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size > 0)
+    (
+      if (rest.isEmpty)
+        topHitter
+      else
+        (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size > 0)
+    ).sortBy(_.lowestSalience)
   }
 
   def differentiateFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {
