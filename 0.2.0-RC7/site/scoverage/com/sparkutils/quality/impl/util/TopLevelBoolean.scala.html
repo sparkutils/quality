@@ -28,7 +28,7 @@
 </span>4 <span style=''>import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 </span>5 <span style=''>import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 </span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
-</span>7 <span style=''>import org.apache.spark.sql.types.{BooleanType, StringType}
+</span>7 <span style=''>import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 </span>8 <span style=''>
 </span>9 <span style=''>import scala.collection.mutable.ArrayBuffer
 </span>10 <span style=''>import scala.collection.{Set, mutable}
@@ -137,8 +137,8 @@
 </span>113 <span style=''>    }
 </span>114 <span style=''>  }
 </span>115 <span style=''>
-</span>116 <span style=''>  // everything goes into the same bucket for switching on strings
-</span>117 <span style=''>  case class SwitchStringDiff(operand: Expression) extends Differentiator {
+</span>116 <span style=''>  // everything goes into the same bucket for switching on strings / ints
+</span>117 <span style=''>  case class SwitchDiff(operand: Expression) extends Differentiator {
 </span>118 <span style=''>
 </span>119 <span style=''>    def bucketer(bucket: Int, bucketSize: Int) = </span><span style='background: #AEF1AE'>Literal(true)</span><span style=''>
 </span>120 <span style=''>
@@ -167,8 +167,8 @@
 </span>143 <span style=''></span><span style='background: #AEF1AE'>    } &amp;&amp; s.nonEmpty</span><span style=''> </span><span style='background: #AEF1AE'>=&gt;
 </span>144 <span style=''></span><span style='background: #AEF1AE'>      val operands = EqualToDiff.split(s.toSeq).map(_._2)
 </span>145 <span style=''></span><span style='background: #AEF1AE'>
-</span>146 <span style=''></span><span style='background: #AEF1AE'>      if (operands.size == 1 &amp;&amp; operands.head.dataType == StringType)
-</span>147 <span style=''></span><span style='background: #AEF1AE'>        SwitchStringDiff(operands.head)
+</span>146 <span style=''></span><span style='background: #AEF1AE'>      if (operands.size == 1 &amp;&amp; (operands.head.dataType == StringType || operands.head.dataType == IntegerType))
+</span>147 <span style=''></span><span style='background: #AEF1AE'>        SwitchDiff(operands.head) // TODO - duplicates, need to keep all to verify uniqueness and fallback!
 </span>148 <span style=''></span><span style='background: #AEF1AE'>      else
 </span>149 <span style=''></span><span style='background: #AEF1AE'>        EqualToDiff(operands.toSet)</span><span style=''> //TODO - and then for `a = `b tests can we simplify?
 </span>150 <span style=''>    case _ </span><span style='background: #F0ADAD'>=&gt;
@@ -253,7 +253,7 @@
 </span>229 <span style=''>      val newPopSeqs = </span><span style='background: #AEF1AE'>pop.filterNot(p =&gt; seen(p.expression))</span><span style=''>
 </span>230 <span style=''>      </span><span style='background: #AEF1AE'>seen.++=(newPopSeqs.map(_.expression))</span><span style=''>
 </span>231 <span style=''>      </span><span style='background: #AEF1AE'>newPopSeqs.toSeq.map( t =&gt;
-</span>232 <span style=''></span><span style='background: #AEF1AE'>        t.copy(expression = removeTopLevels(groupParts, t.expression)))</span><span style=''>
+</span>232 <span style=''></span><span style='background: #AEF1AE'>        t.copy(expression = removeTopLevels(groupParts, t.expression))).sortBy(_.salience)</span><span style=''>
 </span>233 <span style=''>    }
 </span>234 <span style=''>
 </span>235 <span style=''>    val topHitter =
@@ -305,7 +305,7 @@
 </span>281 <span style=''></span><span style='background: #AEF1AE'>
 </span>282 <span style=''></span><span style='background: #AEF1AE'>                          val corrected = addSeen(trips.map(_._2), groupParts)
 </span>283 <span style=''></span><span style='background: #AEF1AE'>                          cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
-</span>284 <span style=''></span><span style='background: #AEF1AE'>                      }
+</span>284 <span style=''></span><span style='background: #AEF1AE'>                      }.sortBy(_.lowestSalience)
 </span>285 <span style=''></span><span style='background: #AEF1AE'>                    )))
 </span>286 <span style=''></span><span style='background: #AEF1AE'>              }
 </span>287 <span style=''></span><span style='background: #AEF1AE'>            cur ++ newSeqs
@@ -319,53 +319,55 @@
 </span>295 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
 </span>296 <span style=''>
 </span>297 <span style=''>    val rest = </span><span style='background: #AEF1AE'>expressions.filterNot(p =&gt; seen(p.expression))</span><span style=''>
-</span>298 <span style=''>    if (</span><span style='background: #AEF1AE'>rest.isEmpty</span><span style=''>)
-</span>299 <span style=''>      </span><span style='background: #AEF1AE'>topHitter</span><span style=''>
-</span>300 <span style=''>    else
-</span>301 <span style=''>      </span><span style='background: #AEF1AE'>(topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size &gt; 0)</span><span style=''>
-</span>302 <span style=''>  }
-</span>303 <span style=''>
-</span>304 <span style=''>  def differentiateFrom(e: Expression, p: Expression =&gt; Boolean): Set[Expression] = {
-</span>305 <span style=''>    </span><span style='background: #AEF1AE'>from(e, differentiateFromParts, p)</span><span style=''>
-</span>306 <span style=''>  }
-</span>307 <span style=''>
-</span>308 <span style=''>  def topLevelFrom(e: Expression, p: Expression =&gt; Boolean): Set[Expression] = {
-</span>309 <span style=''>    </span><span style='background: #AEF1AE'>from(e, fromParts, p)</span><span style=''>
-</span>310 <span style=''>  }
-</span>311 <span style=''>
-</span>312 <span style=''>  def differentiateFromParts(expression: Expression): Set[Expression] = expression match {
-</span>313 <span style=''>    case And(left, right) =&gt; </span><span style='background: #AEF1AE'>differentiateFromParts(left) ++ differentiateFromParts(right)</span><span style=''>
-</span>314 <span style=''>    case e: EqualTo =&gt; </span><span style='background: #AEF1AE'>Set(e)</span><span style=''>
-</span>315 <span style=''>    case _ =&gt; </span><span style='background: #AEF1AE'>Set.empty</span><span style=''>
-</span>316 <span style=''>  }
-</span>317 <span style=''>
-</span>318 <span style=''>  def fromParts(expression: Expression): Set[Expression] = expression match {
-</span>319 <span style=''>    // TODO: intentionally excluded from subexpression elimination
-</span>320 <span style=''>    case _: Or =&gt; </span><span style='background: #F0ADAD'>Set.empty</span><span style=''>
-</span>321 <span style=''>    case And(left, right) =&gt; </span><span style='background: #AEF1AE'>fromParts(left) ++ fromParts(right)</span><span style=''>
-</span>322 <span style=''>    case e: Expression if </span><span style='background: #AEF1AE'>e.dataType == BooleanType</span><span style=''> =&gt;
-</span>323 <span style=''>      </span><span style='background: #AEF1AE'>Set(e)</span><span style=''>
-</span>324 <span style=''>    case _ =&gt; </span><span style='background: #F0ADAD'>Set.empty</span><span style=''>
-</span>325 <span style=''>  }
-</span>326 <span style=''>
-</span>327 <span style=''>  private def from(expression: Expression, t: Expression =&gt; Set[Expression], p: Expression =&gt; Boolean): Set[Expression] = {
-</span>328 <span style=''>    val resDiff = </span><span style='background: #AEF1AE'>t(expression).filter(p)</span><span style=''>
-</span>329 <span style=''>
-</span>330 <span style=''>    resDiff
-</span>331 <span style=''>  }
-</span>332 <span style=''>
-</span>333 <span style=''>  def removeTopLevels(groupExpressions: Set[Expression], expression: Expression): Expression = {
-</span>334 <span style=''>    val T = </span><span style='background: #AEF1AE'>Literal(true)</span><span style=''>
-</span>335 <span style=''>    val replaced = </span><span style='background: #AEF1AE'>expression.transformUp{
-</span>336 <span style=''></span><span style='background: #AEF1AE'>      case e if groupExpressions.contains(e) =&gt; T
-</span>337 <span style=''></span><span style='background: #AEF1AE'>      case And(T, right) =&gt; right
-</span>338 <span style=''></span><span style='background: #AEF1AE'>      case And(left, T) =&gt; left
-</span>339 <span style=''></span><span style='background: #AEF1AE'>      case And(T, T) =&gt; </span><span style='background: #F0ADAD'>T</span><span style='background: #AEF1AE'>
-</span>340 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>341 <span style=''>    replaced
-</span>342 <span style=''>  }
-</span>343 <span style=''>
-</span>344 <span style=''>}
+</span>298 <span style=''>    </span><span style='background: #AEF1AE'>(
+</span>299 <span style=''></span><span style='background: #AEF1AE'>      if (rest.isEmpty)
+</span>300 <span style=''></span><span style='background: #AEF1AE'>        topHitter
+</span>301 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>302 <span style=''></span><span style='background: #AEF1AE'>        (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size &gt; 0)
+</span>303 <span style=''></span><span style='background: #AEF1AE'>    ).sortBy(_.lowestSalience)</span><span style=''>
+</span>304 <span style=''>  }
+</span>305 <span style=''>
+</span>306 <span style=''>  def differentiateFrom(e: Expression, p: Expression =&gt; Boolean): Set[Expression] = {
+</span>307 <span style=''>    </span><span style='background: #AEF1AE'>from(e, differentiateFromParts, p)</span><span style=''>
+</span>308 <span style=''>  }
+</span>309 <span style=''>
+</span>310 <span style=''>  def topLevelFrom(e: Expression, p: Expression =&gt; Boolean): Set[Expression] = {
+</span>311 <span style=''>    </span><span style='background: #AEF1AE'>from(e, fromParts, p)</span><span style=''>
+</span>312 <span style=''>  }
+</span>313 <span style=''>
+</span>314 <span style=''>  def differentiateFromParts(expression: Expression): Set[Expression] = expression match {
+</span>315 <span style=''>    case And(left, right) =&gt; </span><span style='background: #AEF1AE'>differentiateFromParts(left) ++ differentiateFromParts(right)</span><span style=''>
+</span>316 <span style=''>    case e: EqualTo =&gt; </span><span style='background: #AEF1AE'>Set(e)</span><span style=''>
+</span>317 <span style=''>    case _ =&gt; </span><span style='background: #AEF1AE'>Set.empty</span><span style=''>
+</span>318 <span style=''>  }
+</span>319 <span style=''>
+</span>320 <span style=''>  def fromParts(expression: Expression): Set[Expression] = expression match {
+</span>321 <span style=''>    // TODO: intentionally excluded from subexpression elimination
+</span>322 <span style=''>    case _: Or =&gt; </span><span style='background: #F0ADAD'>Set.empty</span><span style=''>
+</span>323 <span style=''>    case And(left, right) =&gt; </span><span style='background: #AEF1AE'>fromParts(left) ++ fromParts(right)</span><span style=''>
+</span>324 <span style=''>    case e: Expression if </span><span style='background: #AEF1AE'>e.dataType == BooleanType</span><span style=''> =&gt;
+</span>325 <span style=''>      </span><span style='background: #AEF1AE'>Set(e)</span><span style=''>
+</span>326 <span style=''>    case _ =&gt; </span><span style='background: #F0ADAD'>Set.empty</span><span style=''>
+</span>327 <span style=''>  }
+</span>328 <span style=''>
+</span>329 <span style=''>  private def from(expression: Expression, t: Expression =&gt; Set[Expression], p: Expression =&gt; Boolean): Set[Expression] = {
+</span>330 <span style=''>    val resDiff = </span><span style='background: #AEF1AE'>t(expression).filter(p)</span><span style=''>
+</span>331 <span style=''>
+</span>332 <span style=''>    resDiff
+</span>333 <span style=''>  }
+</span>334 <span style=''>
+</span>335 <span style=''>  def removeTopLevels(groupExpressions: Set[Expression], expression: Expression): Expression = {
+</span>336 <span style=''>    val T = </span><span style='background: #AEF1AE'>Literal(true)</span><span style=''>
+</span>337 <span style=''>    val replaced = </span><span style='background: #AEF1AE'>expression.transformUp{
+</span>338 <span style=''></span><span style='background: #AEF1AE'>      case e if groupExpressions.contains(e) =&gt; T
+</span>339 <span style=''></span><span style='background: #AEF1AE'>      case And(T, right) =&gt; right
+</span>340 <span style=''></span><span style='background: #AEF1AE'>      case And(left, T) =&gt; left
+</span>341 <span style=''></span><span style='background: #AEF1AE'>      case And(T, T) =&gt; </span><span style='background: #F0ADAD'>T</span><span style='background: #AEF1AE'>
+</span>342 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>343 <span style=''>    replaced
+</span>344 <span style=''>  }
+</span>345 <span style=''>
+</span>346 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -383,12 +385,12 @@
           15
         </td>
         <td>
-          12056
+          12089
         </td>
         <td>
-          634
+          647
           -
-          652
+          665
         </td>
         <td>
           Select
@@ -407,12 +409,12 @@
           15
         </td>
         <td>
-          12057
+          12090
         </td>
         <td>
-          657
+          670
           -
-          684
+          697
         </td>
         <td>
           Select
@@ -431,12 +433,12 @@
           15
         </td>
         <td>
-          12058
+          12091
         </td>
         <td>
-          686
+          699
           -
-          689
+          702
         </td>
         <td>
           Literal
@@ -455,12 +457,12 @@
           15
         </td>
         <td>
-          12059
+          12092
         </td>
         <td>
-          634
+          647
           -
-          690
+          703
         </td>
         <td>
           Apply
@@ -479,12 +481,12 @@
           16
         </td>
         <td>
-          12060
+          12093
         </td>
         <td>
-          714
+          727
           -
-          732
+          745
         </td>
         <td>
           Select
@@ -503,12 +505,12 @@
           16
         </td>
         <td>
-          12061
+          12094
         </td>
         <td>
-          740
+          753
           -
-          767
+          780
         </td>
         <td>
           Select
@@ -527,12 +529,12 @@
           16
         </td>
         <td>
-          12062
+          12095
         </td>
         <td>
-          769
+          782
           -
-          774
+          787
         </td>
         <td>
           Literal
@@ -551,12 +553,12 @@
           16
         </td>
         <td>
-          12063
+          12096
         </td>
         <td>
-          714
+          727
           -
-          775
+          788
         </td>
         <td>
           Apply
@@ -575,12 +577,12 @@
           17
         </td>
         <td>
-          12064
+          12097
         </td>
         <td>
-          780
+          793
           -
-          808
+          821
         </td>
         <td>
           Apply
@@ -599,12 +601,12 @@
           22
         </td>
         <td>
-          12065
+          12098
         </td>
         <td>
-          932
+          945
           -
-          946
+          959
         </td>
         <td>
           Apply
@@ -623,12 +625,12 @@
           23
         </td>
         <td>
-          12066
+          12099
         </td>
         <td>
-          953
-          -
           966
+          -
+          979
         </td>
         <td>
           Apply
@@ -647,12 +649,12 @@
           25
         </td>
         <td>
-          12068
+          12101
         </td>
         <td>
-          901
+          914
           -
-          1005
+          1018
         </td>
         <td>
           Apply
@@ -675,12 +677,12 @@
           25
         </td>
         <td>
-          12069
+          12102
         </td>
         <td>
-          980
+          993
           -
-          980
+          993
         </td>
         <td>
           Literal
@@ -699,12 +701,12 @@
           26
         </td>
         <td>
-          12067
+          12100
         </td>
         <td>
-          993
+          1006
           -
-          999
+          1012
         </td>
         <td>
           Apply
@@ -723,12 +725,12 @@
           31
         </td>
         <td>
-          12070
+          12103
         </td>
         <td>
-          1248
+          1261
           -
-          1260
+          1273
         </td>
         <td>
           Select
@@ -747,12 +749,12 @@
           31
         </td>
         <td>
-          12071
+          12104
         </td>
         <td>
-          1232
+          1245
           -
-          1261
+          1274
         </td>
         <td>
           Apply
@@ -771,12 +773,12 @@
           31
         </td>
         <td>
-          12072
+          12105
         </td>
         <td>
-          1213
+          1226
           -
-          1262
+          1275
         </td>
         <td>
           Apply
@@ -795,12 +797,12 @@
           34
         </td>
         <td>
-          12073
+          12106
         </td>
         <td>
-          1330
+          1343
           -
-          1342
+          1355
         </td>
         <td>
           Literal
@@ -819,12 +821,12 @@
           34
         </td>
         <td>
-          12074
+          12107
         </td>
         <td>
-          1300
+          1313
           -
-          1373
+          1386
         </td>
         <td>
           Select
@@ -843,12 +845,12 @@
           35
         </td>
         <td>
-          12075
+          12108
         </td>
         <td>
-          1384
+          1397
           -
-          1390
+          1403
         </td>
         <td>
           Apply
@@ -867,12 +869,12 @@
           36
         </td>
         <td>
-          12076
+          12109
         </td>
         <td>
-          1400
+          1413
           -
-          1401
+          1414
         </td>
         <td>
           Literal
@@ -891,12 +893,12 @@
           36
         </td>
         <td>
-          12077
+          12110
         </td>
         <td>
-          1400
+          1413
           -
-          1401
+          1414
         </td>
         <td>
           Block
@@ -915,12 +917,12 @@
           38
         </td>
         <td>
-          12078
+          12111
         </td>
         <td>
-          1421
+          1434
           -
-          1422
+          1435
         </td>
         <td>
           Ident
@@ -939,12 +941,12 @@
           41
         </td>
         <td>
-          12079
+          12112
         </td>
         <td>
-          1485
+          1498
           -
-          1501
+          1514
         </td>
         <td>
           Apply
@@ -963,12 +965,12 @@
           41
         </td>
         <td>
-          12080
+          12113
         </td>
         <td>
-          1464
+          1477
           -
-          1502
+          1515
         </td>
         <td>
           Apply
@@ -987,12 +989,12 @@
           43
         </td>
         <td>
-          12081
+          12114
         </td>
         <td>
-          1519
+          1532
           -
-          1579
+          1592
         </td>
         <td>
           Apply
@@ -1011,12 +1013,12 @@
           45
         </td>
         <td>
-          12086
+          12119
         </td>
         <td>
-          1585
+          1598
           -
-          1905
+          1918
         </td>
         <td>
           Apply
@@ -1038,12 +1040,12 @@
           48
         </td>
         <td>
-          12082
+          12115
         </td>
         <td>
-          1648
+          1661
           -
-          1660
+          1673
         </td>
         <td>
           Select
@@ -1062,12 +1064,12 @@
           48
         </td>
         <td>
-          12083
+          12116
         </td>
         <td>
-          1667
+          1680
           -
-          1684
+          1697
         </td>
         <td>
           Select
@@ -1086,12 +1088,12 @@
           48
         </td>
         <td>
-          12084
+          12117
         </td>
         <td>
-          1635
+          1648
           -
-          1685
+          1698
         </td>
         <td>
           Apply
@@ -1110,12 +1112,12 @@
           55
         </td>
         <td>
-          12085
+          12118
         </td>
         <td>
-          1879
+          1892
           -
-          1899
+          1912
         </td>
         <td>
           Apply
@@ -1134,12 +1136,12 @@
           61
         </td>
         <td>
-          12094
+          12127
         </td>
         <td>
-          1968
+          1981
           -
-          2084
+          2097
         </td>
         <td>
           Apply
@@ -1161,12 +1163,12 @@
           61
         </td>
         <td>
-          12095
+          12128
         </td>
         <td>
-          1968
+          1981
           -
-          2084
+          2097
         </td>
         <td>
           Block
@@ -1188,12 +1190,12 @@
           62
         </td>
         <td>
-          12087
+          12120
         </td>
         <td>
-          2001
+          2014
           -
-          2012
+          2025
         </td>
         <td>
           Apply
@@ -1212,12 +1214,12 @@
           62
         </td>
         <td>
-          12088
+          12121
         </td>
         <td>
-          2016
+          2029
           -
-          2022
+          2035
         </td>
         <td>
           Select
@@ -1236,12 +1238,12 @@
           62
         </td>
         <td>
-          12089
+          12122
         </td>
         <td>
-          2016
+          2029
           -
-          2022
+          2035
         </td>
         <td>
           Block
@@ -1260,12 +1262,12 @@
           63
         </td>
         <td>
-          12090
+          12123
         </td>
         <td>
-          2054
+          2067
           -
-          2062
+          2075
         </td>
         <td>
           Apply
@@ -1284,12 +1286,12 @@
           63
         </td>
         <td>
-          12091
+          12124
         </td>
         <td>
-          2045
+          2058
           -
-          2063
+          2076
         </td>
         <td>
           Apply
@@ -1308,12 +1310,12 @@
           63
         </td>
         <td>
-          12092
+          12125
         </td>
         <td>
-          2045
+          2058
           -
-          2063
+          2076
         </td>
         <td>
           Block
@@ -1332,12 +1334,12 @@
           64
         </td>
         <td>
-          12093
+          12126
         </td>
         <td>
-          2077
+          2090
           -
-          2083
+          2096
         </td>
         <td>
           Apply
@@ -1356,12 +1358,12 @@
           65
         </td>
         <td>
-          12096
+          12129
         </td>
         <td>
-          2105
+          2118
           -
-          2134
+          2147
         </td>
         <td>
           Apply
@@ -1380,12 +1382,12 @@
           65
         </td>
         <td>
-          12097
+          12130
         </td>
         <td>
-          1925
+          1938
           -
-          2135
+          2148
         </td>
         <td>
           Apply
@@ -1409,12 +1411,12 @@
           67
         </td>
         <td>
-          12098
+          12131
         </td>
         <td>
-          2141
+          2154
           -
-          2150
+          2163
         </td>
         <td>
           Apply
@@ -1433,12 +1435,12 @@
           72
         </td>
         <td>
-          12099
+          12132
         </td>
         <td>
-          2354
+          2367
           -
-          2390
+          2403
         </td>
         <td>
           Apply
@@ -1457,12 +1459,12 @@
           72
         </td>
         <td>
-          12100
+          12133
         </td>
         <td>
-          2341
+          2354
           -
-          2351
+          2364
         </td>
         <td>
           Apply
@@ -1481,12 +1483,12 @@
           72
         </td>
         <td>
-          12101
+          12134
         </td>
         <td>
-          2341
+          2354
           -
-          2351
+          2364
         </td>
         <td>
           Block
@@ -1505,12 +1507,12 @@
           72
         </td>
         <td>
-          12102
+          12135
         </td>
         <td>
-          2342
+          2355
           -
-          2342
+          2355
         </td>
         <td>
           Select
@@ -1529,12 +1531,12 @@
           72
         </td>
         <td>
-          12103
+          12136
         </td>
         <td>
-          2346
+          2359
           -
-          2346
+          2359
         </td>
         <td>
           Select
@@ -1553,12 +1555,12 @@
           74
         </td>
         <td>
-          12104
+          12137
         </td>
         <td>
-          2414
+          2427
           -
-          2439
+          2452
         </td>
         <td>
           Select
@@ -1577,12 +1579,12 @@
           74
         </td>
         <td>
-          12105
+          12138
         </td>
         <td>
-          2413
+          2426
           -
-          2413
+          2426
         </td>
         <td>
           Select
@@ -1601,12 +1603,12 @@
           74
         </td>
         <td>
-          12106
+          12139
         </td>
         <td>
-          2397
+          2410
           -
-          2448
+          2461
         </td>
         <td>
           Select
@@ -1625,12 +1627,12 @@
           74
         </td>
         <td>
-          12107
+          12140
         </td>
         <td>
-          2396
+          2409
           -
-          2455
+          2468
         </td>
         <td>
           Apply
@@ -1649,12 +1651,12 @@
           89
         </td>
         <td>
-          12108
+          12141
         </td>
         <td>
-          2868
+          2881
           -
-          2883
+          2896
         </td>
         <td>
           Apply
@@ -1673,12 +1675,12 @@
           89
         </td>
         <td>
-          12109
+          12142
         </td>
         <td>
-          2863
+          2876
           -
-          2884
+          2897
         </td>
         <td>
           Apply
@@ -1697,12 +1699,12 @@
           89
         </td>
         <td>
-          12110
+          12143
         </td>
         <td>
-          2863
+          2876
           -
-          2884
+          2897
         </td>
         <td>
           Block
@@ -1721,12 +1723,12 @@
           90
         </td>
         <td>
-          12111
+          12144
         </td>
         <td>
-          2941
+          2954
           -
-          2957
+          2970
         </td>
         <td>
           Apply
@@ -1745,12 +1747,12 @@
           90
         </td>
         <td>
-          12112
+          12145
         </td>
         <td>
-          2936
+          2949
           -
-          2958
+          2971
         </td>
         <td>
           Apply
@@ -1769,12 +1771,12 @@
           90
         </td>
         <td>
-          12113
+          12146
         </td>
         <td>
-          2936
+          2949
           -
-          2958
+          2971
         </td>
         <td>
           Block
@@ -1793,12 +1795,12 @@
           91
         </td>
         <td>
-          12114
+          12147
         </td>
         <td>
-          2977
+          2990
           -
-          2981
+          2994
         </td>
         <td>
           Select
@@ -1817,12 +1819,12 @@
           91
         </td>
         <td>
-          12115
+          12148
         </td>
         <td>
-          2977
+          2990
           -
-          2981
+          2994
         </td>
         <td>
           Block
@@ -1841,12 +1843,12 @@
           92
         </td>
         <td>
-          12116
+          12149
         </td>
         <td>
-          2997
+          3010
           -
-          3012
+          3025
         </td>
         <td>
           Apply
@@ -1865,12 +1867,12 @@
           92
         </td>
         <td>
-          12117
+          12150
         </td>
         <td>
-          2996
+          3009
           -
-          2996
+          3009
         </td>
         <td>
           Select
@@ -1889,12 +1891,12 @@
           92
         </td>
         <td>
-          12118
+          12151
         </td>
         <td>
-          2797
+          2810
           -
-          3013
+          3026
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1917,12 +1919,12 @@
           99
         </td>
         <td>
-          12119
+          12152
         </td>
         <td>
-          3218
+          3231
           -
-          3230
+          3243
         </td>
         <td>
           Apply
@@ -1941,12 +1943,12 @@
           99
         </td>
         <td>
-          12120
+          12153
         </td>
         <td>
-          3217
+          3230
           -
-          3217
+          3230
         </td>
         <td>
           Select
@@ -1965,12 +1967,12 @@
           99
         </td>
         <td>
-          12121
+          12154
         </td>
         <td>
-          3196
+          3209
           -
-          3231
+          3244
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1989,12 +1991,12 @@
           99
         </td>
         <td>
-          12122
+          12155
         </td>
         <td>
-          3233
+          3246
           -
-          3235
+          3248
         </td>
         <td>
           Literal
@@ -2013,12 +2015,12 @@
           99
         </td>
         <td>
-          12123
+          12156
         </td>
         <td>
-          3184
+          3197
           -
-          3236
+          3249
         </td>
         <td>
           Apply
@@ -2037,12 +2039,12 @@
           99
         </td>
         <td>
-          12124
+          12157
         </td>
         <td>
-          3180
+          3193
           -
-          3237
+          3250
         </td>
         <td>
           Apply
@@ -2061,12 +2063,12 @@
           99
         </td>
         <td>
-          12125
+          12158
         </td>
         <td>
-          3239
+          3252
           -
-          3258
+          3271
         </td>
         <td>
           Apply
@@ -2085,12 +2087,12 @@
           99
         </td>
         <td>
-          12126
+          12159
         </td>
         <td>
-          3166
+          3179
           -
-          3259
+          3272
         </td>
         <td>
           Apply
@@ -2109,12 +2111,12 @@
           99
         </td>
         <td>
-          12127
+          12160
         </td>
         <td>
-          3261
+          3274
           -
-          3276
+          3289
         </td>
         <td>
           Apply
@@ -2133,12 +2135,12 @@
           99
         </td>
         <td>
-          12128
+          12161
         </td>
         <td>
-          3158
+          3171
           -
-          3277
+          3290
         </td>
         <td>
           Apply
@@ -2157,12 +2159,12 @@
           103
         </td>
         <td>
-          12129
+          12162
         </td>
         <td>
-          3430
+          3443
           -
-          3431
+          3444
         </td>
         <td>
           Ident
@@ -2181,12 +2183,12 @@
           103
         </td>
         <td>
-          12130
+          12163
         </td>
         <td>
-          3409
+          3422
           -
-          3409
+          3422
         </td>
         <td>
           Apply
@@ -2205,12 +2207,12 @@
           103
         </td>
         <td>
-          12137
+          12170
         </td>
         <td>
-          3394
+          3407
           -
-          3560
+          3573
         </td>
         <td>
           Apply
@@ -2248,12 +2250,12 @@ else
           103
         </td>
         <td>
-          12138
+          12171
         </td>
         <td>
-          3376
+          3389
           -
-          3561
+          3574
         </td>
         <td>
           Apply
@@ -2291,12 +2293,12 @@ else
           104
         </td>
         <td>
-          12131
+          12164
         </td>
         <td>
-          3452
+          3465
           -
-          3481
+          3494
         </td>
         <td>
           TypeApply
@@ -2315,12 +2317,12 @@ else
           105
         </td>
         <td>
-          12132
+          12165
         </td>
         <td>
-          3495
+          3508
           -
-          3507
+          3520
         </td>
         <td>
           Apply
@@ -2339,12 +2341,12 @@ else
           105
         </td>
         <td>
-          12133
+          12166
         </td>
         <td>
-          3495
+          3508
           -
-          3507
+          3520
         </td>
         <td>
           Block
@@ -2363,12 +2365,12 @@ else
           107
         </td>
         <td>
-          12134
+          12167
         </td>
         <td>
-          3535
+          3548
           -
-          3544
+          3557
         </td>
         <td>
           TypeApply
@@ -2387,12 +2389,12 @@ else
           107
         </td>
         <td>
-          12135
+          12168
         </td>
         <td>
-          3535
+          3548
           -
-          3544
+          3557
         </td>
         <td>
           Block
@@ -2411,12 +2413,12 @@ else
           108
         </td>
         <td>
-          12136
+          12169
         </td>
         <td>
-          3436
+          3449
           -
-          3560
+          3573
         </td>
         <td>
           Select
@@ -2438,12 +2440,12 @@ else
           110
         </td>
         <td>
-          12139
+          12172
         </td>
         <td>
-          3616
+          3629
           -
-          3620
+          3633
         </td>
         <td>
           Select
@@ -2462,12 +2464,12 @@ else
           110
         </td>
         <td>
-          12140
+          12173
         </td>
         <td>
-          3598
+          3611
           -
-          3621
+          3634
         </td>
         <td>
           Apply
@@ -2486,12 +2488,12 @@ else
           110
         </td>
         <td>
-          12141
+          12174
         </td>
         <td>
-          3630
+          3643
           -
-          3645
+          3658
         </td>
         <td>
           Apply
@@ -2510,12 +2512,12 @@ else
           110
         </td>
         <td>
-          12142
+          12175
         </td>
         <td>
-          3629
+          3642
           -
-          3629
+          3642
         </td>
         <td>
           Select
@@ -2534,12 +2536,12 @@ else
           110
         </td>
         <td>
-          12143
+          12176
         </td>
         <td>
-          3651
+          3664
           -
-          3655
+          3668
         </td>
         <td>
           Select
@@ -2558,12 +2560,12 @@ else
           110
         </td>
         <td>
-          12144
+          12177
         </td>
         <td>
-          3580
+          3593
           -
-          3656
+          3669
         </td>
         <td>
           Apply
@@ -2582,12 +2584,12 @@ else
           112
         </td>
         <td>
-          12145
+          12178
         </td>
         <td>
-          3664
+          3677
           -
-          3728
+          3741
         </td>
         <td>
           Apply
@@ -2610,12 +2612,12 @@ else
           119
         </td>
         <td>
-          12146
+          12179
         </td>
         <td>
-          3933
+          3947
           -
-          3946
+          3960
         </td>
         <td>
           Apply
@@ -2634,12 +2636,12 @@ else
           121
         </td>
         <td>
-          12147
+          12180
         </td>
         <td>
-          4017
+          4031
           -
-          4018
+          4032
         </td>
         <td>
           Literal
@@ -2658,12 +2660,12 @@ else
           140
         </td>
         <td>
-          12148
+          12181
         </td>
         <td>
-          4560
+          4574
           -
-          4564
+          4578
         </td>
         <td>
           Literal
@@ -2682,12 +2684,12 @@ else
           140
         </td>
         <td>
-          12149
+          12182
         </td>
         <td>
-          4560
+          4574
           -
-          4564
+          4578
         </td>
         <td>
           Block
@@ -2706,12 +2708,12 @@ else
           141
         </td>
         <td>
-          12150
+          12183
         </td>
         <td>
-          4615
+          4629
           -
-          4619
+          4633
         </td>
         <td>
           Literal
@@ -2730,12 +2732,12 @@ else
           141
         </td>
         <td>
-          12151
+          12184
         </td>
         <td>
-          4615
+          4629
           -
-          4619
+          4633
         </td>
         <td>
           Block
@@ -2754,12 +2756,12 @@ else
           142
         </td>
         <td>
-          12152
+          12185
         </td>
         <td>
-          4636
+          4650
           -
-          4641
+          4655
         </td>
         <td>
           Literal
@@ -2778,12 +2780,12 @@ else
           142
         </td>
         <td>
-          12153
+          12186
         </td>
         <td>
-          4636
+          4650
           -
-          4641
+          4655
         </td>
         <td>
           Block
@@ -2802,12 +2804,12 @@ else
           143
         </td>
         <td>
-          12154
+          12187
         </td>
         <td>
-          4651
+          4665
           -
-          4661
+          4675
         </td>
         <td>
           Select
@@ -2826,12 +2828,12 @@ else
           143
         </td>
         <td>
-          12155
+          12188
         </td>
         <td>
-          4500
+          4514
           -
-          4661
+          4675
         </td>
         <td>
           Apply
@@ -2854,12 +2856,12 @@ else
           143
         </td>
         <td>
-          12169
+          12204
         </td>
         <td>
-          4662
+          4676
           -
-          4880
+          5005
         </td>
         <td>
           Block
@@ -2873,8 +2875,8 @@ else
         <td style="background: #AEF1AE">
           {
   val operands: Seq[org.apache.spark.sql.catalyst.expressions.Expression] = TopLevelBoolean.this.EqualToDiff.split(s.toSeq).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$10: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$10._2));
-  if (operands.size.==(1).&amp;&amp;(operands.head.dataType.==(org.apache.spark.sql.types.StringType)))
-    TopLevelBoolean.this.SwitchStringDiff.apply(operands.head)
+  if (operands.size.==(1).&amp;&amp;(operands.head.dataType.==(org.apache.spark.sql.types.StringType).||(operands.head.dataType.==(org.apache.spark.sql.types.IntegerType))))
+    TopLevelBoolean.this.SwitchDiff.apply(operands.head)
   else
     TopLevelBoolean.this.EqualToDiff.apply(operands.toSet[org.apache.spark.sql.catalyst.expressions.Expression])
 }
@@ -2884,12 +2886,12 @@ else
           144
         </td>
         <td>
-          12156
+          12189
         </td>
         <td>
-          4704
+          4718
           -
-          4711
+          4725
         </td>
         <td>
           Select
@@ -2908,12 +2910,12 @@ else
           144
         </td>
         <td>
-          12157
+          12190
         </td>
         <td>
-          4717
+          4731
           -
-          4721
+          4735
         </td>
         <td>
           Select
@@ -2932,12 +2934,12 @@ else
           144
         </td>
         <td>
-          12158
+          12191
         </td>
         <td>
-          4686
+          4700
           -
-          4722
+          4736
         </td>
         <td>
           Apply
@@ -2956,12 +2958,12 @@ else
           146
         </td>
         <td>
-          12159
+          12192
         </td>
         <td>
-          4751
+          4765
           -
-          4752
+          4766
         </td>
         <td>
           Literal
@@ -2980,12 +2982,12 @@ else
           146
         </td>
         <td>
-          12160
+          12193
         </td>
         <td>
-          4782
+          4797
           -
-          4792
+          4807
         </td>
         <td>
           Select
@@ -3004,12 +3006,36 @@ else
           146
         </td>
         <td>
-          12161
+          12194
         </td>
         <td>
-          4756
+          4837
           -
-          4792
+          4848
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          12195
+        </td>
+        <td>
+          4811
+          -
+          4848
         </td>
         <td>
           Apply
@@ -3021,19 +3047,43 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          operands.head.dataType.==(org.apache.spark.sql.types.StringType)
+          operands.head.dataType.==(org.apache.spark.sql.types.IntegerType)
         </td>
       </tr><tr>
         <td>
           146
         </td>
         <td>
-          12162
+          12196
         </td>
         <td>
-          4734
+          4771
           -
-          4792
+          4848
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          operands.head.dataType.==(org.apache.spark.sql.types.StringType).||(operands.head.dataType.==(org.apache.spark.sql.types.IntegerType))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          12197
+        </td>
+        <td>
+          4748
+          -
+          4849
         </td>
         <td>
           Apply
@@ -3045,19 +3095,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          operands.size.==(1).&amp;&amp;(operands.head.dataType.==(org.apache.spark.sql.types.StringType))
+          operands.size.==(1).&amp;&amp;(operands.head.dataType.==(org.apache.spark.sql.types.StringType).||(operands.head.dataType.==(org.apache.spark.sql.types.IntegerType)))
         </td>
       </tr><tr>
         <td>
           147
         </td>
         <td>
-          12163
+          12198
         </td>
         <td>
-          4819
+          4870
           -
-          4832
+          4883
         </td>
         <td>
           Select
@@ -3076,60 +3126,60 @@ else
           147
         </td>
         <td>
-          12164
+          12199
         </td>
         <td>
-          4802
+          4859
           -
-          4833
+          4884
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.sparkutils.quality.impl.util.TopLevelBoolean.SwitchStringDiff.apply
+          com.sparkutils.quality.impl.util.TopLevelBoolean.SwitchDiff.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          TopLevelBoolean.this.SwitchStringDiff.apply(operands.head)
+          TopLevelBoolean.this.SwitchDiff.apply(operands.head)
         </td>
       </tr><tr>
         <td>
           147
         </td>
         <td>
-          12165
+          12200
         </td>
         <td>
-          4802
+          4859
           -
-          4833
+          4884
         </td>
         <td>
           Block
         </td>
         <td>
-          com.sparkutils.quality.impl.util.TopLevelBoolean.SwitchStringDiff.apply
+          com.sparkutils.quality.impl.util.TopLevelBoolean.SwitchDiff.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          TopLevelBoolean.this.SwitchStringDiff.apply(operands.head)
+          TopLevelBoolean.this.SwitchDiff.apply(operands.head)
         </td>
       </tr><tr>
         <td>
           149
         </td>
         <td>
-          12166
+          12201
         </td>
         <td>
-          4865
+          4990
           -
-          4879
+          5004
         </td>
         <td>
           TypeApply
@@ -3148,12 +3198,12 @@ else
           149
         </td>
         <td>
-          12167
+          12202
         </td>
         <td>
-          4853
+          4978
           -
-          4880
+          5005
         </td>
         <td>
           Apply
@@ -3172,12 +3222,12 @@ else
           149
         </td>
         <td>
-          12168
+          12203
         </td>
         <td>
-          4853
+          4978
           -
-          4880
+          5005
         </td>
         <td>
           Block
@@ -3196,12 +3246,12 @@ else
           150
         </td>
         <td>
-          12173
+          12208
         </td>
         <td>
-          4945
+          5070
           -
-          5083
+          5208
         </td>
         <td>
           Block
@@ -3223,12 +3273,12 @@ else
           151
         </td>
         <td>
-          12170
+          12205
         </td>
         <td>
-          4954
+          5079
           -
-          5047
+          5172
         </td>
         <td>
           Apply
@@ -3247,12 +3297,12 @@ else
           152
         </td>
         <td>
-          12171
+          12206
         </td>
         <td>
-          5065
+          5190
           -
-          5082
+          5207
         </td>
         <td>
           Select
@@ -3271,12 +3321,12 @@ else
           152
         </td>
         <td>
-          12172
+          12207
         </td>
         <td>
-          5054
+          5179
           -
-          5083
+          5208
         </td>
         <td>
           Apply
@@ -3295,12 +3345,12 @@ else
           219
         </td>
         <td>
-          12174
+          12209
         </td>
         <td>
-          6722
+          6847
           -
-          6760
+          6885
         </td>
         <td>
           Apply
@@ -3319,12 +3369,12 @@ else
           220
         </td>
         <td>
-          12175
+          12210
         </td>
         <td>
-          6813
+          6938
           -
-          6828
+          6953
         </td>
         <td>
           Select
@@ -3343,12 +3393,12 @@ else
           220
         </td>
         <td>
-          12176
+          12211
         </td>
         <td>
-          6793
+          6918
           -
-          6829
+          6954
         </td>
         <td>
           Apply
@@ -3367,12 +3417,12 @@ else
           220
         </td>
         <td>
-          12177
+          12212
         </td>
         <td>
-          6769
+          6894
           -
-          6790
+          6915
         </td>
         <td>
           Apply
@@ -3391,12 +3441,12 @@ else
           220
         </td>
         <td>
-          12178
+          12213
         </td>
         <td>
-          6769
+          6894
           -
-          6790
+          6915
         </td>
         <td>
           Block
@@ -3415,12 +3465,12 @@ else
           220
         </td>
         <td>
-          12179
+          12214
         </td>
         <td>
-          6770
+          6895
           -
-          6770
+          6895
         </td>
         <td>
           Select
@@ -3439,12 +3489,12 @@ else
           220
         </td>
         <td>
-          12180
+          12215
         </td>
         <td>
-          6785
+          6910
           -
-          6785
+          6910
         </td>
         <td>
           Select
@@ -3463,12 +3513,12 @@ else
           221
         </td>
         <td>
-          12181
+          12216
         </td>
         <td>
-          6853
+          6978
           -
-          6868
+          6993
         </td>
         <td>
           Select
@@ -3487,12 +3537,12 @@ else
           226
         </td>
         <td>
-          12182
+          12217
         </td>
         <td>
-          7002
+          7127
           -
-          7033
+          7158
         </td>
         <td>
           Apply
@@ -3511,12 +3561,12 @@ else
           229
         </td>
         <td>
-          12183
+          12218
         </td>
         <td>
-          7155
+          7280
           -
-          7167
+          7292
         </td>
         <td>
           Select
@@ -3535,12 +3585,12 @@ else
           229
         </td>
         <td>
-          12184
+          12219
         </td>
         <td>
-          7150
+          7275
           -
-          7168
+          7293
         </td>
         <td>
           Apply
@@ -3559,12 +3609,12 @@ else
           229
         </td>
         <td>
-          12185
+          12220
         </td>
         <td>
-          7131
+          7256
           -
-          7169
+          7294
         </td>
         <td>
           Apply
@@ -3583,12 +3633,12 @@ else
           230
         </td>
         <td>
-          12186
+          12221
         </td>
         <td>
-          7200
+          7325
           -
-          7212
+          7337
         </td>
         <td>
           Select
@@ -3607,12 +3657,12 @@ else
           230
         </td>
         <td>
-          12187
+          12222
         </td>
         <td>
-          7185
+          7310
           -
-          7213
+          7338
         </td>
         <td>
           Apply
@@ -3631,12 +3681,12 @@ else
           230
         </td>
         <td>
-          12188
+          12223
         </td>
         <td>
-          7176
+          7301
           -
-          7214
+          7339
         </td>
         <td>
           Apply
@@ -3652,39 +3702,15 @@ else
         </td>
       </tr><tr>
         <td>
-          231
-        </td>
-        <td>
-          12192
-        </td>
-        <td>
-          7221
-          -
-          7319
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOps.map
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          newPopSeqs.toSeq.map[com.sparkutils.quality.impl.Trigger](((t: com.sparkutils.quality.impl.Trigger) =&gt; t.copy(TopLevelBoolean.this.removeTopLevels(groupParts, t.expression), t.copy$default$2, t.copy$default$3, t.copy$default$4)))
-        </td>
-      </tr><tr>
-        <td>
           232
         </td>
         <td>
-          12189
+          12224
         </td>
         <td>
-          7304
+          7429
           -
-          7316
+          7441
         </td>
         <td>
           Select
@@ -3703,12 +3729,12 @@ else
           232
         </td>
         <td>
-          12190
+          12225
         </td>
         <td>
-          7276
+          7401
           -
-          7317
+          7442
         </td>
         <td>
           Apply
@@ -3727,12 +3753,12 @@ else
           232
         </td>
         <td>
-          12191
+          12226
         </td>
         <td>
-          7256
+          7381
           -
-          7318
+          7443
         </td>
         <td>
           Apply
@@ -3748,15 +3774,87 @@ else
         </td>
       </tr><tr>
         <td>
+          232
+        </td>
+        <td>
+          12227
+        </td>
+        <td>
+          7452
+          -
+          7462
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$15.salience
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          12228
+        </td>
+        <td>
+          7451
+          -
+          7451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          12229
+        </td>
+        <td>
+          7346
+          -
+          7463
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newPopSeqs.toSeq.map[com.sparkutils.quality.impl.Trigger](((t: com.sparkutils.quality.impl.Trigger) =&gt; t.copy(TopLevelBoolean.this.removeTopLevels(groupParts, t.expression), t.copy$default$2, t.copy$default$3, t.copy$default$4))).sortBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int)
+        </td>
+      </tr><tr>
+        <td>
           236
         </td>
         <td>
-          12193
+          12230
         </td>
         <td>
-          7376
+          7520
           -
-          7392
+          7536
         </td>
         <td>
           TypeApply
@@ -3775,12 +3873,12 @@ else
           236
         </td>
         <td>
-          12261
+          12300
         </td>
         <td>
-          7353
+          7497
           -
-          10134
+          10303
         </td>
         <td>
           Apply
@@ -3806,20 +3904,20 @@ else
             triggers.size./(targetBucket)
           else
             triggers.size./(targetBucket).+(1);
-          val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1));
+          val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1));
           if (bucketed.size.==(1).&amp;&amp;(differentiator.bucketer(0, numberOfBuckets).==(org.apache.spark.sql.catalyst.expressions.Literal.apply(true))))
             {
-              val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-              scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+              val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+              scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
             }
           else
-            scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-              case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-                val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-                val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-                cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-              }
-            })))))
+            scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
         }
       }));
       cur.++[com.sparkutils.quality.impl.Group](newSeqs)
@@ -3828,7 +3926,7 @@ else
     if (triggers.size.&gt;(4))
       {
         val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers, groupParts);
-        cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
+        cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
       }
     else
       cur
@@ -3839,12 +3937,12 @@ else
           239
         </td>
         <td>
-          12194
+          12231
         </td>
         <td>
-          7464
+          7608
           -
-          7492
+          7636
         </td>
         <td>
           Apply
@@ -3863,12 +3961,12 @@ else
           239
         </td>
         <td>
-          12248
+          12287
         </td>
         <td>
-          7494
+          7638
           -
-          9753
+          9922
         </td>
         <td>
           Block
@@ -3892,20 +3990,20 @@ else
         triggers.size./(targetBucket)
       else
         triggers.size./(targetBucket).+(1);
-      val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1));
+      val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1));
       if (bucketed.size.==(1).&amp;&amp;(differentiator.bucketer(0, numberOfBuckets).==(org.apache.spark.sql.catalyst.expressions.Literal.apply(true))))
         {
-          val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+          val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
         }
       else
-        scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-          case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-            val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-            val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-            cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-          }
-        })))))
+        scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
     }
   }));
   cur.++[com.sparkutils.quality.impl.Group](newSeqs)
@@ -3916,12 +4014,12 @@ else
           239
         </td>
         <td>
-          12260
+          12299
         </td>
         <td>
-          7460
+          7604
           -
-          10126
+          10295
         </td>
         <td>
           If
@@ -3946,20 +4044,20 @@ else
           triggers.size./(targetBucket)
         else
           triggers.size./(targetBucket).+(1);
-        val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1));
+        val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1));
         if (bucketed.size.==(1).&amp;&amp;(differentiator.bucketer(0, numberOfBuckets).==(org.apache.spark.sql.catalyst.expressions.Literal.apply(true))))
           {
-            val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-            scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+            val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+            scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
           }
         else
-          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-            case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-              val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-              val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-              cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-            }
-          })))))
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
       }
     }));
     cur.++[com.sparkutils.quality.impl.Group](newSeqs)
@@ -3968,7 +4066,7 @@ else
   if (triggers.size.&gt;(4))
     {
       val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers, groupParts);
-      cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
+      cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
     }
   else
     cur
@@ -3978,12 +4076,12 @@ else
           242
         </td>
         <td>
-          12195
+          12232
         </td>
         <td>
-          7652
+          7796
           -
-          7711
+          7855
         </td>
         <td>
           Apply
@@ -4002,12 +4100,12 @@ else
           244
         </td>
         <td>
-          12201
+          12238
         </td>
         <td>
-          7725
+          7869
           -
-          7962
+          8106
         </td>
         <td>
           Apply
@@ -4029,12 +4127,12 @@ else
           246
         </td>
         <td>
-          12196
+          12233
         </td>
         <td>
-          7834
+          7978
           -
-          7852
+          7996
         </td>
         <td>
           Select
@@ -4053,12 +4151,12 @@ else
           246
         </td>
         <td>
-          12197
+          12234
         </td>
         <td>
-          7859
+          8003
           -
-          7874
+          8018
         </td>
         <td>
           Select
@@ -4077,12 +4175,12 @@ else
           246
         </td>
         <td>
-          12198
+          12235
         </td>
         <td>
-          7816
+          7960
           -
-          7875
+          8019
         </td>
         <td>
           Apply
@@ -4101,12 +4199,12 @@ else
           246
         </td>
         <td>
-          12199
+          12236
         </td>
         <td>
-          7802
+          7946
           -
-          7876
+          8020
         </td>
         <td>
           Apply
@@ -4125,12 +4223,12 @@ else
           248
         </td>
         <td>
-          12200
+          12237
         </td>
         <td>
-          7894
+          8038
           -
-          7948
+          8092
         </td>
         <td>
           Apply
@@ -4149,12 +4247,12 @@ else
           255
         </td>
         <td>
-          12246
+          12285
         </td>
         <td>
-          8160
+          8304
           -
-          9714
+          9883
         </td>
         <td>
           Apply
@@ -4172,20 +4270,20 @@ else
       triggers.size./(targetBucket)
     else
       triggers.size./(targetBucket).+(1);
-    val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1));
+    val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1));
     if (bucketed.size.==(1).&amp;&amp;(differentiator.bucketer(0, numberOfBuckets).==(org.apache.spark.sql.catalyst.expressions.Literal.apply(true))))
       {
-        val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-        scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+        val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+        scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
       }
     else
-      scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-        case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-          val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-          val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-        }
-      })))))
+      scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
   }
 }))
         </td>
@@ -4194,12 +4292,12 @@ else
           256
         </td>
         <td>
-          12245
+          12284
         </td>
         <td>
-          8242
+          8386
           -
-          9698
+          9867
         </td>
         <td>
           Block
@@ -4216,20 +4314,20 @@ else
     triggers.size./(targetBucket)
   else
     triggers.size./(targetBucket).+(1);
-  val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1));
+  val bucketed: scala.collection.immutable.Map[Int,scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1));
   if (bucketed.size.==(1).&amp;&amp;(differentiator.bucketer(0, numberOfBuckets).==(org.apache.spark.sql.catalyst.expressions.Literal.apply(true))))
     {
-      val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-      scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+      val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+      scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
     }
   else
-    scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-      case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-        val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-        val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-        cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-      }
-    })))))
+    scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
 }
         </td>
       </tr><tr>
@@ -4237,12 +4335,12 @@ else
           259
         </td>
         <td>
-          12202
+          12239
         </td>
         <td>
-          8310
+          8454
           -
-          8343
+          8487
         </td>
         <td>
           Apply
@@ -4261,12 +4359,12 @@ else
           260
         </td>
         <td>
-          12203
+          12240
         </td>
         <td>
-          8367
+          8511
           -
-          8395
+          8539
         </td>
         <td>
           Apply
@@ -4285,12 +4383,12 @@ else
           260
         </td>
         <td>
-          12204
+          12241
         </td>
         <td>
-          8367
+          8511
           -
-          8395
+          8539
         </td>
         <td>
           Block
@@ -4309,12 +4407,12 @@ else
           262
         </td>
         <td>
-          12205
+          12242
         </td>
         <td>
-          8444
+          8588
           -
-          8476
+          8620
         </td>
         <td>
           Apply
@@ -4333,12 +4431,12 @@ else
           262
         </td>
         <td>
-          12206
+          12243
         </td>
         <td>
-          8444
+          8588
           -
-          8476
+          8620
         </td>
         <td>
           Block
@@ -4357,12 +4455,12 @@ else
           269
         </td>
         <td>
-          12207
+          12244
         </td>
         <td>
-          8713
+          8857
           -
-          8770
+          8914
         </td>
         <td>
           Apply
@@ -4381,12 +4479,12 @@ else
           270
         </td>
         <td>
-          12208
+          12245
         </td>
         <td>
-          8801
+          8945
           -
-          8805
+          8949
         </td>
         <td>
           Select
@@ -4398,19 +4496,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$15._1
+          x$16._1
         </td>
       </tr><tr>
         <td>
           270
         </td>
         <td>
-          12209
+          12246
         </td>
         <td>
-          8648
+          8792
           -
-          8806
+          8950
         </td>
         <td>
           Apply
@@ -4422,19 +4520,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$15: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$15._1))
+          triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._1))
         </td>
       </tr><tr>
         <td>
           272
         </td>
         <td>
-          12210
+          12247
         </td>
         <td>
-          8847
+          8991
           -
-          8848
+          8992
         </td>
         <td>
           Literal
@@ -4453,12 +4551,12 @@ else
           272
         </td>
         <td>
-          12211
+          12248
         </td>
         <td>
-          8876
+          9020
           -
-          8877
+          9021
         </td>
         <td>
           Literal
@@ -4477,12 +4575,12 @@ else
           272
         </td>
         <td>
-          12212
+          12249
         </td>
         <td>
-          8898
+          9042
           -
-          8911
+          9055
         </td>
         <td>
           Apply
@@ -4501,12 +4599,12 @@ else
           272
         </td>
         <td>
-          12213
+          12250
         </td>
         <td>
-          8852
+          8996
           -
-          8911
+          9055
         </td>
         <td>
           Apply
@@ -4525,12 +4623,12 @@ else
           272
         </td>
         <td>
-          12214
+          12251
         </td>
         <td>
-          8830
+          8974
           -
-          8911
+          9055
         </td>
         <td>
           Apply
@@ -4549,12 +4647,12 @@ else
           272
         </td>
         <td>
-          12224
+          12261
         </td>
         <td>
-          8913
+          9057
           -
-          9167
+          9311
         </td>
         <td>
           Block
@@ -4567,8 +4665,8 @@ else
         </td>
         <td style="background: #AEF1AE">
           {
-  val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts);
-  scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts);
+  scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
 }
         </td>
       </tr><tr>
@@ -4576,12 +4674,12 @@ else
           274
         </td>
         <td>
-          12215
+          12252
         </td>
         <td>
-          9034
+          9178
           -
-          9038
+          9182
         </td>
         <td>
           Select
@@ -4593,19 +4691,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$16._2
+          x$17._2
         </td>
       </tr><tr>
         <td>
           274
         </td>
         <td>
-          12216
+          12253
         </td>
         <td>
-          9013
+          9157
           -
-          9039
+          9183
         </td>
         <td>
           Apply
@@ -4617,19 +4715,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2))
+          bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2))
         </td>
       </tr><tr>
         <td>
           274
         </td>
         <td>
-          12217
+          12254
         </td>
         <td>
-          9005
+          9149
           -
-          9052
+          9196
         </td>
         <td>
           Apply
@@ -4641,19 +4739,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$16: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$16._2)), groupParts)
+          addSeen(bucketed.head._2.map[com.sparkutils.quality.impl.Trigger](((x$17: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$17._2)), groupParts)
         </td>
       </tr><tr>
         <td>
           275
         </td>
         <td>
-          12218
+          12255
         </td>
         <td>
-          9104
+          9248
           -
-          9114
+          9258
         </td>
         <td>
           Select
@@ -4665,19 +4763,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$17.salience
+          x$18.salience
         </td>
       </tr><tr>
         <td>
           275
         </td>
         <td>
-          12219
+          12256
         </td>
         <td>
-          9103
+          9247
           -
-          9103
+          9247
         </td>
         <td>
           Select
@@ -4696,12 +4794,12 @@ else
           275
         </td>
         <td>
-          12220
+          12257
         </td>
         <td>
-          9088
+          9232
           -
-          9124
+          9268
         </td>
         <td>
           Select
@@ -4713,19 +4811,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience
+          corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience
         </td>
       </tr><tr>
         <td>
           275
         </td>
         <td>
-          12221
+          12258
         </td>
         <td>
-          9126
+          9270
           -
-          9145
+          9289
         </td>
         <td>
           Apply
@@ -4744,12 +4842,12 @@ else
           275
         </td>
         <td>
-          12222
+          12259
         </td>
         <td>
-          9077
+          9221
           -
-          9146
+          9290
         </td>
         <td>
           Apply
@@ -4761,19 +4859,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected))
+          com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected))
         </td>
       </tr><tr>
         <td>
           275
         </td>
         <td>
-          12223
+          12260
         </td>
         <td>
-          9073
+          9217
           -
-          9147
+          9291
         </td>
         <td>
           Apply
@@ -4785,19 +4883,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, corrected.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12225
+          12262
         </td>
         <td>
-          9223
+          9367
           -
-          9233
+          9377
         </td>
         <td>
           Select
@@ -4809,19 +4907,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$18.salience
+          x$19.salience
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12226
+          12263
         </td>
         <td>
-          9222
+          9366
           -
-          9222
+          9366
         </td>
         <td>
           Select
@@ -4840,12 +4938,12 @@ else
           277
         </td>
         <td>
-          12227
+          12264
         </td>
         <td>
-          9208
+          9352
           -
-          9243
+          9387
         </td>
         <td>
           Select
@@ -4857,19 +4955,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience
+          triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12241
+          12280
         </td>
         <td>
-          9245
+          9389
           -
-          9696
+          9865
         </td>
         <td>
           Apply
@@ -4884,22 +4982,22 @@ else
           com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
   case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
     val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
   }
-})))
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12242
+          12281
         </td>
         <td>
-          9197
+          9341
           -
-          9697
+          9866
         </td>
         <td>
           Apply
@@ -4911,25 +5009,25 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+          com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
   case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
     val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
   }
-}))))
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int)))
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12243
+          12282
         </td>
         <td>
-          9193
+          9337
           -
-          9698
+          9867
         </td>
         <td>
           Apply
@@ -4941,25 +5039,25 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
   case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
     val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
   }
-})))))
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
         </td>
       </tr><tr>
         <td>
           277
         </td>
         <td>
-          12244
+          12283
         </td>
         <td>
-          9193
+          9337
           -
-          9698
+          9867
         </td>
         <td>
           Block
@@ -4971,25 +5069,25 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$18: com.sparkutils.quality.impl.Trigger) =&gt; x$18.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, triggers.minBy[Int](((x$19: com.sparkutils.quality.impl.Trigger) =&gt; x$19.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Groups.apply(bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
   case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
     val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
   }
-})))))
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int))))
         </td>
       </tr><tr>
         <td>
           278
         </td>
         <td>
-          12228
+          12265
         </td>
         <td>
-          9293
+          9437
           -
-          9309
+          9453
         </td>
         <td>
           TypeApply
@@ -5005,45 +5103,15 @@ else
         </td>
       </tr><tr>
         <td>
-          278
-        </td>
-        <td>
-          12240
-        </td>
-        <td>
-          9275
-          -
-          9674
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOnceOps.foldLeft
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
-  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
-    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
-  }
-}))
-        </td>
-      </tr><tr>
-        <td>
           279
         </td>
         <td>
-          12239
+          12276
         </td>
         <td>
-          9364
+          9508
           -
-          9650
+          9794
         </td>
         <td>
           Block
@@ -5057,8 +5125,8 @@ else
         <td style="background: #AEF1AE">
           {
   val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
-  val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts);
-  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
 }
         </td>
       </tr><tr>
@@ -5066,12 +5134,12 @@ else
           280
         </td>
         <td>
-          12229
+          12266
         </td>
         <td>
-          9411
+          9555
           -
-          9459
+          9603
         </td>
         <td>
           Apply
@@ -5090,12 +5158,12 @@ else
           282
         </td>
         <td>
-          12230
+          12267
         </td>
         <td>
-          9521
+          9665
           -
-          9525
+          9669
         </td>
         <td>
           Select
@@ -5107,19 +5175,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$19._2
+          x$20._2
         </td>
       </tr><tr>
         <td>
           282
         </td>
         <td>
-          12231
+          12268
         </td>
         <td>
-          9511
+          9655
           -
-          9526
+          9670
         </td>
         <td>
           Apply
@@ -5131,19 +5199,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2))
+          trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2))
         </td>
       </tr><tr>
         <td>
           282
         </td>
         <td>
-          12232
+          12269
         </td>
         <td>
-          9503
+          9647
           -
-          9539
+          9683
         </td>
         <td>
           Apply
@@ -5155,19 +5223,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$19: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$19._2)), groupParts)
+          addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts)
         </td>
       </tr><tr>
         <td>
           283
         </td>
         <td>
-          12233
+          12270
         </td>
         <td>
-          9608
+          9752
           -
-          9618
+          9762
         </td>
         <td>
           Select
@@ -5179,19 +5247,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$20.salience
+          x$21.salience
         </td>
       </tr><tr>
         <td>
           283
         </td>
         <td>
-          12234
+          12271
         </td>
         <td>
-          9607
+          9751
           -
-          9607
+          9751
         </td>
         <td>
           Select
@@ -5210,12 +5278,12 @@ else
           283
         </td>
         <td>
-          12235
+          12272
         </td>
         <td>
-          9592
+          9736
           -
-          9628
+          9772
         </td>
         <td>
           Select
@@ -5227,19 +5295,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience
+          corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience
         </td>
       </tr><tr>
         <td>
           283
         </td>
         <td>
-          12236
+          12273
         </td>
         <td>
-          9630
+          9774
           -
-          9649
+          9793
         </td>
         <td>
           Apply
@@ -5258,12 +5326,12 @@ else
           283
         </td>
         <td>
-          12237
+          12274
         </td>
         <td>
-          9573
+          9717
           -
-          9650
+          9794
         </td>
         <td>
           Apply
@@ -5275,19 +5343,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected))
+          com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected))
         </td>
       </tr><tr>
         <td>
           283
         </td>
         <td>
-          12238
+          12275
         </td>
         <td>
-          9566
+          9710
           -
-          9650
+          9794
         </td>
         <td>
           Apply
@@ -5299,19 +5367,97 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$20: com.sparkutils.quality.impl.Trigger) =&gt; x$20.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          12277
+        </td>
+        <td>
+          9826
+          -
+          9842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.lowestSalience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$22.lowestSalience
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          12278
+        </td>
+        <td>
+          9825
+          -
+          9825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          12279
+        </td>
+        <td>
+          9419
+          -
+          9843
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$3: Seq[com.sparkutils.quality.impl.Group], x1$2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])](x0$3, x1$2) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, scala.collection.mutable.ArrayBuffer[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$20: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$20._2)), groupParts);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(bucketedExp, corrected.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(corrected)))
+  }
+})).sortBy[Int](((x$22: com.sparkutils.quality.impl.Group) =&gt; x$22.lowestSalience))(math.this.Ordering.Int)
         </td>
       </tr><tr>
         <td>
           287
         </td>
         <td>
-          12247
+          12286
         </td>
         <td>
-          9727
+          9896
           -
-          9741
+          9910
         </td>
         <td>
           Apply
@@ -5330,12 +5476,12 @@ else
           288
         </td>
         <td>
-          12249
+          12288
         </td>
         <td>
-          9763
+          9932
           -
-          9780
+          9949
         </td>
         <td>
           Apply
@@ -5354,12 +5500,12 @@ else
           288
         </td>
         <td>
-          12257
+          12296
         </td>
         <td>
-          9782
+          9951
           -
-          10105
+          10274
         </td>
         <td>
           Block
@@ -5373,7 +5519,7 @@ else
         <td style="background: #AEF1AE">
           {
   val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers, groupParts);
-  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
+  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
 }
         </td>
       </tr><tr>
@@ -5381,12 +5527,12 @@ else
           288
         </td>
         <td>
-          12259
+          12298
         </td>
         <td>
-          9759
+          9928
           -
-          10126
+          10295
         </td>
         <td>
           If
@@ -5401,7 +5547,7 @@ else
           if (triggers.size.&gt;(4))
   {
     val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers, groupParts);
-    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
   }
 else
   cur
@@ -5411,12 +5557,12 @@ else
           291
         </td>
         <td>
-          12250
+          12289
         </td>
         <td>
-          9971
+          10140
           -
-          10000
+          10169
         </td>
         <td>
           Apply
@@ -5435,12 +5581,12 @@ else
           292
         </td>
         <td>
-          12251
+          12290
         </td>
         <td>
-          10049
+          10218
           -
-          10059
+          10228
         </td>
         <td>
           Select
@@ -5452,19 +5598,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$21.salience
+          x$23.salience
         </td>
       </tr><tr>
         <td>
           292
         </td>
         <td>
-          12252
+          12291
         </td>
         <td>
-          10048
+          10217
           -
-          10048
+          10217
         </td>
         <td>
           Select
@@ -5483,12 +5629,12 @@ else
           292
         </td>
         <td>
-          12253
+          12292
         </td>
         <td>
-          10031
+          10200
           -
-          10069
+          10238
         </td>
         <td>
           Select
@@ -5500,19 +5646,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience
+          newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience
         </td>
       </tr><tr>
         <td>
           292
         </td>
         <td>
-          12254
+          12293
         </td>
         <td>
-          10071
+          10240
           -
-          10092
+          10261
         </td>
         <td>
           Apply
@@ -5531,12 +5677,12 @@ else
           292
         </td>
         <td>
-          12255
+          12294
         </td>
         <td>
-          10020
+          10189
           -
-          10093
+          10262
         </td>
         <td>
           Apply
@@ -5548,19 +5694,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers))
+          com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers))
         </td>
       </tr><tr>
         <td>
           292
         </td>
         <td>
-          12256
+          12295
         </td>
         <td>
-          10013
+          10182
           -
-          10093
+          10262
         </td>
         <td>
           Apply
@@ -5572,19 +5718,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$21: com.sparkutils.quality.impl.Trigger) =&gt; x$21.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
+          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$23: com.sparkutils.quality.impl.Trigger) =&gt; x$23.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(newTriggers)))
         </td>
       </tr><tr>
         <td>
           294
         </td>
         <td>
-          12258
+          12297
         </td>
         <td>
-          10123
+          10292
           -
-          10126
+          10295
         </td>
         <td>
           Ident
@@ -5603,12 +5749,12 @@ else
           297
         </td>
         <td>
-          12262
+          12301
         </td>
         <td>
-          10183
+          10352
           -
-          10195
+          10364
         </td>
         <td>
           Select
@@ -5627,12 +5773,12 @@ else
           297
         </td>
         <td>
-          12263
+          12302
         </td>
         <td>
-          10178
+          10347
           -
-          10196
+          10365
         </td>
         <td>
           Apply
@@ -5651,12 +5797,12 @@ else
           297
         </td>
         <td>
-          12264
+          12303
         </td>
         <td>
-          10151
+          10320
           -
-          10197
+          10366
         </td>
         <td>
           Apply
@@ -5672,15 +5818,15 @@ else
         </td>
       </tr><tr>
         <td>
-          298
+          299
         </td>
         <td>
-          12265
+          12304
         </td>
         <td>
-          10206
+          10383
           -
-          10218
+          10395
         </td>
         <td>
           Select
@@ -5696,15 +5842,15 @@ else
         </td>
       </tr><tr>
         <td>
-          299
+          300
         </td>
         <td>
-          12266
+          12305
         </td>
         <td>
-          10226
+          10405
           -
-          10235
+          10414
         </td>
         <td>
           Ident
@@ -5720,15 +5866,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12267
+          12306
         </td>
         <td>
-          10271
+          10454
           -
-          10284
+          10467
         </td>
         <td>
           Apply
@@ -5744,15 +5890,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12268
+          12307
         </td>
         <td>
-          10297
+          10480
           -
-          10307
+          10490
         </td>
         <td>
           Select
@@ -5764,19 +5910,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$22.salience
+          x$24.salience
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12269
+          12308
         </td>
         <td>
-          10296
+          10479
           -
-          10296
+          10479
         </td>
         <td>
           Select
@@ -5792,15 +5938,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12270
+          12309
         </td>
         <td>
-          10286
+          10469
           -
-          10317
+          10500
         </td>
         <td>
           Select
@@ -5812,19 +5958,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          rest.minBy[Int](((x$22: com.sparkutils.quality.impl.Trigger) =&gt; x$22.salience))(math.this.Ordering.Int).salience
+          rest.minBy[Int](((x$24: com.sparkutils.quality.impl.Trigger) =&gt; x$24.salience))(math.this.Ordering.Int).salience
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12271
+          12310
         </td>
         <td>
-          10319
+          10502
           -
-          10333
+          10516
         </td>
         <td>
           Apply
@@ -5840,15 +5986,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12272
+          12311
         </td>
         <td>
-          10265
+          10448
           -
-          10334
+          10517
         </td>
         <td>
           Apply
@@ -5860,19 +6006,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$22: com.sparkutils.quality.impl.Trigger) =&gt; x$22.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))
+          com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$24: com.sparkutils.quality.impl.Trigger) =&gt; x$24.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12273
+          12312
         </td>
         <td>
-          10343
+          10526
           -
-          10353
+          10536
         </td>
         <td>
           Apply
@@ -5884,19 +6030,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          x$23.size.&gt;(0)
+          x$25.size.&gt;(0)
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12274
+          12313
         </td>
         <td>
-          10251
+          10434
           -
-          10354
+          10537
         </td>
         <td>
           Apply
@@ -5908,19 +6054,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$22: com.sparkutils.quality.impl.Trigger) =&gt; x$22.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))).filter(((x$23: com.sparkutils.quality.impl.Group) =&gt; x$23.size.&gt;(0)))
+          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$24: com.sparkutils.quality.impl.Trigger) =&gt; x$24.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))).filter(((x$25: com.sparkutils.quality.impl.Group) =&gt; x$25.size.&gt;(0)))
         </td>
       </tr><tr>
         <td>
-          301
+          302
         </td>
         <td>
-          12275
+          12314
         </td>
         <td>
-          10251
+          10434
           -
-          10354
+          10537
         </td>
         <td>
           Block
@@ -5932,19 +6078,94 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$22: com.sparkutils.quality.impl.Trigger) =&gt; x$22.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))).filter(((x$23: com.sparkutils.quality.impl.Group) =&gt; x$23.size.&gt;(0)))
+          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$24: com.sparkutils.quality.impl.Trigger) =&gt; x$24.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))).filter(((x$25: com.sparkutils.quality.impl.Group) =&gt; x$25.size.&gt;(0)))
         </td>
       </tr><tr>
         <td>
-          305
+          303
         </td>
         <td>
-          12276
+          12315
         </td>
         <td>
-          10458
+          10551
           -
-          10480
+          10567
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.lowestSalience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$26.lowestSalience
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          12316
+        </td>
+        <td>
+          10550
+          -
+          10550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          12317
+        </td>
+        <td>
+          10371
+          -
+          10568
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (rest.isEmpty)
+  topHitter
+else
+  topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$24: com.sparkutils.quality.impl.Trigger) =&gt; x$24.salience))(math.this.Ordering.Int).salience, com.sparkutils.quality.impl.Triggers.apply(rest))).filter(((x$25: com.sparkutils.quality.impl.Group) =&gt; x$25.size.&gt;(0))).sortBy[Int](((x$26: com.sparkutils.quality.impl.Group) =&gt; x$26.lowestSalience))(math.this.Ordering.Int)
+        </td>
+      </tr><tr>
+        <td>
+          307
+        </td>
+        <td>
+          12318
+        </td>
+        <td>
+          10672
+          -
+          10694
         </td>
         <td>
           Apply
@@ -5960,15 +6181,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          307
         </td>
         <td>
-          12277
+          12319
         </td>
         <td>
-          10450
+          10664
           -
-          10484
+          10698
         </td>
         <td>
           Apply
@@ -5984,15 +6205,15 @@ else
         </td>
       </tr><tr>
         <td>
-          309
+          311
         </td>
         <td>
-          12278
+          12320
         </td>
         <td>
-          10583
+          10797
           -
-          10592
+          10806
         </td>
         <td>
           Apply
@@ -6008,15 +6229,15 @@ else
         </td>
       </tr><tr>
         <td>
-          309
+          311
         </td>
         <td>
-          12279
+          12321
         </td>
         <td>
-          10575
+          10789
           -
-          10596
+          10810
         </td>
         <td>
           Apply
@@ -6032,15 +6253,15 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          315
         </td>
         <td>
-          12280
+          12322
         </td>
         <td>
-          10754
+          10968
           -
-          10783
+          10997
         </td>
         <td>
           Apply
@@ -6056,15 +6277,15 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          315
         </td>
         <td>
-          12281
+          12323
         </td>
         <td>
-          10722
+          10936
           -
-          10783
+          10997
         </td>
         <td>
           Apply
@@ -6080,15 +6301,15 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          315
         </td>
         <td>
-          12282
+          12324
         </td>
         <td>
-          10722
+          10936
           -
-          10783
+          10997
         </td>
         <td>
           Block
@@ -6104,15 +6325,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          316
         </td>
         <td>
-          12283
+          12325
         </td>
         <td>
-          10807
+          11021
           -
-          10813
+          11027
         </td>
         <td>
           Apply
@@ -6128,15 +6349,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          316
         </td>
         <td>
-          12284
+          12326
         </td>
         <td>
-          10807
+          11021
           -
-          10813
+          11027
         </td>
         <td>
           Block
@@ -6152,15 +6373,15 @@ else
         </td>
       </tr><tr>
         <td>
-          315
+          317
         </td>
         <td>
-          12285
+          12327
         </td>
         <td>
-          10828
+          11042
           -
-          10837
+          11051
         </td>
         <td>
           TypeApply
@@ -6176,15 +6397,15 @@ else
         </td>
       </tr><tr>
         <td>
-          315
+          317
         </td>
         <td>
-          12286
+          12328
         </td>
         <td>
-          10828
+          11042
           -
-          10837
+          11051
         </td>
         <td>
           Block
@@ -6200,15 +6421,15 @@ else
         </td>
       </tr><tr>
         <td>
-          320
+          322
         </td>
         <td>
-          12287
+          12329
         </td>
         <td>
-          11006
+          11220
           -
-          11015
+          11229
         </td>
         <td>
           TypeApply
@@ -6224,15 +6445,15 @@ else
         </td>
       </tr><tr>
         <td>
-          320
+          322
         </td>
         <td>
-          12288
+          12330
         </td>
         <td>
-          11006
+          11220
           -
-          11015
+          11229
         </td>
         <td>
           Block
@@ -6248,15 +6469,15 @@ else
         </td>
       </tr><tr>
         <td>
-          321
+          323
         </td>
         <td>
-          12289
+          12331
         </td>
         <td>
-          11064
+          11278
           -
-          11080
+          11294
         </td>
         <td>
           Apply
@@ -6272,15 +6493,15 @@ else
         </td>
       </tr><tr>
         <td>
-          321
+          323
         </td>
         <td>
-          12290
+          12332
         </td>
         <td>
-          11045
+          11259
           -
-          11080
+          11294
         </td>
         <td>
           Apply
@@ -6296,15 +6517,15 @@ else
         </td>
       </tr><tr>
         <td>
-          321
+          323
         </td>
         <td>
-          12291
+          12333
         </td>
         <td>
-          11045
+          11259
           -
-          11080
+          11294
         </td>
         <td>
           Block
@@ -6320,15 +6541,15 @@ else
         </td>
       </tr><tr>
         <td>
-          322
+          324
         </td>
         <td>
-          12292
+          12334
         </td>
         <td>
-          11121
+          11335
           -
-          11132
+          11346
         </td>
         <td>
           Select
@@ -6344,15 +6565,15 @@ else
         </td>
       </tr><tr>
         <td>
-          322
+          324
         </td>
         <td>
-          12293
+          12335
         </td>
         <td>
-          11107
+          11321
           -
-          11132
+          11346
         </td>
         <td>
           Apply
@@ -6368,15 +6589,15 @@ else
         </td>
       </tr><tr>
         <td>
-          323
+          325
         </td>
         <td>
-          12294
+          12336
         </td>
         <td>
-          11142
+          11356
           -
-          11148
+          11362
         </td>
         <td>
           Apply
@@ -6392,15 +6613,15 @@ else
         </td>
       </tr><tr>
         <td>
-          323
+          325
         </td>
         <td>
-          12295
+          12337
         </td>
         <td>
-          11142
+          11356
           -
-          11148
+          11362
         </td>
         <td>
           Block
@@ -6416,15 +6637,15 @@ else
         </td>
       </tr><tr>
         <td>
-          324
+          326
         </td>
         <td>
-          12296
+          12338
         </td>
         <td>
-          11163
+          11377
           -
-          11172
+          11386
         </td>
         <td>
           TypeApply
@@ -6440,15 +6661,15 @@ else
         </td>
       </tr><tr>
         <td>
-          324
+          326
         </td>
         <td>
-          12297
+          12339
         </td>
         <td>
-          11163
+          11377
           -
-          11172
+          11386
         </td>
         <td>
           Block
@@ -6464,15 +6685,15 @@ else
         </td>
       </tr><tr>
         <td>
-          328
+          330
         </td>
         <td>
-          12298
+          12340
         </td>
         <td>
-          11320
+          11534
           -
-          11343
+          11557
         </td>
         <td>
           Apply
@@ -6488,15 +6709,15 @@ else
         </td>
       </tr><tr>
         <td>
-          334
+          336
         </td>
         <td>
-          12299
+          12341
         </td>
         <td>
-          11471
+          11685
           -
-          11484
+          11698
         </td>
         <td>
           Apply
@@ -6512,15 +6733,15 @@ else
         </td>
       </tr><tr>
         <td>
-          335
+          337
         </td>
         <td>
-          12305
+          12347
         </td>
         <td>
-          11526
+          11740
           -
-          11526
+          11740
         </td>
         <td>
           Apply
@@ -6536,15 +6757,15 @@ else
         </td>
       </tr><tr>
         <td>
-          335
+          337
         </td>
         <td>
-          12306
+          12348
         </td>
         <td>
-          11504
+          11718
           -
-          11675
+          11889
         </td>
         <td>
           Apply
@@ -6582,15 +6803,15 @@ else
         </td>
       </tr><tr>
         <td>
-          336
+          338
         </td>
         <td>
-          12300
+          12342
         </td>
         <td>
-          11544
+          11758
           -
-          11572
+          11786
         </td>
         <td>
           Apply
@@ -6606,15 +6827,15 @@ else
         </td>
       </tr><tr>
         <td>
-          336
+          338
         </td>
         <td>
-          12301
+          12343
         </td>
         <td>
-          11576
+          11790
           -
-          11577
+          11791
         </td>
         <td>
           Ident
@@ -6630,15 +6851,15 @@ else
         </td>
       </tr><tr>
         <td>
-          337
+          339
         </td>
         <td>
-          12302
+          12344
         </td>
         <td>
-          11606
+          11820
           -
-          11611
+          11825
         </td>
         <td>
           Ident
@@ -6654,15 +6875,15 @@ else
         </td>
       </tr><tr>
         <td>
-          338
+          340
         </td>
         <td>
-          12303
+          12345
         </td>
         <td>
-          11639
+          11853
           -
-          11643
+          11857
         </td>
         <td>
           Ident
@@ -6678,15 +6899,15 @@ else
         </td>
       </tr><tr>
         <td>
-          339
+          341
         </td>
         <td>
-          12304
+          12346
         </td>
         <td>
-          11668
+          11882
           -
-          11669
+          11883
         </td>
         <td>
           Ident
