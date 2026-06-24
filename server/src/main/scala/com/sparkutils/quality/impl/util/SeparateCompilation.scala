@@ -291,10 +291,11 @@ object SeparateCompilation {
       else ""
 
     val splitSubs =
-      if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
+      if (genResult.ignoreTopLevelSubExpressions && subExpressions.isEmpty) // already provided by the grouper
         ""
       else
-        splitGlobalSubExprs(ctx, subExpressions)
+        subExpressions
+        //splitGlobalSubExprs(ctx, subExpressions)
 
     val initCode = splitGlobalSubExprs(ctx, ctx.initPartition(), name = "initCode", groupSize = 150)
 

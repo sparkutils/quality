@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.{DefaultTriggerGrouper, Runner, Trigger, Trig
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, GenericInternalRow, Literal}
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, ExprCode, VariableValue}
-import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.types.{DataType, IntegerType, StringType}
 
 import java.util.UUID
 import scala.collection.mutable
@@ -15,30 +15,48 @@ object SwitchGroups {
 
   def groups(triggers: Seq[Trigger]): Option[SwitchGroups] = {
     val operands = mutable.Set.empty[Expression]
+    val types = mutable.Set.empty[DataType]
 
     val labelsAndTrigger = triggers.map( trigger => trigger.expression match {
-      case EqualTo(Literal(left, StringType), op) =>
+      case EqualTo(Literal(left, t), op) =>
         operands.add(op)
-        (s""""${left.toString}"""", trigger)
-      case EqualTo(op, Literal(right, StringType)) =>
+        types.add(t)
+        (s"""${left.toString}""", trigger)
+      case EqualTo(op, Literal(right, t)) =>
+        types.add(t)
         operands.add(op)
-        (s""""${right.toString}"""", trigger)
+        (s"""${right.toString}""", trigger)
       case _ =>
         (uuid, trigger)
     } )
 
-    if (operands.size > 1 || labelsAndTrigger.exists(_._1 == uuid))
+    if ((operands.size > 1) || (types.size > 1) || labelsAndTrigger.exists(_._1 == uuid))
       None
-    else
-      Some(SwitchGroups(operands.head, "String", v => s"$v.toString()", lessThan = (s, r) => s"$s.compareTo($r) < 0",
-        lessThanOrEqual = (s, l) => s"$s.compareTo($l) <= 0",
-        greaterThanOrEqual = (s, l) => s"$s.compareTo($l) >= 0", zero = "\"\"",
-        lessThanSpark = (s, l) => s"$s.${UTF8StringOps.compareTo}($l) < 0",
-        greaterThanSpark = (s, r) => s"$s.${UTF8StringOps.compareTo}($r) > 0",
-        sparkType = "org.apache.spark.unsafe.types.UTF8String",
-        initSpark = (v, t) => s"$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);",
-        triggers = labelsAndTrigger.sortBy(_._1)
-      ))
+    else types.head match {
+      case StringType =>
+        Some(SwitchGroups(operands.head, "String", v => s"$v.toString()", lessThan = (s, r) => s"$s.compareTo($r) < 0",
+          lessThanOrEqual = (s, l) => s"$s.compareTo($l) <= 0",
+          greaterThanOrEqual = (s, l) => s"$s.compareTo($l) >= 0", zero = "\"\"",
+          lessThanSpark = (s, l) => s"$s.${UTF8StringOps.compareTo}($l) < 0",
+          greaterThanSpark = (s, r) => s"$s.${UTF8StringOps.compareTo}($r) > 0",
+          sparkType = "org.apache.spark.unsafe.types.UTF8String",
+          initSpark = (v, t) => s"$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);",
+          triggers = labelsAndTrigger.map(p => s""""${p._1}"""" -> p._2).sortBy(_._1)
+        ))
+
+      case IntegerType =>
+        Some(SwitchGroups(operands.head, "int", v => s"$v", lessThan = (s, r) => s"$s < $r",
+          lessThanOrEqual = (s, l) => s"$s <= $l",
+          greaterThanOrEqual = (s, l) => s"$s >= $l", zero = "0",
+          lessThanSpark = (s, l) => s"$s < $l",
+          greaterThanSpark = (s, r) => s"$s > $r",
+          sparkType = "int",
+          initSpark = (v, t) => s"$v = $t;",
+          triggers = labelsAndTrigger.sortBy(_._1)
+        ))
+
+      case _ => None
+    }
 
   }
 
@@ -180,11 +198,20 @@ case class SwitchGroups(groupingExpression: Expression, typ: String,
 
         val (switchLeft, switchRight) = (switches(restLeft), switches(restRight))
 
+        val (paramsDef, paramsCall) = {
+          val switchTypeVal = s"$typ $switchVal"
+          if (params.paramsDef.contains(switchTypeVal))
+            (params.paramsDef, params.paramsCall) // for example if it's directly an inputadapter_value e.g. primitive (booleangroupertest)
+          else
+            (s"$switchTypeVal, ${params.paramsDef}", s"$switchVal, ${params.paramsCall}")
+        }
+
         def switch(switch: String, lOrR: String) = {
           val exprFuncName = ctx.freshName(prefix + s"GEFuncSwitchGroupsNested${lOrR}_" + groupDepth)
+
           val callFun = ctx.addNewFunction(exprFuncName,
             code"""
-             private void $exprFuncName($typ $switchVal, ${params.paramsDef}) {
+             private void $exprFuncName($paramsDef) {
                $switch
              }
             """.code
@@ -202,21 +229,21 @@ case class SwitchGroups(groupingExpression: Expression, typ: String,
             case (Some(leftFun), Some(rightFun)) =>
               s"""
                 if (($geLeft) && ($lessThanRight)) {
-                  $leftFun($switchVal, ${params.paramsCall});
+                  $leftFun($paramsCall);
                 } else {
-                  $rightFun($switchVal, ${params.paramsCall});
+                  $rightFun($paramsCall);
                 }
               """
             case (Some(leftFun), None) =>
               s"""
                 if ($geLeft) {
-                  $leftFun($switchVal, ${params.paramsCall});
+                  $leftFun($paramsCall);
                 }
               """
             case (None, Some(rightFun)) =>
               s"""
                 if (${greaterThanOrEqual(switchVal, restRightStartBucket)}) {
-                  $rightFun($switchVal, ${params.paramsCall});
+                  $rightFun($paramsCall);
                 }
               """
           }

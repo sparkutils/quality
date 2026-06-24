@@ -242,13 +242,6 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     )
   }
 
-  /**
-   * Should only be called after mergeParams chains
-   * @return
-   */
-  def createAdditional(): Seq[VariableValue] =
-    params.map( p => VariableValue(p._2, p._3))
-
   val useArity = if (arity > 22) 1 else arity
 
   /**
@@ -440,33 +433,6 @@ case class InputWrapper(left: Expression, right: Expression) extends BinaryExpre
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     right.genCode(ctx)
 }
-/*
-object TypeUtils {
-
-  private def mapType(l: MapType, r: MapType) =
-    equivalent(l.keyType, r.keyType) && equivalent(l.valueType, r.valueType)
-
-  /**
-   * Compares struct fields without using nullability
-   * @param left
-   * @param right
-   * @return
-   */
-  @tailrec
-  def equivalent(left: DataType, right: DataType): Boolean =
-    (left, right) match {
-      case (l: StructType, r: StructType) if l.fields.length == r.fields.length =>
-        l.copy(fields = l.fields.map(f => f.copy(nullable = true))) ==
-          r.copy(fields = r.fields.map(f => f.copy(nullable = true)))
-      case (_: StructType, _: StructType) =>
-        false
-      case (l: ArrayType, r: ArrayType) =>
-        equivalent(l.elementType, r.elementType)
-      case (l: MapType, r: MapType) =>
-        mapType(l, r)
-      case _ => left == right
-    }
-} */
 
 class Counter() {
   var counter = 0

@@ -4,7 +4,7 @@ import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercen
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
-import org.apache.spark.sql.types.{BooleanType, StringType}
+import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
@@ -113,8 +113,8 @@ object TopLevelBoolean {
     }
   }
 
-  // everything goes into the same bucket for switching on strings
-  case class SwitchStringDiff(operand: Expression) extends Differentiator {
+  // everything goes into the same bucket for switching on strings / ints
+  case class SwitchDiff(operand: Expression) extends Differentiator {
 
     def bucketer(bucket: Int, bucketSize: Int) = Literal(true)
 
@@ -143,8 +143,8 @@ object TopLevelBoolean {
     } && s.nonEmpty =>
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
 
-      if (operands.size == 1 && operands.head.dataType == StringType)
-        SwitchStringDiff(operands.head)
+      if (operands.size == 1 && (operands.head.dataType == StringType || operands.head.dataType == IntegerType))
+        SwitchDiff(operands.head) // TODO - duplicates, need to keep all to verify uniqueness and fallback!
       else
         EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>

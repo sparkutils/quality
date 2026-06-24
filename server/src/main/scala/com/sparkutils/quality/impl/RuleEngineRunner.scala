@@ -239,7 +239,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        exprFunEnd: String => Block = _ => code"",
                        salience: Int => Int = _ => 0,
                        groupSalienceCheck: (String, String) => Block = // String for externalSalience as it may be a term
-                         (externalSalience, currentSalience) => code" && ($externalSalience <= $currentSalience)"
+                         (externalSalience, currentSalience) => code" && ($externalSalience >= $currentSalience)"
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW

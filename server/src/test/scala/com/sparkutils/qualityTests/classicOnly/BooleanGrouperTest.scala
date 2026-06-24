@@ -57,7 +57,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
        when ((a + b) % 20) < 20 then ((a + b) = r.y) and (r.z = a)
        else false
       end as passes
-      """)).filter("passes = false").count// shouldBe 0
+      """)).filter("passes = false").count shouldBe 0
     /*as[(Int,Int,Int,Int,(Int,Int))].toLocalIterator().asScala.forall{
       case (a,b,c,d,(r, a2)) if (a + b) % 20 < 5 => a + b + c + d == r && a == a2
       case (a,b,c,d,(r, a2)) if (a + b) % 20 < 15 => a + b + c == r && a == a2
@@ -98,14 +98,14 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size should be > 25
-
-    //group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
+    group.ruleSuites.size shouldBe 4
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("(((a + b) % 20) < 15)"))) shouldBe true
-    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("abs(hash(a))")))) shouldBe true
-    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.toString.contains("a = 8")))) shouldBe true
+    group.ruleSuites.exists(_._2.ruleSets.exists(p => p.rules.exists(_.expression match {
+      case hasRuleText: HasRuleText => hasRuleText.rule == "(a = 8)"
+      case _ => false
+    }))) shouldBe true
   } }
 
   // as it doesn't group it's a separate code path, which impact top level ctx vars as well due to predicate pushdown
