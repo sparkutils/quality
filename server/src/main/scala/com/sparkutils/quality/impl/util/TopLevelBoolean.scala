@@ -272,7 +272,8 @@ object TopLevelBoolean {
                   if (bucketed.size == 1 && differentiator.bucketer(0,numberOfBuckets) == Literal(true)) {
                     // if it's "true" lift it back up
                     val corrected = addSeen(bucketed.head._2.map(_._2), groupParts)
-                    Seq(Group(sub, corrected.minBy(_.salience).salience, Triggers(corrected)))
+                    val lowest = corrected.minBy(_.salience).salience
+                    Seq(Group(sub, lowest, Triggers(corrected, lowest)))
                   } else
                     Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
                       bucketed.foldLeft(Seq.empty[Group]){
@@ -280,7 +281,8 @@ object TopLevelBoolean {
                           val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
                           val corrected = addSeen(trips.map(_._2), groupParts)
-                          cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
+                          val lowest = corrected.minBy(_.salience).salience
+                          cur :+ Group(bucketedExp, lowest, Triggers(corrected, lowest))
                       }.sortBy(_.lowestSalience)
                     )))
               }
@@ -289,7 +291,8 @@ object TopLevelBoolean {
             // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
             val newTriggers = addSeen(triggers, groupParts)
-            cur :+ Group(sub, newTriggers.minBy(_.salience).salience, Triggers(newTriggers))
+            val lowest = newTriggers.minBy(_.salience).salience
+            cur :+ Group(sub, lowest, Triggers(newTriggers, lowest))
           } else
             cur
       }
@@ -298,9 +301,11 @@ object TopLevelBoolean {
     (
       if (rest.isEmpty)
         topHitter
-      else
-        (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size > 0)
-    ).sortBy(_.lowestSalience)
+      else {
+        val lowest = rest.minBy(_.salience).salience
+        (topHitter :+ Group(Literal(true), lowest, Triggers(rest, lowest))).filter(_.size > 0)
+      }
+      ).sortBy(_.lowestSalience)
   }
 
   def differentiateFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {

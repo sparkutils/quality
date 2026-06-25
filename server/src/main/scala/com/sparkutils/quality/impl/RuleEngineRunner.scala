@@ -227,21 +227,22 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
   // exprEnd and exprFunEnd take currRuleResTerm as params
   def genCompilerTerms[T: ClassTag](runner: Runner, ruleRunnerExpressionIdx: Int,
-                       outerctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
-                       ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
-                       child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
-                       debugMode: Boolean, forceTriggerEval: Boolean,
-                       extraResult: (String, Int) => String = (_ : String, _: Int) => "",
-                       extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
-                       orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
-                       exprEnd: String => Block = _ => code"",
-                       exprFunEnd: String => Block = _ => code"",
-                       salience: Int => Int = _ => 0,
-                       groupSalienceCheck: (String, String) => Block = // String for externalSalience as it may be a term
-                         (externalSalience, currentSalience) =>
+                        outerctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                        ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                        child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
+                        debugMode: Boolean, forceTriggerEval: Boolean,
+                        extraResult: (String, Int) => String = (_ : String, _: Int) => "",
+                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
+                        orderOffset: Int => Int = identity,
+                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
+                        // used after each expression and before output expression code, as salience is used at a chain of triggers level passed is enough to exit
+                        // the parameter represents the currentResult token
+                        exprEnd: String => Block = _ => code"",
+                        salience: Int => Int = _ => 0,
+                        groupSalienceCheck: (String, String, String) => Block = // String for externalSalience as it may be a term
+                         (externalSalience, currentSalience, currentResult) =>
                            // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
-                           code" && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
+                           code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -415,7 +416,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(
       RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
         additionalParams, allExpr, exprEnd = () => exprEnd(currRuleResTerm),
-        exprFunEnd = () => exprFunEnd(currRuleResTerm), groupSalienceCheck = a => groupSalienceCheck(a, currentSalience)),
+        groupSalienceCheck = a => groupSalienceCheck(a, currentSalience, currRuleResTerm),
+        prefix = implicitly[ClassTag[T]].runtimeClass.getSimpleName),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
       runnerClassName = runnerClassName, paramsInfo, resultRow, resultRowCopy, output, inPlaceOffsets)
@@ -490,12 +492,24 @@ try{
 
         // #128 jump out of expr or rule groups
         val earlyReturn =
+          if (debugMode) (_: String) => code""
+          else
           (currRuleResTerm: String) =>
             code"""
             if ($currRuleResTerm == $PassedInt) {
               return;
             }
           """
+        // don't evaluate groups
+        val groupSalienceCheck: (String, String, String) => Block =
+          if (debugMode)
+            (externalSalience, currentSalience, currentResult) =>
+              // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+              code"(($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
+          else
+            (externalSalience, currentSalience, currentResult) =>
+              // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+              code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
 
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -510,7 +524,7 @@ try{
             orderOffset = (idx: Int) => reordered(idx),
             // we shouldn't check salience as we are already ordered by it
             salienceCheck = false,
-            exprEnd = earlyReturn, exprFunEnd = earlyReturn, salience = salience(_)
+            exprEnd = earlyReturn, groupSalienceCheck = groupSalienceCheck, salience = salience(_)
           )
 
         import compilerTerms._
