@@ -1,0 +1,5462 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/ServerRuleResults.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.RuleSuite.defaultProbablePass
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.MapOps.MapOps
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.Optional
+</span>6 <span style=''>
+</span>7 <span style=''>import scala.annotation.tailrec
+</span>8 <span style=''>
+</span>9 <span style=''>/**
+</span>10 <span style=''> * A lazy proxy for RuleSuiteResult
+</span>11 <span style=''> */
+</span>12 <span style=''>trait LazyRuleSuiteResult extends Serializable {
+</span>13 <span style=''>  def ruleSuiteResult: RuleSuiteResult
+</span>14 <span style=''>}
+</span>15 <span style=''>
+</span>16 <span style=''>/**
+</span>17 <span style=''> * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode  the type of T must be Seq[(Int, ActualType)]
+</span>18 <span style=''> * @param lazyRuleSuiteResults Overall results from applying the engine, evealuated lazily
+</span>19 <span style=''> * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
+</span>20 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>21 <span style=''> */
+</span>22 <span style=''>@SerialVersionUID(1L)
+</span>23 <span style=''>case class LazyRuleEngineResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+</span>24 <span style=''>  def getSalientRule: java.util.Optional[SalientRule] = </span><span style='background: #AEF1AE'>Optional.toOptional(salientRule)</span><span style=''>
+</span>25 <span style=''>
+</span>26 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>27 <span style=''>}
+</span>28 <span style=''>
+</span>29 <span style=''>/**
+</span>30 <span style=''> * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode  the type of T must be Seq[(Int, ActualType)]
+</span>31 <span style=''> * @param lazyRuleSuiteResults Overall results from applying the engine, evaluated lazily
+</span>32 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>33 <span style=''> */
+</span>34 <span style=''>@SerialVersionUID(1L)
+</span>35 <span style=''>case class LazyRuleFolderResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, result: Option[T]) extends Serializable {
+</span>36 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>37 <span style=''>}
+</span>38 <span style=''>
+</span>39 <span style=''>sealed trait ResultStatisticsProviderImpl[T &lt;: ResultStatistics[_]] extends Serializable {
+</span>40 <span style=''>
+</span>41 <span style=''>  def update(t: T)(failed: Long = t.failed, passed: Long = t.passed, softFailed: Long = t.softFailed, disabled: Long = t.disabled,
+</span>42 <span style=''>             ignored: Long = t.ignored, defaulted: Long = t.defaulted, probabilityPassed: Long = t.probabilityPassed,
+</span>43 <span style=''>             probabilityFailed: Long = t.probabilityFailed, unevaluated: Long = t.unevaluated): T
+</span>44 <span style=''>
+</span>45 <span style=''>  def combineResults(t: T, other: T): T =
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>update(t)(failed = t.failed + other.failed, passed = t.passed + other.passed, softFailed = t.softFailed + other.softFailed,
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      disabled = t.disabled + other.disabled, ignored = t.ignored + other.ignored, defaulted = t.defaulted + other.defaulted,
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      probabilityPassed = t.probabilityPassed + other.probabilityPassed,
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      probabilityFailed = t.probabilityFailed + other.probabilityFailed,
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      unevaluated = t.unevaluated + other.unevaluated
+</span>51 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  def combine(t: T, other: T): T
+</span>54 <span style=''>
+</span>55 <span style=''>  @tailrec
+</span>56 <span style=''>  final def processResult(t: T)(ruleResult: RuleResult, probabilityPass: Double = defaultProbablePass): T =
+</span>57 <span style=''>    ruleResult match {
+</span>58 <span style=''>      case Failed =&gt; </span><span style='background: #AEF1AE'>update(t)(failed = t.failed + 1)</span><span style=''>
+</span>59 <span style=''>      case Passed =&gt; </span><span style='background: #AEF1AE'>update(t)(passed = t.passed + 1)</span><span style=''>
+</span>60 <span style=''>      case SoftFailed =&gt; </span><span style='background: #AEF1AE'>update(t)(softFailed = t.softFailed + 1)</span><span style=''>
+</span>61 <span style=''>      case DisabledRule =&gt; </span><span style='background: #AEF1AE'>update(t)(disabled = t.disabled + 1)</span><span style=''>
+</span>62 <span style=''>      case IgnoredRule =&gt; </span><span style='background: #AEF1AE'>update(t)(ignored = t.ignored + 1)</span><span style=''>
+</span>63 <span style=''>      case DefaultRule =&gt; </span><span style='background: #AEF1AE'>update(t)(defaulted = t.defaulted + 1)</span><span style=''>
+</span>64 <span style=''>      case Probability(percentage) if (</span><span style='background: #AEF1AE'>percentage &gt;= probabilityPass</span><span style=''>) =&gt; </span><span style='background: #AEF1AE'>update(t)(probabilityPassed = t.probabilityPassed + 1)</span><span style=''>
+</span>65 <span style=''>      case Probability(_) =&gt; </span><span style='background: #AEF1AE'>update(t)(probabilityFailed = t.probabilityFailed + 1)</span><span style=''>
+</span>66 <span style=''>      case RuleResultWithProcessor(ruleResult: RuleResult, _) =&gt;
+</span>67 <span style=''>        </span><span style='background: #F0ADAD'>processResult(t)(ruleResult, probabilityPass)</span><span style=''>
+</span>68 <span style=''>      case UnevaluatedRule =&gt; </span><span style='background: #AEF1AE'>update(t)(unevaluated = t.unevaluated + 1)</span><span style=''>
+</span>69 <span style=''>    }
+</span>70 <span style=''>
+</span>71 <span style=''>}
+</span>72 <span style=''>
+</span>73 <span style=''>sealed trait ResultStatisticsProvider[T, R] extends Serializable {
+</span>74 <span style=''>
+</span>75 <span style=''>  def process(t: T, result: R): T
+</span>76 <span style=''>
+</span>77 <span style=''>  def combine(t: T, other: T): T
+</span>78 <span style=''>
+</span>79 <span style=''>}
+</span>80 <span style=''>
+</span>81 <span style=''>object ResultStatisticsProvider {
+</span>82 <span style=''>  implicit val ruleStatistics = </span><span style='background: #AEF1AE'>new</span><span style=''> ResultStatisticsProviderImpl[RuleStatistics] with
+</span>83 <span style=''>    ResultStatisticsProvider[RuleStatistics, RuleResult]  {
+</span>84 <span style=''>
+</span>85 <span style=''>    override def update(t: RuleStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
+</span>86 <span style=''>                                           defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleStatistics =
+</span>87 <span style=''>      </span><span style='background: #AEF1AE'>t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+</span>89 <span style=''></span><span style='background: #AEF1AE'>        unevaluated = unevaluated
+</span>90 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>91 <span style=''>
+</span>92 <span style=''>    override def combine(t: RuleStatistics, other: RuleStatistics): RuleStatistics = </span><span style='background: #AEF1AE'>combineResults(t, other)</span><span style=''>
+</span>93 <span style=''>
+</span>94 <span style=''>    override def process(t: RuleStatistics, result: RuleResult): RuleStatistics = </span><span style='background: #F0ADAD'>processResult(t)(result)</span><span style=''>
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  implicit val ruleSetStatistics = </span><span style='background: #AEF1AE'>new</span><span style=''> ResultStatisticsProviderImpl[RuleSetStatistics] with
+</span>98 <span style=''>    ResultStatisticsProvider[RuleSetStatistics, RuleSetResult] {
+</span>99 <span style=''>
+</span>100 <span style=''>    override def update(t: RuleSetStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
+</span>101 <span style=''>                                              defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleSetStatistics =
+</span>102 <span style=''>      </span><span style='background: #AEF1AE'>t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>103 <span style=''></span><span style='background: #AEF1AE'>        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        unevaluated = unevaluated)</span><span style=''>
+</span>105 <span style=''>
+</span>106 <span style=''>    override def combine(t: RuleSetStatistics, other: RuleSetStatistics): RuleSetStatistics = </span><span style='background: #AEF1AE'>combineResults(t, other).copy(
+</span>107 <span style=''></span><span style='background: #AEF1AE'>      rules = other.rules.foldLeft(t.rules){
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, ruleResult)) =&gt;
+</span>109 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>110 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>111 <span style=''></span><span style='background: #AEF1AE'>              ruleStatistics.combine(rs, ruleResult)
+</span>112 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(ruleResult)))
+</span>113 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>114 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>115 <span style=''>
+</span>116 <span style=''>    def process(t: RuleSetStatistics, setResult: RuleSetResult): RuleSetStatistics =
+</span>117 <span style=''>      </span><span style='background: #AEF1AE'>processResult(t)(setResult.overallResult).copy(
+</span>118 <span style=''></span><span style='background: #AEF1AE'>        rules = setResult.ruleResults.foldLeft(t.rules){
+</span>119 <span style=''></span><span style='background: #AEF1AE'>          case (cur, (id, ruleResult)) =&gt;
+</span>120 <span style=''></span><span style='background: #AEF1AE'>            cur.updatedWithF(id)(_.map{
+</span>121 <span style=''></span><span style='background: #AEF1AE'>              rs =&gt;
+</span>122 <span style=''></span><span style='background: #AEF1AE'>                ruleStatistics.processResult(rs)(ruleResult)
+</span>123 <span style=''></span><span style='background: #AEF1AE'>            }.orElse(Some(ruleStatistics.processResult(RuleStatistics(id))(ruleResult))))
+</span>124 <span style=''></span><span style='background: #AEF1AE'>        })</span><span style=''>
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  implicit val ruleSuiteStatistics = </span><span style='background: #AEF1AE'>new</span><span style=''> ResultStatisticsProviderImpl[RuleSuiteStatistics] with
+</span>128 <span style=''>    ResultStatisticsProvider[RuleSuiteStatistics, RuleSuiteResult] {
+</span>129 <span style=''>
+</span>130 <span style=''>    override def update(t: RuleSuiteStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
+</span>131 <span style=''>                                                defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleSuiteStatistics =
+</span>132 <span style=''>      </span><span style='background: #AEF1AE'>t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>133 <span style=''></span><span style='background: #AEF1AE'>        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+</span>134 <span style=''></span><span style='background: #AEF1AE'>        unevaluated = unevaluated)</span><span style=''>
+</span>135 <span style=''>
+</span>136 <span style=''>    override def combine(t: RuleSuiteStatistics, other: RuleSuiteStatistics): RuleSuiteStatistics = </span><span style='background: #AEF1AE'>combineResults(t, other).copy(
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      rowCount = t.rowCount + other.rowCount,
+</span>138 <span style=''></span><span style='background: #AEF1AE'>      ruleSets = other.ruleSets.foldLeft(t.ruleSets){
+</span>139 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, setResult)) =&gt;
+</span>140 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>141 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>142 <span style=''></span><span style='background: #AEF1AE'>              ruleSetStatistics.combine(rs, setResult)
+</span>143 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(setResult)))
+</span>144 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>145 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>146 <span style=''>
+</span>147 <span style=''>    def process(t: RuleSuiteStatistics, ruleSuiteResult: RuleSuiteResult): RuleSuiteStatistics = {
+</span>148 <span style=''>      </span><span style='background: #AEF1AE'>processResult(t)(ruleSuiteResult.overallResult).copy(rowCount = t.rowCount + 1,
+</span>149 <span style=''></span><span style='background: #AEF1AE'>        ruleSets = ruleSuiteResult.ruleSetResults.foldLeft(t.ruleSets){
+</span>150 <span style=''></span><span style='background: #AEF1AE'>          case (cur, (id, setResult)) =&gt;
+</span>151 <span style=''></span><span style='background: #AEF1AE'>            cur.updatedWithF(id)(_.map{
+</span>152 <span style=''></span><span style='background: #AEF1AE'>              rs =&gt;
+</span>153 <span style=''></span><span style='background: #AEF1AE'>                ruleSetStatistics.process(rs, setResult)
+</span>154 <span style=''></span><span style='background: #AEF1AE'>            }.orElse(Some(ruleSetStatistics.process(RuleSetStatistics(id), setResult))))
+</span>155 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>156 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>157 <span style=''>    }
+</span>158 <span style=''>  }
+</span>159 <span style=''>
+</span>160 <span style=''>  implicit val ruleSuiteGroupStatistics = </span><span style='background: #AEF1AE'>new</span><span style=''> ResultStatisticsProvider[RuleSuiteGroupStatistics, RuleSuiteResult] {
+</span>161 <span style=''>
+</span>162 <span style=''>    def process(t: RuleSuiteGroupStatistics, ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
+</span>163 <span style=''>      </span><span style='background: #AEF1AE'>t.copy(rowCount = t.rowCount + 1, ruleSuites = t.ruleSuites.updatedWithF(ruleSuiteResult.id){
+</span>164 <span style=''></span><span style='background: #AEF1AE'>        _.map( t =&gt; ruleSuiteStatistics.process(t, ruleSuiteResult)).orElse(
+</span>165 <span style=''></span><span style='background: #AEF1AE'>          Some(ruleSuiteStatistics.process(RuleSuiteStatistics(ruleSuiteResult.id), ruleSuiteResult))
+</span>166 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>167 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>    def combine(t: RuleSuiteGroupStatistics, other: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
+</span>170 <span style=''>      </span><span style='background: #AEF1AE'>t.copy(rowCount = t.rowCount + other.rowCount,
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        ruleSuites = other.ruleSuites.foldLeft(t.ruleSuites){
+</span>172 <span style=''></span><span style='background: #AEF1AE'>          case (cur, (id, rs)) =&gt;
+</span>173 <span style=''></span><span style='background: #AEF1AE'>            cur.updatedWithF(id){
+</span>174 <span style=''></span><span style='background: #AEF1AE'>              _.map( t =&gt; ruleSuiteStatistics.combine(t, rs) ).orElse(Some(rs))
+</span>175 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>176 <span style=''></span><span style='background: #AEF1AE'>        })</span><span style=''>
+</span>177 <span style=''>
+</span>178 <span style=''>  }
+</span>179 <span style=''>
+</span>180 <span style=''>  /**
+</span>181 <span style=''>   * wraps the providers
+</span>182 <span style=''>   * @param t
+</span>183 <span style=''>   * @param provider
+</span>184 <span style=''>   * @tparam T
+</span>185 <span style=''>   * @tparam R
+</span>186 <span style=''>   */
+</span>187 <span style=''>  implicit class ResultStatisticOps[T, R](val t: T)(implicit provider: ResultStatisticsProvider[T, R]) {
+</span>188 <span style=''>    def process(result: R): T = </span><span style='background: #AEF1AE'>provider.process(t, result)</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>    def combine(other: T): T = </span><span style='background: #AEF1AE'>provider.combine(t, other)</span><span style=''>
+</span>191 <span style=''>  }
+</span>192 <span style=''>
+</span>193 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          3060
+        </td>
+        <td>
+          1169
+          -
+          1180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleEngineResult.salientRule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleEngineResult.this.salientRule
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          3061
+        </td>
+        <td>
+          1149
+          -
+          1181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[com.sparkutils.quality.SalientRule](LazyRuleEngineResult.this.salientRule)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          3062
+        </td>
+        <td>
+          1244
+          -
+          1250
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleEngineResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleEngineResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          3063
+        </td>
+        <td>
+          1224
+          -
+          1251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](LazyRuleEngineResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          3064
+        </td>
+        <td>
+          1878
+          -
+          1884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleFolderResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleFolderResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          3065
+        </td>
+        <td>
+          1858
+          -
+          1885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](LazyRuleFolderResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3066
+        </td>
+        <td>
+          2405
+          -
+          2417
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.failed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.failed
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3067
+        </td>
+        <td>
+          2394
+          -
+          2417
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.failed.+(other.failed)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3068
+        </td>
+        <td>
+          2439
+          -
+          2451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.passed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.passed
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3069
+        </td>
+        <td>
+          2428
+          -
+          2451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.passed.+(other.passed)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3070
+        </td>
+        <td>
+          2481
+          -
+          2497
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.softFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.softFailed
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3071
+        </td>
+        <td>
+          2466
+          -
+          2497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.softFailed.+(other.softFailed)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          3084
+        </td>
+        <td>
+          2375
+          -
+          2830
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(t)(t.failed.+(other.failed), t.passed.+(other.passed), t.softFailed.+(other.softFailed), t.disabled.+(other.disabled), t.ignored.+(other.ignored), t.defaulted.+(other.defaulted), t.probabilityPassed.+(other.probabilityPassed), t.probabilityFailed.+(other.probabilityFailed), t.unevaluated.+(other.unevaluated))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3072
+        </td>
+        <td>
+          2529
+          -
+          2543
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.disabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.disabled
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3073
+        </td>
+        <td>
+          2516
+          -
+          2543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.disabled.+(other.disabled)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3074
+        </td>
+        <td>
+          2567
+          -
+          2580
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.ignored
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ignored
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3075
+        </td>
+        <td>
+          2555
+          -
+          2580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ignored.+(other.ignored)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3076
+        </td>
+        <td>
+          2608
+          -
+          2623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.defaulted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.defaulted
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3077
+        </td>
+        <td>
+          2594
+          -
+          2623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.defaulted.+(other.defaulted)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3078
+        </td>
+        <td>
+          2673
+          -
+          2696
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityPassed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityPassed
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3079
+        </td>
+        <td>
+          2651
+          -
+          2696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.probabilityPassed.+(other.probabilityPassed)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          3080
+        </td>
+        <td>
+          2746
+          -
+          2769
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityFailed
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          3081
+        </td>
+        <td>
+          2724
+          -
+          2769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.probabilityFailed.+(other.probabilityFailed)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          3082
+        </td>
+        <td>
+          2807
+          -
+          2824
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.unevaluated
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.unevaluated
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          3083
+        </td>
+        <td>
+          2791
+          -
+          2824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.unevaluated.+(other.unevaluated)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3085
+        </td>
+        <td>
+          3048
+          -
+          3060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.failed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3086
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3087
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3088
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3089
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3090
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3091
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3092
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3093
+        </td>
+        <td>
+          3035
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3094
+        </td>
+        <td>
+          3029
+          -
+          3061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$1)(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3095
+        </td>
+        <td>
+          3029
+          -
+          3061
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$1: T = t;
+  &lt;artifact&gt; val x$2: Long = t.failed.+(1);
+  &lt;artifact&gt; val x$3: Long = ResultStatisticsProviderImpl.this.update$default$3(x$1);
+  &lt;artifact&gt; val x$4: Long = ResultStatisticsProviderImpl.this.update$default$4(x$1);
+  &lt;artifact&gt; val x$5: Long = ResultStatisticsProviderImpl.this.update$default$5(x$1);
+  &lt;artifact&gt; val x$6: Long = ResultStatisticsProviderImpl.this.update$default$6(x$1);
+  &lt;artifact&gt; val x$7: Long = ResultStatisticsProviderImpl.this.update$default$7(x$1);
+  &lt;artifact&gt; val x$8: Long = ResultStatisticsProviderImpl.this.update$default$8(x$1);
+  &lt;artifact&gt; val x$9: Long = ResultStatisticsProviderImpl.this.update$default$9(x$1);
+  &lt;artifact&gt; val x$10: Long = ResultStatisticsProviderImpl.this.update$default$10(x$1);
+  ResultStatisticsProviderImpl.this.update(x$1)(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10)
+}
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3096
+        </td>
+        <td>
+          3102
+          -
+          3114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.passed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3097
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3098
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3099
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3100
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3101
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3102
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3103
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3104
+        </td>
+        <td>
+          3089
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$11)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3105
+        </td>
+        <td>
+          3083
+          -
+          3115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$11)(x$13, x$12, x$14, x$15, x$16, x$17, x$18, x$19, x$20)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3106
+        </td>
+        <td>
+          3083
+          -
+          3115
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$11: T = t;
+  &lt;artifact&gt; val x$12: Long = t.passed.+(1);
+  &lt;artifact&gt; val x$13: Long = ResultStatisticsProviderImpl.this.update$default$2(x$11);
+  &lt;artifact&gt; val x$14: Long = ResultStatisticsProviderImpl.this.update$default$4(x$11);
+  &lt;artifact&gt; val x$15: Long = ResultStatisticsProviderImpl.this.update$default$5(x$11);
+  &lt;artifact&gt; val x$16: Long = ResultStatisticsProviderImpl.this.update$default$6(x$11);
+  &lt;artifact&gt; val x$17: Long = ResultStatisticsProviderImpl.this.update$default$7(x$11);
+  &lt;artifact&gt; val x$18: Long = ResultStatisticsProviderImpl.this.update$default$8(x$11);
+  &lt;artifact&gt; val x$19: Long = ResultStatisticsProviderImpl.this.update$default$9(x$11);
+  &lt;artifact&gt; val x$20: Long = ResultStatisticsProviderImpl.this.update$default$10(x$11);
+  ResultStatisticsProviderImpl.this.update(x$11)(x$13, x$12, x$14, x$15, x$16, x$17, x$18, x$19, x$20)
+}
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3107
+        </td>
+        <td>
+          3164
+          -
+          3180
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.softFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3108
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3109
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3110
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3111
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3112
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3113
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3114
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3115
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$21)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3116
+        </td>
+        <td>
+          3141
+          -
+          3181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$21)(x$23, x$24, x$22, x$25, x$26, x$27, x$28, x$29, x$30)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3117
+        </td>
+        <td>
+          3141
+          -
+          3181
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$21: T = t;
+  &lt;artifact&gt; val x$22: Long = t.softFailed.+(1);
+  &lt;artifact&gt; val x$23: Long = ResultStatisticsProviderImpl.this.update$default$2(x$21);
+  &lt;artifact&gt; val x$24: Long = ResultStatisticsProviderImpl.this.update$default$3(x$21);
+  &lt;artifact&gt; val x$25: Long = ResultStatisticsProviderImpl.this.update$default$5(x$21);
+  &lt;artifact&gt; val x$26: Long = ResultStatisticsProviderImpl.this.update$default$6(x$21);
+  &lt;artifact&gt; val x$27: Long = ResultStatisticsProviderImpl.this.update$default$7(x$21);
+  &lt;artifact&gt; val x$28: Long = ResultStatisticsProviderImpl.this.update$default$8(x$21);
+  &lt;artifact&gt; val x$29: Long = ResultStatisticsProviderImpl.this.update$default$9(x$21);
+  &lt;artifact&gt; val x$30: Long = ResultStatisticsProviderImpl.this.update$default$10(x$21);
+  ResultStatisticsProviderImpl.this.update(x$21)(x$23, x$24, x$22, x$25, x$26, x$27, x$28, x$29, x$30)
+}
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3118
+        </td>
+        <td>
+          3230
+          -
+          3244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.disabled.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3119
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3120
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3121
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3122
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3123
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3124
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3125
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3126
+        </td>
+        <td>
+          3215
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$31)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3127
+        </td>
+        <td>
+          3209
+          -
+          3245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$31)(x$33, x$34, x$35, x$32, x$36, x$37, x$38, x$39, x$40)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3128
+        </td>
+        <td>
+          3209
+          -
+          3245
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$31: T = t;
+  &lt;artifact&gt; val x$32: Long = t.disabled.+(1);
+  &lt;artifact&gt; val x$33: Long = ResultStatisticsProviderImpl.this.update$default$2(x$31);
+  &lt;artifact&gt; val x$34: Long = ResultStatisticsProviderImpl.this.update$default$3(x$31);
+  &lt;artifact&gt; val x$35: Long = ResultStatisticsProviderImpl.this.update$default$4(x$31);
+  &lt;artifact&gt; val x$36: Long = ResultStatisticsProviderImpl.this.update$default$6(x$31);
+  &lt;artifact&gt; val x$37: Long = ResultStatisticsProviderImpl.this.update$default$7(x$31);
+  &lt;artifact&gt; val x$38: Long = ResultStatisticsProviderImpl.this.update$default$8(x$31);
+  &lt;artifact&gt; val x$39: Long = ResultStatisticsProviderImpl.this.update$default$9(x$31);
+  &lt;artifact&gt; val x$40: Long = ResultStatisticsProviderImpl.this.update$default$10(x$31);
+  ResultStatisticsProviderImpl.this.update(x$31)(x$33, x$34, x$35, x$32, x$36, x$37, x$38, x$39, x$40)
+}
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3129
+        </td>
+        <td>
+          3292
+          -
+          3305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ignored.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3130
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3131
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3132
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3133
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3134
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3135
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3136
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3137
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$41)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3138
+        </td>
+        <td>
+          3272
+          -
+          3306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$41)(x$43, x$44, x$45, x$46, x$42, x$47, x$48, x$49, x$50)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3139
+        </td>
+        <td>
+          3272
+          -
+          3306
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$41: T = t;
+  &lt;artifact&gt; val x$42: Long = t.ignored.+(1);
+  &lt;artifact&gt; val x$43: Long = ResultStatisticsProviderImpl.this.update$default$2(x$41);
+  &lt;artifact&gt; val x$44: Long = ResultStatisticsProviderImpl.this.update$default$3(x$41);
+  &lt;artifact&gt; val x$45: Long = ResultStatisticsProviderImpl.this.update$default$4(x$41);
+  &lt;artifact&gt; val x$46: Long = ResultStatisticsProviderImpl.this.update$default$5(x$41);
+  &lt;artifact&gt; val x$47: Long = ResultStatisticsProviderImpl.this.update$default$7(x$41);
+  &lt;artifact&gt; val x$48: Long = ResultStatisticsProviderImpl.this.update$default$8(x$41);
+  &lt;artifact&gt; val x$49: Long = ResultStatisticsProviderImpl.this.update$default$9(x$41);
+  &lt;artifact&gt; val x$50: Long = ResultStatisticsProviderImpl.this.update$default$10(x$41);
+  ResultStatisticsProviderImpl.this.update(x$41)(x$43, x$44, x$45, x$46, x$42, x$47, x$48, x$49, x$50)
+}
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3140
+        </td>
+        <td>
+          3355
+          -
+          3370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.defaulted.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3141
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3142
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3143
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3144
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3145
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3146
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3147
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3148
+        </td>
+        <td>
+          3339
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$51)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3149
+        </td>
+        <td>
+          3333
+          -
+          3371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$51)(x$53, x$54, x$55, x$56, x$57, x$52, x$58, x$59, x$60)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3150
+        </td>
+        <td>
+          3333
+          -
+          3371
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$51: T = t;
+  &lt;artifact&gt; val x$52: Long = t.defaulted.+(1);
+  &lt;artifact&gt; val x$53: Long = ResultStatisticsProviderImpl.this.update$default$2(x$51);
+  &lt;artifact&gt; val x$54: Long = ResultStatisticsProviderImpl.this.update$default$3(x$51);
+  &lt;artifact&gt; val x$55: Long = ResultStatisticsProviderImpl.this.update$default$4(x$51);
+  &lt;artifact&gt; val x$56: Long = ResultStatisticsProviderImpl.this.update$default$5(x$51);
+  &lt;artifact&gt; val x$57: Long = ResultStatisticsProviderImpl.this.update$default$6(x$51);
+  &lt;artifact&gt; val x$58: Long = ResultStatisticsProviderImpl.this.update$default$8(x$51);
+  &lt;artifact&gt; val x$59: Long = ResultStatisticsProviderImpl.this.update$default$9(x$51);
+  &lt;artifact&gt; val x$60: Long = ResultStatisticsProviderImpl.this.update$default$10(x$51);
+  ResultStatisticsProviderImpl.this.update(x$51)(x$53, x$54, x$55, x$56, x$57, x$52, x$58, x$59, x$60)
+}
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3151
+        </td>
+        <td>
+          3411
+          -
+          3440
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Double.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          percentage.&gt;=(probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3152
+        </td>
+        <td>
+          3475
+          -
+          3498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.probabilityPassed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3153
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3154
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3155
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3156
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3157
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3158
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3159
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3160
+        </td>
+        <td>
+          3451
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$61)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3161
+        </td>
+        <td>
+          3445
+          -
+          3499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$61)(x$63, x$64, x$65, x$66, x$67, x$68, x$62, x$69, x$70)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3162
+        </td>
+        <td>
+          3445
+          -
+          3499
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$61: T = t;
+  &lt;artifact&gt; val x$62: Long = t.probabilityPassed.+(1);
+  &lt;artifact&gt; val x$63: Long = ResultStatisticsProviderImpl.this.update$default$2(x$61);
+  &lt;artifact&gt; val x$64: Long = ResultStatisticsProviderImpl.this.update$default$3(x$61);
+  &lt;artifact&gt; val x$65: Long = ResultStatisticsProviderImpl.this.update$default$4(x$61);
+  &lt;artifact&gt; val x$66: Long = ResultStatisticsProviderImpl.this.update$default$5(x$61);
+  &lt;artifact&gt; val x$67: Long = ResultStatisticsProviderImpl.this.update$default$6(x$61);
+  &lt;artifact&gt; val x$68: Long = ResultStatisticsProviderImpl.this.update$default$7(x$61);
+  &lt;artifact&gt; val x$69: Long = ResultStatisticsProviderImpl.this.update$default$9(x$61);
+  &lt;artifact&gt; val x$70: Long = ResultStatisticsProviderImpl.this.update$default$10(x$61);
+  ResultStatisticsProviderImpl.this.update(x$61)(x$63, x$64, x$65, x$66, x$67, x$68, x$62, x$69, x$70)
+}
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3163
+        </td>
+        <td>
+          3559
+          -
+          3582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.probabilityFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3164
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3165
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3166
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3167
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3168
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3169
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3170
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3171
+        </td>
+        <td>
+          3535
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$10(x$71)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3172
+        </td>
+        <td>
+          3529
+          -
+          3583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$71)(x$73, x$74, x$75, x$76, x$77, x$78, x$79, x$72, x$80)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3173
+        </td>
+        <td>
+          3529
+          -
+          3583
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$71: T = t;
+  &lt;artifact&gt; val x$72: Long = t.probabilityFailed.+(1);
+  &lt;artifact&gt; val x$73: Long = ResultStatisticsProviderImpl.this.update$default$2(x$71);
+  &lt;artifact&gt; val x$74: Long = ResultStatisticsProviderImpl.this.update$default$3(x$71);
+  &lt;artifact&gt; val x$75: Long = ResultStatisticsProviderImpl.this.update$default$4(x$71);
+  &lt;artifact&gt; val x$76: Long = ResultStatisticsProviderImpl.this.update$default$5(x$71);
+  &lt;artifact&gt; val x$77: Long = ResultStatisticsProviderImpl.this.update$default$6(x$71);
+  &lt;artifact&gt; val x$78: Long = ResultStatisticsProviderImpl.this.update$default$7(x$71);
+  &lt;artifact&gt; val x$79: Long = ResultStatisticsProviderImpl.this.update$default$8(x$71);
+  &lt;artifact&gt; val x$80: Long = ResultStatisticsProviderImpl.this.update$default$10(x$71);
+  ResultStatisticsProviderImpl.this.update(x$71)(x$73, x$74, x$75, x$76, x$77, x$78, x$79, x$72, x$80)
+}
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3174
+        </td>
+        <td>
+          3657
+          -
+          3702
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ResultStatisticsProviderImpl.this.processResult(t)(ruleResult, probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3175
+        </td>
+        <td>
+          3657
+          -
+          3702
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ResultStatisticsProviderImpl.this.processResult(t)(ruleResult, probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3176
+        </td>
+        <td>
+          3757
+          -
+          3774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.unevaluated.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3177
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$2(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3178
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$3(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3179
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$4(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3180
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$5(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3181
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$6(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3182
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$7(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3183
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$8(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3184
+        </td>
+        <td>
+          3739
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update$default$9(x$81)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3185
+        </td>
+        <td>
+          3733
+          -
+          3775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProviderImpl.this.update(x$81)(x$83, x$84, x$85, x$86, x$87, x$88, x$89, x$90, x$82)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3186
+        </td>
+        <td>
+          3733
+          -
+          3775
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$81: T = t;
+  &lt;artifact&gt; val x$82: Long = t.unevaluated.+(1);
+  &lt;artifact&gt; val x$83: Long = ResultStatisticsProviderImpl.this.update$default$2(x$81);
+  &lt;artifact&gt; val x$84: Long = ResultStatisticsProviderImpl.this.update$default$3(x$81);
+  &lt;artifact&gt; val x$85: Long = ResultStatisticsProviderImpl.this.update$default$4(x$81);
+  &lt;artifact&gt; val x$86: Long = ResultStatisticsProviderImpl.this.update$default$5(x$81);
+  &lt;artifact&gt; val x$87: Long = ResultStatisticsProviderImpl.this.update$default$6(x$81);
+  &lt;artifact&gt; val x$88: Long = ResultStatisticsProviderImpl.this.update$default$7(x$81);
+  &lt;artifact&gt; val x$89: Long = ResultStatisticsProviderImpl.this.update$default$8(x$81);
+  &lt;artifact&gt; val x$90: Long = ResultStatisticsProviderImpl.this.update$default$9(x$81);
+  ResultStatisticsProviderImpl.this.update(x$81)(x$83, x$84, x$85, x$86, x$87, x$88, x$89, x$90, x$82)
+}
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          3191
+        </td>
+        <td>
+          3992
+          -
+          3995
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3187
+        </td>
+        <td>
+          4380
+          -
+          4636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.copy(x$10, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3188
+        </td>
+        <td>
+          4723
+          -
+          4747
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.combineResults(t, other)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          3189
+        </td>
+        <td>
+          4844
+          -
+          4844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          $anon.this.processResult$default$3(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          3190
+        </td>
+        <td>
+          4831
+          -
+          4855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          $anon.this.processResult(x$1)(x$2, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          3217
+        </td>
+        <td>
+          4896
+          -
+          4899
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          3192
+        </td>
+        <td>
+          5301
+          -
+          5550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.copy(x$10, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$11)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          3193
+        </td>
+        <td>
+          5646
+          -
+          5670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.combineResults(t, other)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          3201
+        </td>
+        <td>
+          5646
+          -
+          5922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          3194
+        </td>
+        <td>
+          5712
+          -
+          5719
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rules
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          3200
+        </td>
+        <td>
+          5691
+          -
+          5916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rules.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics]](t.rules)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; ResultStatisticsProvider.this.ruleStatistics.combine(rs, ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          3198
+        </td>
+        <td>
+          5772
+          -
+          5908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; ResultStatisticsProvider.this.ruleStatistics.combine(rs, ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          3199
+        </td>
+        <td>
+          5772
+          -
+          5908
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; ResultStatisticsProvider.this.ruleStatistics.combine(rs, ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          3195
+        </td>
+        <td>
+          5832
+          -
+          5870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleStatistics.combine(rs, ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          3196
+        </td>
+        <td>
+          5890
+          -
+          5906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          3197
+        </td>
+        <td>
+          5793
+          -
+          5907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; ResultStatisticsProvider.this.ruleStatistics.combine(rs, ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3202
+        </td>
+        <td>
+          6032
+          -
+          6055
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3203
+        </td>
+        <td>
+          6028
+          -
+          6028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.processResult$default$3(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3204
+        </td>
+        <td>
+          6015
+          -
+          6056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.processResult(x$1)(x$2, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3216
+        </td>
+        <td>
+          6015
+          -
+          6383
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$11, x$12, x$13, x$14, x$15, x$16, x$17, x$18, x$19, x$20, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          3205
+        </td>
+        <td>
+          6110
+          -
+          6117
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rules
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          3215
+        </td>
+        <td>
+          6079
+          -
+          6382
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.ruleResults.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics]](t.rules)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleResult): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; {
+  &lt;artifact&gt; val x$4: com.sparkutils.quality.RuleStatistics = rs;
+  &lt;artifact&gt; val x$5: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$6: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$4);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$4)(x$5, x$6)
+})).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+    &lt;artifact&gt; val x$7: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10);
+    &lt;artifact&gt; val x$8: com.sparkutils.quality.RuleResult = ruleResult;
+    &lt;artifact&gt; val x$9: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7);
+    ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+  }))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3213
+        </td>
+        <td>
+          6174
+          -
+          6372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; {
+  &lt;artifact&gt; val x$4: com.sparkutils.quality.RuleStatistics = rs;
+  &lt;artifact&gt; val x$5: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$6: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$4);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$4)(x$5, x$6)
+})).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val x$7: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10);
+  &lt;artifact&gt; val x$8: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$9: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3214
+        </td>
+        <td>
+          6174
+          -
+          6372
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; {
+  &lt;artifact&gt; val x$4: com.sparkutils.quality.RuleStatistics = rs;
+  &lt;artifact&gt; val x$5: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$6: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$4);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$4)(x$5, x$6)
+})).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val x$7: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10);
+  &lt;artifact&gt; val x$8: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$9: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3206
+        </td>
+        <td>
+          6266
+          -
+          6266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$4)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3207
+        </td>
+        <td>
+          6238
+          -
+          6282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleStatistics.processResult(x$4)(x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3208
+        </td>
+        <td>
+          6338
+          -
+          6356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3209
+        </td>
+        <td>
+          6337
+          -
+          6337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3210
+        </td>
+        <td>
+          6309
+          -
+          6369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3211
+        </td>
+        <td>
+          6304
+          -
+          6370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val x$7: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10);
+  &lt;artifact&gt; val x$8: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$9: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+})
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3212
+        </td>
+        <td>
+          6195
+          -
+          6371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; {
+  &lt;artifact&gt; val x$4: com.sparkutils.quality.RuleStatistics = rs;
+  &lt;artifact&gt; val x$5: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$6: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$4);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$4)(x$5, x$6)
+})).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val x$7: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9, RuleStatistics.apply$default$10);
+  &lt;artifact&gt; val x$8: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$9: Double = ResultStatisticsProvider.this.ruleStatistics.processResult$default$3(x$7);
+  ResultStatisticsProvider.this.ruleStatistics.processResult(x$7)(x$8, x$9)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3244
+        </td>
+        <td>
+          6426
+          -
+          6429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3218
+        </td>
+        <td>
+          6843
+          -
+          7092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.copy(x$10, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$11, x$12)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3219
+        </td>
+        <td>
+          7194
+          -
+          7218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.combineResults(t, other)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3229
+        </td>
+        <td>
+          7194
+          -
+          7525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3220
+        </td>
+        <td>
+          7255
+          -
+          7269
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3221
+        </td>
+        <td>
+          7242
+          -
+          7269
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3222
+        </td>
+        <td>
+          7312
+          -
+          7322
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3228
+        </td>
+        <td>
+          7288
+          -
+          7519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSets.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics]](t.ruleSets)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSetStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.combine(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          3226
+        </td>
+        <td>
+          7374
+          -
+          7511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.combine(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          3227
+        </td>
+        <td>
+          7374
+          -
+          7511
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.combine(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3223
+        </td>
+        <td>
+          7434
+          -
+          7474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSetStatistics.combine(rs, setResult)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          3224
+        </td>
+        <td>
+          7494
+          -
+          7509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          3225
+        </td>
+        <td>
+          7395
+          -
+          7510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.combine(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3230
+        </td>
+        <td>
+          7649
+          -
+          7678
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3231
+        </td>
+        <td>
+          7645
+          -
+          7645
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.processResult$default$3(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3232
+        </td>
+        <td>
+          7632
+          -
+          7679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProviderImpl.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.processResult(x$1)(x$2, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3233
+        </td>
+        <td>
+          7696
+          -
+          7710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3243
+        </td>
+        <td>
+          7632
+          -
+          8048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$13, x$14, x$15, x$4, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          3234
+        </td>
+        <td>
+          7771
+          -
+          7781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          3242
+        </td>
+        <td>
+          7731
+          -
+          8040
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.ruleSetResults.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics]](t.ruleSets)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSetResult): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.process(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult)))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3240
+        </td>
+        <td>
+          7837
+          -
+          8030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.process(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3241
+        </td>
+        <td>
+          7837
+          -
+          8030
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.process(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          3235
+        </td>
+        <td>
+          7901
+          -
+          7941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSetStatistics.process(rs, setResult)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3236
+        </td>
+        <td>
+          7994
+          -
+          8015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3237
+        </td>
+        <td>
+          7968
+          -
+          8027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3238
+        </td>
+        <td>
+          7963
+          -
+          8028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3239
+        </td>
+        <td>
+          7858
+          -
+          8029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; ResultStatisticsProvider.this.ruleSetStatistics.process(rs, setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](ResultStatisticsProvider.this.ruleSetStatistics.process(RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10, RuleSetStatistics.apply$default$11), setResult)))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3266
+        </td>
+        <td>
+          8102
+          -
+          8105
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          3245
+        </td>
+        <td>
+          8308
+          -
+          8322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          3246
+        </td>
+        <td>
+          8337
+          -
+          8349
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          3247
+        </td>
+        <td>
+          8363
+          -
+          8381
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          3254
+        </td>
+        <td>
+          8337
+          -
+          8580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](t.ruleSuites).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](ruleSuiteResult.id)(((x$5: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.process(t, ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](ResultStatisticsProvider.this.ruleSuiteStatistics.process(RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11, RuleSuiteStatistics.apply$default$12), ruleSuiteResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          3255
+        </td>
+        <td>
+          8290
+          -
+          8581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          3248
+        </td>
+        <td>
+          8404
+          -
+          8451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSuiteStatistics.process(t, ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          3253
+        </td>
+        <td>
+          8392
+          -
+          8572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.process(t, ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](ResultStatisticsProvider.this.ruleSuiteStatistics.process(RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11, RuleSuiteStatistics.apply$default$12), ruleSuiteResult)))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3249
+        </td>
+        <td>
+          8524
+          -
+          8542
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3250
+        </td>
+        <td>
+          8504
+          -
+          8543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11, RuleSuiteStatistics.apply$default$12)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3251
+        </td>
+        <td>
+          8476
+          -
+          8561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSuiteStatistics.process(RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11, RuleSuiteStatistics.apply$default$12), ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3252
+        </td>
+        <td>
+          8471
+          -
+          8562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](ResultStatisticsProvider.this.ruleSuiteStatistics.process(RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11, RuleSuiteStatistics.apply$default$12), ruleSuiteResult))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3256
+        </td>
+        <td>
+          8726
+          -
+          8740
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3257
+        </td>
+        <td>
+          8713
+          -
+          8740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3265
+        </td>
+        <td>
+          8695
+          -
+          8976
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          3258
+        </td>
+        <td>
+          8789
+          -
+          8801
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          t.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          3264
+        </td>
+        <td>
+          8763
+          -
+          8975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSuites.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics]](t.ruleSuites)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSuiteStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)((id @ _), (rs @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$6: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$6.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.combine(t, rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          3262
+        </td>
+        <td>
+          8850
+          -
+          8965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$6: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$6.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.combine(t, rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          3263
+        </td>
+        <td>
+          8850
+          -
+          8965
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$6: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$6.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.combine(t, rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          3259
+        </td>
+        <td>
+          8898
+          -
+          8932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticsProvider.this.ruleSuiteStatistics.combine(t, rs)
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          3260
+        </td>
+        <td>
+          8942
+          -
+          8950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs)
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          3261
+        </td>
+        <td>
+          8886
+          -
+          8951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6.map[com.sparkutils.quality.RuleSuiteStatistics](((t: com.sparkutils.quality.RuleSuiteStatistics) =&gt; ResultStatisticsProvider.this.ruleSuiteStatistics.combine(t, rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          3267
+        </td>
+        <td>
+          9239
+          -
+          9240
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps.t
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticOps.this.t
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          3268
+        </td>
+        <td>
+          9222
+          -
+          9249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticOps.this.provider.process(ResultStatisticOps.this.t, result)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          3269
+        </td>
+        <td>
+          9299
+          -
+          9300
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps.t
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticOps.this.t
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          3270
+        </td>
+        <td>
+          9282
+          -
+          9308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatisticsProvider.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatisticOps.this.provider.combine(ResultStatisticOps.this.t, other)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
