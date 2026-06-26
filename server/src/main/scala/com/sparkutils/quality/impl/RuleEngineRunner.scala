@@ -242,7 +242,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                         groupSalienceCheck: (String, String, String) => Block = // String for externalSalience as it may be a term
                          (externalSalience, currentSalience, currentResult) =>
                            // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
-                           code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
+                           code"true"
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -510,7 +510,7 @@ try{
             (externalSalience, currentSalience, currentResult) =>
               // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
               code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
-
+// TODO fold over with the head lowestSalience to get the
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
         val outputs = 0 until triggerCount

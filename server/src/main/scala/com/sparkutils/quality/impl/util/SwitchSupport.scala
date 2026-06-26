@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.{DefaultTriggerGrouper, Runner, Trigger, TriggerResult, Triggers}
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, GenericInternalRow, Literal}
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, ExprCode, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, EmptyBlock, ExprCode, VariableValue}
 import org.apache.spark.sql.types.{DataType, IntegerType, StringType}
 
 import java.util.UUID
@@ -21,14 +22,20 @@ object SwitchGroups {
       case EqualTo(Literal(left, t), op) =>
         operands.add(op)
         types.add(t)
-        (s"""${left.toString}""", trigger)
+        (left, trigger)
       case EqualTo(op, Literal(right, t)) =>
         types.add(t)
         operands.add(op)
-        (s"""${right.toString}""", trigger)
+        (right, trigger)
       case _ =>
         (uuid, trigger)
     } )
+
+    def groupedAndSorted(triggers: Seq[(String, Trigger)]): Seq[(String, Seq[Trigger])] = {
+      val gr = triggers.groupBy(_._1).map(p => p._1 -> p._2.map(_._2)).toSeq
+
+      gr.sortBy(_._1)
+    }
 
     if ((operands.size > 1) || (types.size > 1) || labelsAndTrigger.exists(_._1 == uuid))
       None
@@ -41,7 +48,7 @@ object SwitchGroups {
           greaterThanSpark = (s, r) => s"$s.${UTF8StringOps.compareTo}($r) > 0",
           sparkType = "org.apache.spark.unsafe.types.UTF8String",
           initSpark = (v, t) => s"$v = org.apache.spark.unsafe.types.UTF8String.fromString($t);",
-          triggers = labelsAndTrigger.map(p => s""""${p._1}"""" -> p._2).sortBy(_._1)
+          triggers = groupedAndSorted(labelsAndTrigger.map(p => s""""${p._1.toString}"""" -> p._2))
         ))
 
       case IntegerType =>
@@ -52,7 +59,7 @@ object SwitchGroups {
           greaterThanSpark = (s, r) => s"$s > $r",
           sparkType = "int",
           initSpark = (v, t) => s"$v = $t;",
-          triggers = labelsAndTrigger.sortBy(_._1)
+          triggers = groupedAndSorted(labelsAndTrigger.map(p => p._1.toString -> p._2))
         ))
 
       case _ => None
@@ -81,20 +88,27 @@ case class SwitchGroups(groupingExpression: Expression, typ: String,
                         lessThanSpark: (String, String) => String,
                         greaterThanSpark: (String, String) => String,
                         sparkType: String, initSpark: (String, String) => String,
-                        triggers: Seq[(String, Trigger)]
-                        ) {
+                        triggers: Seq[(String, Seq[Trigger])]
+                        ) extends Logging {
 
   def produceGroup(ctx: CodegenContext, prefix: String,
                    groupDepth: Int,
                    map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
                    params: ParameterInformation): TriggerResult = {
 
-    val groupCalls: Seq[(String, Block)] = {
+    val groupCalls: Seq[(String, Block)] =
       triggers.map {
         p =>
-          p._1 -> map(p._2.index)(ctx, params, p._2.expression, true) // alreadyPassed
+          val mult = p._2.groupBy(_.salience).filter(_._2.size > 1)
+          if (p._2.size > 1 && mult.nonEmpty) {
+            logWarning(s"SwitchGroups detected random outcomes: multiple Triggers with the same salience values: $mult")
+          }
+
+          p._1 -> {
+            val t = p._2.minBy(_.salience)
+            map(t.index)(ctx, params, t.expression, true) // alreadyPassed
+          }
       }
-    }
 
     TriggerResult( Seq(generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator, "", Seq.empty, true,
       params)
