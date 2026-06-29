@@ -146,14 +146,14 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   /**
    * used by codegen
-   */
+   
   def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
     applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
-
+*/
   /**
    * used by codegen
    */
-  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
     val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
