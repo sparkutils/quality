@@ -310,7 +310,7 @@ object SeparateCompilation {
       $generate
 
       // main runner
-      class $clazzName extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
+      final class $clazzName extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
         private final Object[] references;
         $initDecl
         // ctx mutable states
