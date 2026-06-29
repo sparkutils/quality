@@ -66,13 +66,6 @@ object SwitchGroups {
     }
 
   }
-
-/*  val ints = SwitchGroups(sorted, bucketExpr(bucketSize), "int", lessThan = (s, r) => s"$s < $r",
-    lessThanOrEqual = (s, l) => s"$s <= $l",
-    greaterThanOrEqual = (s, l) => s"$s >= $l", zero = "0",
-    lessThanSpark = (s, l) => s"$s < $l", greaterThanSpark = (s, r) => s"$s > $r",
-    sparkType = "int", initSpark = (v,t) => s"$v = $t;")
- */
 }
 
 /**
@@ -100,9 +93,11 @@ case class SwitchGroups(groupingExpression: Expression, typ: String,
       triggers.map {
         p =>
           val mult = p._2.groupBy(_.salience).filter(_._2.size > 1)
+          // $COVERAGE-OFF$ // zero point in testing and no different than any other salience usage
           if (p._2.size > 1 && mult.nonEmpty) {
-            logWarning(s"SwitchGroups detected random outcomes: multiple Triggers with the same salience values: $mult")
+            logDebug(s"SwitchGroups detected random outcomes: multiple Triggers with the same salience values: $mult")
           }
+          // $COVERAGE-ON$
 
           p._1 -> {
             val t = p._2.minBy(_.salience)

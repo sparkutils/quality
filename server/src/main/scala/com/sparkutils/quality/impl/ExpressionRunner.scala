@@ -142,7 +142,12 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   /**
    * used by codegen
    */
-  override def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
+  override def applyNonEmptySuffix: String = "Expression"
+
+  /**
+   * used by codegen
+   */
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
     applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
 
   /**
