@@ -108,7 +108,7 @@ object ClassicQualitySparkUtils {
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
-    plan.transformExpressionsDownWithPruning {
+    plan.transformAllExpressionsWithPruning {
       // if it's an actual lambda (e.g. folder) we should not expand it for now
       case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
         case f: FunN =>
