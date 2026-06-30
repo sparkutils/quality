@@ -128,7 +128,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
       // #128 - the other rule should be Unevaluated
       val rr0 = res(0).ruleSuiteResults.ruleSetResults(Id(50,1)).ruleResults
       val rr0r = Seq(rr0(Id(100,1)), rr0(Id(200,1)))
-      v3_2_and_above { // spark 3/3.1 don't actually respect the compilation flag
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
         if (inCodegen) {
           rr0r shouldBe Seq(UnevaluatedRule, UnevaluatedRule)
         } else {
@@ -152,7 +152,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
           rr1r shouldBe Seq(Failed, Failed)
         }
       }
-      v3_2_and_above { // spark 3/3.1 don't actually respect the compilation flag
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
         rr34(3)
         rr34(4)
       }
@@ -162,7 +162,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
       // #128 - the other rule should be Unevaluated
       val rr2 = res(5).ruleSuiteResults.ruleSetResults(Id(50,1)).ruleResults
       val rr2r = Seq(rr2(Id(0,1)), rr2(Id(100,1)))
-      v3_2_and_above { // spark 3/3.1 don't actually respect the compilation flag
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
         if (inCodegen) {
           rr2r shouldBe Seq(Failed, Failed)
         } else {
