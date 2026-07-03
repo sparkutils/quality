@@ -8,10 +8,10 @@ import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
+import org.apache.spark.sql.types.{AbstractDataType, BooleanType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable
@@ -70,7 +70,7 @@ trait RefCodeGen {
 
   // never return a different object from this gen code
   @transient
-  var _generated: mutable.Map[CodegenContext, ExprCode] = _
+  var _generated: Option[ExprCode] = None
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     if (ExpressionCompiler.inExpressionCompiler) {
@@ -89,22 +89,22 @@ trait RefCodeGen {
       """)
     } else {
       if (_generated == null){
-        _generated = mutable.Map.empty
+        _generated = None
       }
-      val cached = _generated.get(ctx)
-      if (cached.isEmpty) {
+
+      if (_generated.isEmpty) {
         val javaType = CodeGenerator.javaType(dataType)
         val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
         val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
 
         val toCache = ev.copy(code = code"",
-          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
-          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
+          isNull = VariableValue(theNull, CodeGenerator.javaClass(BooleanType)),
+          value = VariableValue(theVar, CodeGenerator.javaClass(dataType))
         )
-        _generated.put(ctx, toCache)
+        _generated = Some(toCache)
         toCache
       } else
-        cached.get
+        _generated.get
     }
 }
 

@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.util.Params.stripBrackets
+import com.sparkutils.quality.impl.util.Params.{prepFields, stripBrackets}
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
 import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Factory}
 import net.jpountz.xxhash.XXHashFactory
@@ -216,33 +216,66 @@ object ParameterInformation {
  * @param arity the arity of the parameters, abstract function only goes to 22, 255 are available
  * @param pushToTop any outer context information (spark 3.1 and higher)
  * @param params pairs of variable name to java type used for declaration and the class type for boxing
+ * @param topLevelRunnerParams top level params typically created by the runner to push down, each sub compilation unit
+ *                             will have them as mutable state through aritySafe
  */
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
                                 params: Seq[(String, String, Class[_], Boolean)], pushToTop: String = "",
                                 outerCallParams: String = "",
                                 // split expressions pairs
                                 nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty,
-                                returnTyp: String = "Object"//"InternalRow"
+                                returnTyp: String = "Object",//"InternalRow"
+                                topLevelRunnerParams: Seq[VariableValue] = Seq.empty
                                ) {
 
   /**
    * Creates an "uber" seq of params and nonCombinedParams for inputadapters (e.g. row attributes) and bumps arity
    * along with refreshing outerCallParams,
    * all other variables are kept and should be
-   * treated as unusable.  It is expected to comb
+   * treated as unusable.  other.additionalParams is needed to thread extra runner added state through when calling
+   * genCompilerTerms
    * @param other
+   * @param topLevel if it's toplevel we do not use other.additionalParams as the next compilation unit creates them
    * @return
    */
-  def mergeParams(other: ParameterInformation): ParameterInformation = {
+  def mergeParams(other: ParameterInformation, topLevel: Boolean): ParameterInformation = {
+    val prepped =
+      if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
+        preppedTopLevel
+      else
+        if (topLevel)
+          Seq.empty
+        else
+          other.preppedTopLevel
+
     val nparams = (params ++ other.params.filter(_._2.contains("inputadapter"))).distinct
+
     copy(params = nparams,
       nonCombinedParams = (nonCombinedParams ++ other.nonCombinedParams.filter(_._2.contains("inputadapter"))).distinct,
-        arity = nparams.size,
-      outerCallParams = nparams.map(_._2).mkString(", ")
+        arity = (
+          if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
+            (nparams ++ preppedTopLevel).distinct.size
+          else
+            if (topLevel)
+              nparams.size
+            else
+              (nparams ++ other.preppedTopLevel).distinct.size
+          ),
+      outerCallParams = (nparams.map(_._2) ++ prepped.map(_._2) ).distinct.mkString(", "),
+      topLevelRunnerParams =
+        if (topLevelRunnerParams.nonEmpty)
+          topLevelRunnerParams // grouped folder
+        else
+          if (topLevel)
+            Seq.empty
+          else
+            other.topLevelRunnerParams // non grouped
     )
   }
 
   val useArity = if (arity > 22) 1 else arity
+
+  val preppedTopLevel = prepFields(topLevelRunnerParams)
 
   /**
    * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
@@ -265,16 +298,18 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
           "Object"
         ) + ">"
 
+  val aritySafe = (params ++ preppedTopLevel).distinct
+
   def aritySafeParamDef: String =
     if (arity <= 22)
-      params.map{ p=>
+      aritySafe.map{ p=>
         s"Object ${p._2}_ppp" // only object will compile, janino no generics
       }.distinct.mkString(",")
     else
       "Object input_ppp"
 
   def addAritySafeParamDecl(ctx: CodegenContext): Unit =
-    params.map { p =>
+    aritySafe.map { p =>
       val (arrayExtraDecl, arrayExtraDim) =
         if (p._4)
           (p._2, "[]") // s" = new ${p._3.componentType().getName}[1][]
@@ -287,7 +322,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   def aritySafeParamConversion(ctx: CodegenContext): String =
     if (arity <= 22)
-      params.map { p =>
+      aritySafe.map { p =>
 
         val cast =
           if (p._3.isPrimitive && !p._4)
@@ -329,7 +364,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
   def aritySafeParamCallPrep(ctx: CodegenContext): String =
     if (arity <= 22) "" else {
       paramCallObject = ctx.addMutableState("Object[]", "paramCallAr", v => s"$v = new Object[${params.size}];")
-      params.zipWithIndex.map {
+      aritySafe.zipWithIndex.map {
         case (p, index) =>
           s"$paramCallObject[$index] = ${p._2};"
       }.mkString("\n")
@@ -340,6 +375,15 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       outerCallParams
     else
       paramCallObject
+
+  def topLevelCall(str: String, outerParams: ParameterInformation) =
+    if (outerParams.topLevelRunnerParams.nonEmpty)
+      str + "," + outerParams.preppedTopLevel.map(_._2).mkString(",")
+    else
+      str
+
+  def outerParamsCall(outerParams: ParameterInformation): String =
+    topLevelCall(paramsCall, outerParams)
 }
 
 object Params {
@@ -351,6 +395,21 @@ object Params {
     else
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
+
+  def prepFields(ordered: Seq[VariableValue]) =
+    ordered.map { v =>
+      val (stripped, arrayInName) = stripBrackets(v)
+
+      val (typ, array) =
+        if (v.javaType.isArray)
+          (s"${v.javaType.getComponentType.getName}", "[]")
+        else if (v.javaType.isPrimitive)
+          (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
+        else
+          (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
+
+      (s"$typ$array", stripped, v.javaType, array.nonEmpty) // if it's not empty we want to pass through
+    }.distinct
 
   def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[VariableValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
@@ -364,36 +423,21 @@ object Params {
 
     val size = filteredA.size + filteredAdditional.size
     val use =
-      if (size <= 22)
+      //if (size <= 22)
         filteredA ++ filteredAdditional
-      else
-        filteredA // additional are then handled via class level
+      //else
+        //filteredA // additional are then handled via class level
 
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = use
 
-    def prepFields(ordered: Seq[VariableValue]) =
-      ordered.map { v =>
-        val (stripped, arrayInName) = stripBrackets(v)
-
-        val (typ, array) =
-          if (v.javaType.isArray)
-            (s"${v.javaType.getComponentType.getName}", "[]")
-          else if (v.javaType.isPrimitive)
-            (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
-          else
-            (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
-
-        (s"$typ$array", stripped, v.javaType, array.nonEmpty) // if it's not empty we want to pass through
-      }.distinct
-
     val pairs = prepFields(ordered)
 
     val combined =
-      if (size <= 22)
+      //if (size <= 22)
         pairs
-      else
-        pairs ++ prepFields(filteredAdditional)
+      //else
+        //pairs ++ prepFields(filteredAdditional)
 
     val paramsCall =
       ordered.map(v =>

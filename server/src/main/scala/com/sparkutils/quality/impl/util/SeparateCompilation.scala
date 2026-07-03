@@ -99,7 +99,8 @@ object ClazzGenerator {
         val tmpArr = ctx.freshName("tempArr")
         s"""
            Object[] $tmpArr = ${e.code};
-           ${t.biDirectionalParams.filterNot(_.javaType.isArray).zipWithIndex.map{
+           ${(t.biDirectionalParams ++ t.usedParameters.topLevelRunnerParams).distinct.
+            filterNot(_.javaType.isArray).zipWithIndex.map{
               case (v,index) =>
                 val cast =
                   if (v.javaType.isPrimitive)
@@ -172,7 +173,9 @@ object SeparateCompilation {
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
-      createGenerateFunction: Boolean = true, extraParams: Seq[VariableValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
+      createGenerateFunction: Boolean = true, extraParams: Seq[VariableValue] = Seq.empty,
+      useParams: CodegenContext => ParameterInformation = null,
+      topLevelCompilationUnit: Boolean = false)(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
     ): SeparateCompilation = {
 
@@ -207,7 +210,8 @@ object SeparateCompilation {
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
     runnerCompilation(outerctx = outerCtx,
-      params.mergeParams(childParams).mergeParams(implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType)),
+      params.mergeParams(childParams, false).
+        mergeParams(implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType), topLevelCompilationUnit),
       genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
         generateStatsEvery = theThis.extraConfig.int("statsEvery", 0),

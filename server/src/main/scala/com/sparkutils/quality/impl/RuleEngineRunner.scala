@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms, ruleResultToRow}
 import com.sparkutils.quality._
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
@@ -242,12 +242,17 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                         groupSalienceCheck: (String, String, String) => Block = // String for externalSalience as it may be a term
                          (externalSalience, currentSalience, currentResult) =>
                            // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
-                           code"true"
+                           code"true",
+                         returnIfGroupSalienceCheckFalse: Boolean = false,
+                         runnerParams: Seq[VariableValue] = Seq.empty
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val paramsInfo = genParams(ctx, child)
+    val paramsInfo = {
+      val t = genParams(ctx, child)
+      t.copy(topLevelRunnerParams = (t.topLevelRunnerParams ++ runnerParams).distinct)
+    }
 
     val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
     import resTerms._
@@ -417,7 +422,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
         additionalParams, allExpr, exprEnd = () => exprEnd(currRuleResTerm),
         groupSalienceCheck = a => groupSalienceCheck(a, currentSalience, currRuleResTerm),
-        prefix = implicitly[ClassTag[T]].runtimeClass.getSimpleName),
+        prefix = implicitly[ClassTag[T]].runtimeClass.getSimpleName,
+        returnIfGroupSalienceCheckFalse = returnIfGroupSalienceCheckFalse),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
       runnerClassName = runnerClassName, paramsInfo, resultRow, resultRowCopy, output, inPlaceOffsets)
@@ -486,8 +492,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
     ))
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-try{
-    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // #128 jump out of expr or rule groups
@@ -510,7 +518,7 @@ try{
             (externalSalience, currentSalience, currentResult) =>
               // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
               code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
-// TODO fold over with the head lowestSalience to get the
+
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
         val outputs = 0 until triggerCount
@@ -524,7 +532,8 @@ try{
             orderOffset = (idx: Int) => reordered(idx),
             // we shouldn't check salience as we are already ordered by it
             salienceCheck = false,
-            exprEnd = earlyReturn, groupSalienceCheck = groupSalienceCheck, salience = salience(_)
+            exprEnd = earlyReturn, groupSalienceCheck = groupSalienceCheck, salience = salience(_),
+            returnIfGroupSalienceCheckFalse = true
           )
 
         import compilerTerms._
@@ -595,13 +604,8 @@ try{
         GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
 
-  setClazzSource( clazz )
-  fres
-  } catch
-  {
-    case t: Throwable =>
-      throw t
-  }
+    setClazzSource( clazz )
+    fres
 
   }
 }

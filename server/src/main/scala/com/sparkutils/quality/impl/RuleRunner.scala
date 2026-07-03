@@ -141,7 +141,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     additionalParams: Seq[VariableValue],
     expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-    groupSalienceCheck: String => Block = _ => code""): TriggerResult = {
+    groupSalienceCheck: String => Block = _ => code"", returnIfGroupSalienceCheckFalse: Boolean = false): TriggerResult = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
@@ -149,7 +149,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res =
       impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
-        prefix, exprEnd, groupSalienceCheck)
+        prefix, exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse)
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)
@@ -285,7 +285,9 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
    */
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs

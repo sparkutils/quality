@@ -59,6 +59,7 @@ object TopLevelBoolean {
       hmap.map{
         case (k, v) =>
           (k match {
+            case _ if k.isEmpty => Literal(true)
             case _ if k.size == 1 => k.head
             case _ => k.reduce(And(_,_))
           }, (k, v))

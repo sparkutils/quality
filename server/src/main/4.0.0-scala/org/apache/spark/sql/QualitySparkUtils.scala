@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.aggregate.ScalaAggregator
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{FunN, GroupResultsWithProcess, LambdaFunctions, MapTransform, RefCodeGen}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
@@ -76,6 +76,65 @@ object ClassicQualitySparkUtils {
     (argSet.toSet, exprCodesNeedEvaluate.toSet)
   }
 
+  /* kept for safety, assumed not needed for Quality usage at least
+
+  def withRefExpr(ctx: CodegenContext, child: Expression): Set[VariableValue] = {
+    withRefExpr(ctx, Seq(child))
+  }
+
+  def withRefExpr(ctx: CodegenContext, children: Seq[Expression]): Set[VariableValue] = {
+    val argSet = mutable.Set[VariableValue]()
+
+    // Collects local variables from a given `expr` tree
+    val collectLocalVariable = (ev: ExprValue) => ev match {
+      case vv: VariableValue => argSet += vv
+      case _ =>
+    }
+
+    // Special case for RefCodeGen's, they are likely not be identified as LambdaVariable's are not part of subexpr
+    // we only want refs that are not created in this tree
+    val thisTreeRefs = mutable.Set[Int]()
+    children.foreach {
+      e =>
+        e.collect {
+          case f: FunN =>
+            f.arguments
+
+          case g: GroupResultsWithProcess =>
+
+            Seq(g.arguments.last)
+
+          case mt: MapTransform =>
+            Seq(mt.argument)
+
+        }.flatten.foreach {
+          case r: RefCodeGen =>
+            thisTreeRefs += System.identityHashCode(r)
+        }
+    }
+
+    children.foreach {
+      e =>
+        val ec = e.collect {
+          case r: RefCodeGen => r.genCode(ctx).value
+        }
+        ec
+    }
+
+    children.foreach {
+      e =>
+        e.collect {
+          case r: RefCodeGen if !thisTreeRefs.contains(System.identityHashCode(r)) =>
+            r
+        }.foreach {
+          r =>
+            val eval = r.genCode(ctx)
+            collectLocalVariable(eval.value)
+        }
+    }
+    argSet.toSet
+  }
+*/
   /**
    * Only evaluates against subexpressions
    *
@@ -86,7 +145,9 @@ object ClassicQualitySparkUtils {
   def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[VariableValue]): ParameterInformation = {
     val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq, additional)
+    // val e = withRefExpr(ctx, children)
+
+    val p = formatParams(ctx, /*(a ++ e)*/a.toSeq, additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }
@@ -101,7 +162,9 @@ object ClassicQualitySparkUtils {
   def genParams(ctx: CodegenContext, child: Expression, additional: Seq[VariableValue] = Seq.empty): ParameterInformation = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq, additional)
+    // val e = withRefExpr(ctx, child)
+
+    val p = formatParams(ctx, /*(a ++ e)*/a.toSeq, additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }

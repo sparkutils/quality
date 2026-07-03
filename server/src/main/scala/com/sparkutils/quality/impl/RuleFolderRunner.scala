@@ -107,9 +107,16 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
     ))
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-
-    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(
+      this, realChildren, outerCtx, ev, ruleSuite.id,
+      topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
+        val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+
+        val extras =
+          lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {
+            case vv: VariableValue => vv
+          }
 
         // need to setup the folder variable to pass around, create it with "left"
         // thread it through
@@ -136,8 +143,6 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
             expressionOffsets(i)
           } zip salience sortBy(_._2) map(_._1)
 
-        val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
-
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
             PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
@@ -153,7 +158,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
             orderOffset = (idx: Int) => reordered(idx),
             // we shouldn't check salience as we are already ordered by it
             salienceCheck = false,
-            sizeAdjustment = sizeAdjustment, salience = salience(_)
+            sizeAdjustment = sizeAdjustment, salience = salience(_), runnerParams = extras
           )
 
         import compilerTerms._
@@ -168,6 +173,17 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
+
+          ${
+            val init =
+              lazyRefsGenCode.map{e =>
+                s"""
+                  ${e.value.code} = null;
+                  ${e.isNull.code} = false;
+                """
+              }.mkString("\n")
+            init
+          }
 
           // starting
           ${starterEval.code}

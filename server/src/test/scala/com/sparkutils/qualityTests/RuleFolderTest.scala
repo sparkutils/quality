@@ -51,6 +51,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
   def rules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
     irules(expressionRules)
 
+  def options: Map[String, String] = Map.empty
+
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     registerLambdaFunctions(Seq(
       LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
@@ -73,7 +75,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
     if (ShimUtils.isClassic(SparkSession.active))
       (dataFrame: DataFrame) =>
         Runners.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
-          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).get
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals,
+          extraConfig = options).get
     else
       (_: DataFrame) =>
         ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))),
@@ -143,7 +146,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
       withColumn("together",
         com.sparkutils.quality.ruleFolderRunner(ruleSuite,
           startingStruct = struct(lit("").as("transfer_type"),
-          $"product", $"account", $"subcode"), useType = None,
+          $"product", $"account", $"subcode"), useType = None, extraConfig = options,
           debugMode = false,
           variablesPerFunc = 40, variableFuncGroup = 20 /*, useType = Some(
           StructType(Seq(StructField("transfer_type", StringType),
@@ -463,7 +466,7 @@ class RuleFolderTest extends RuleFolderTestBase {
         RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
       (ExpressionRule("true"),
         RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
-    )), startingStruct = struct(col("c"), col("d"))) )
+    )), startingStruct = struct(col("c"), col("d")), extraConfig = options) )
     r.collect()
 
   }
