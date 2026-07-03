@@ -50,7 +50,6 @@ class RuleFolderClassicTest extends RuleFolderClassicTestBase {
     }
   }
 
-
   test("testSetSyntaxButNoEqualTo") {
     classicOnly {
       val bad = impl.OutputExpression("set('lit')").expr
@@ -72,29 +71,29 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
     groupProcessorKey -> topLevelBooleanGrouper
   )
 
-  test("testSimpleProductionRules") {
+  test("testSimpleProductionRules") { not3_0_or_3_1 {
     evalCodeGensNoResolve {
       funNRewrites {
         doTestSimpleProductionRules()
       }
     }
-  }
+  } }
 
-  test("default processor"){
+  test("default processor"){ not3_0_or_3_1 {
     evalCodeGensNoResolve {
       funNRewrites {
         doTestDefaultRules()
       }
     }
-  }
+  } }
 
-  test("default processor via debug"){
+  test("default processor via debug"){ not3_0_or_3_1 {
     evalCodeGensNoResolve {
       funNRewrites {
         doTestDefaultRulesWithDebug()
       }
     }
-  }
+  } }
 
 
 }

@@ -1,6 +1,7 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.util.TSLocal
 import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
 import com.sparkutils.testing.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
@@ -65,12 +66,60 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 }
 
+trait CacheApproach {
+  def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode
+}
+
+case class MapBasedCacheApproach() extends CacheApproach {
+  @transient
+  var map = mutable.Map[CodegenContext, ExprCode]()
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (map == null) {
+      map = mutable.Map[CodegenContext, ExprCode]()
+    }
+    val cached = map.get(ctx)
+    if (cached.isEmpty) {
+      val toCache = genCode(ctx)
+      map.put(ctx, toCache)
+      toCache
+    } else {
+      cached.get
+    }
+  }
+}
+
+case class OptionCacheApproach() extends CacheApproach {
+  @transient
+  var opt: Option[ExprCode] = None
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (opt == null) {
+      opt = None
+    }
+    if (opt.isEmpty) {
+      val toCache = genCode(ctx)
+      opt = Some(toCache)
+      toCache
+    } else {
+      opt.get
+    }
+  }
+}
+
+object RefCodeGen {
+  private val cacheApproach = TSLocal[() => CacheApproach]( () => () => MapBasedCacheApproach() )
+  def withCacheApproach[R](t: => CacheApproach)(thunk: => R): R = {
+    cacheApproach.withT( () => t)(thunk)
+  }
+}
+
 trait RefCodeGen {
   def dataType: DataType
 
   // never return a different object from this gen code
   @transient
-  var _generated: Option[ExprCode] = None
+  var _generated: CacheApproach = null
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     if (ExpressionCompiler.inExpressionCompiler) {
@@ -89,10 +138,10 @@ trait RefCodeGen {
       """)
     } else {
       if (_generated == null){
-        _generated = None
+        _generated = RefCodeGen.cacheApproach.get().apply()
       }
 
-      if (_generated.isEmpty) {
+      _generated.getOrBuild(ctx) { ctx =>
         val javaType = CodeGenerator.javaType(dataType)
         val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
         val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
@@ -101,10 +150,8 @@ trait RefCodeGen {
           isNull = VariableValue(theNull, CodeGenerator.javaClass(BooleanType)),
           value = VariableValue(theVar, CodeGenerator.javaClass(dataType))
         )
-        _generated = Some(toCache)
         toCache
-      } else
-        _generated.get
+      }
     }
 }
 

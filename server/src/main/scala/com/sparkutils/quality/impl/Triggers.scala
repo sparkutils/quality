@@ -419,8 +419,10 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
 object Triggers {
 
+  val defaultGrouper: String = classOf[DefaultTriggerGrouper].getName
+
   def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
-    val name = extraConfig.string(groupProcessorKey, classOf[DefaultTriggerGrouper].getName)
+    val name = extraConfig.string(groupProcessorKey, defaultGrouper)
 
     val impl =
       try {

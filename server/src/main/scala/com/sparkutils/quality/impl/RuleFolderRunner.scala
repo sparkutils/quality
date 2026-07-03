@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.Triggers.defaultGrouper
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
@@ -12,7 +13,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, Codege
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
+import org.apache.spark.sql.qualityFunctions.{FunN, MapBasedCacheApproach, OptionCacheApproach, RefCodeGen, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
 import java.util.concurrent.atomic.AtomicReference
@@ -111,7 +112,17 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
       this, realChildren, outerCtx, ev, ruleSuite.id,
       topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
-        val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        val cacheApproach =
+          if (extraConfig.getOrElse(groupProcessorKey, defaultGrouper) != defaultGrouper)
+            // assumed desirable for all
+            OptionCacheApproach()
+          else
+            MapBasedCacheApproach()
+
+        // pin a cache approach
+        val lazyRefsGenCode = RefCodeGen.withCacheApproach(cacheApproach) {
+          realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        }
 
         val extras =
           lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {

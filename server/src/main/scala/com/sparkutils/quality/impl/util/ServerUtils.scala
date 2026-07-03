@@ -157,6 +157,17 @@ case class TSLocal[T](val initialValue: () => T) extends Serializable {
     }
     threadLocal.get()
   }
+  def withT[R](t: T)(thunk: => R): R = {
+    if (threadLocal eq null) {
+      get() // init
+    }
+    threadLocal.set(t)
+    try {
+      thunk
+    } finally {
+      threadLocal.remove()
+    }
+  }
 }
 
 case class TransientHolder[T](val initialise: () => T) extends Serializable {
