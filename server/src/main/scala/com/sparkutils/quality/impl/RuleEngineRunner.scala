@@ -244,7 +244,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                            // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
                            code"true",
                          returnIfGroupSalienceCheckFalse: Boolean = false,
-                         runnerParams: Seq[VariableValue] = Seq.empty
+                         runnerParams: Seq[(VariableValue, Boolean)] = Seq.empty
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -407,15 +407,15 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     // required for any TriggerGrouping or further splitting of code
     val additionalParams = Seq(
-      VariableValue(resultRow, classOf[InternalRow]),
-      VariableValue(outArrTerm, java.lang.reflect.Array.newInstance(outputJavaType, 0).getClass),
-      VariableValue(salienceArrTerm, java.lang.reflect.Array.newInstance(java.lang.Integer.TYPE, 0).getClass),
-      VariableValue(currentOutputIndex, java.lang.Integer.TYPE),
-      VariableValue(currentSalience, java.lang.Integer.TYPE),
-      VariableValue(hasAPassTerm, java.lang.Boolean.TYPE),
-      VariableValue(currRuleResTerm, java.lang.Integer.TYPE),
-      VariableValue(ruleTupleArrTerm, java.lang.reflect.Array.newInstance(ruleTupleClass, 0).getClass),
-      VariableValue(inPlaceOffsets.runner, inPlaceOffsets.runnerClazz)
+      (VariableValue(resultRow, classOf[InternalRow]), false),
+      (VariableValue(outArrTerm, java.lang.reflect.Array.newInstance(outputJavaType, 0).getClass), outputJavaType.isPrimitive),
+      (VariableValue(salienceArrTerm, java.lang.reflect.Array.newInstance(java.lang.Integer.TYPE, 0).getClass), false),
+      (VariableValue(currentOutputIndex, java.lang.Integer.TYPE), false),
+      (VariableValue(currentSalience, java.lang.Integer.TYPE), false),
+      (VariableValue(hasAPassTerm, java.lang.Boolean.TYPE), false),
+      (VariableValue(currRuleResTerm, java.lang.Integer.TYPE), false),
+      (VariableValue(ruleTupleArrTerm, java.lang.reflect.Array.newInstance(ruleTupleClass, 0).getClass), false),
+      (VariableValue(inPlaceOffsets.runner, inPlaceOffsets.runnerClazz), false)
     )
 
     CompilerTerms(

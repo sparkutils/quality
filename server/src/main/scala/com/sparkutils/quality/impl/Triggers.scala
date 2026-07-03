@@ -54,11 +54,11 @@ case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
  *
  * The return type is the list of function names to call and any extra common subexpressions needed to group
  */
-trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, Seq[VariableValue],
+trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, Seq[(VariableValue, Boolean)],
   Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)], ParameterInformation,
   String, () => Block, String => Block, Boolean, TriggerResult] {
 
-  def apply(ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
+  def apply(ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
             expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
             params: ParameterInformation, prefix: String, exprEnd: () => Block,
             groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean): TriggerResult
@@ -80,7 +80,7 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, 
 
 case class DefaultTriggerGrouper() extends TriggerGrouper {
 
-  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
+  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
                       expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
                       params: ParameterInformation, prefix: String, exprEnd: () => Block,
                       groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean):
@@ -132,7 +132,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
   private lazy val idHolder = new Counter()
 
   protected def performGrouping(ctx: CodegenContext, runner: Runner, resultRow: String,
-                                additionalParams: Seq[VariableValue],
+                                additionalParams: Seq[(VariableValue, Boolean)],
                                 expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
                                 params: ParameterInformation, prefix: String, exprEnd: () => Block,
                                 groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean,
@@ -198,7 +198,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }
   }
 
-  protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
+  protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
                               exprEnd: () => Block, groupSalienceCheck: String => Block,
                               groupDepth: Int, simpleGrouper: DefaultTriggerGrouper,
                               map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
@@ -246,7 +246,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     ), groupCalls.map(_._2), groupCalls.map(_._3).foldLeft(ParameterInformation.forMerging)(_.mergeParams(_, false)))
   }
 
-  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
+  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
                               exprEnd: () => Block, groupSalienceCheck: String => Block,
                               group: Group, simpleGrouper: DefaultTriggerGrouper,
                               map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
@@ -300,7 +300,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }
   }
 
-  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue],
+  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)],
                                      groupSalienceCheck: String => Block,
                                      group: Group,
                                      produceTriggerResult: (CodegenContext, ParameterInformation, String) => TriggerResult,
@@ -338,7 +338,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
             VariableValue(grpResult, classOf[Array[Object]])
           )
 
-        val noArrayParams = (additionalParams ++ outerParams.topLevelRunnerParams).distinct.filterNot(_.javaType.isArray);
+        val noArrayParams = (additionalParams ++ outerParams.topLevelRunnerParams).distinct.filterNot(_._1.javaType.isArray);
 
         val returnArray = ctx.addMutableState("Object[]","returnArray",
           initFunc = v => s"$v = new Object[${noArrayParams.size}];")
@@ -353,7 +353,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
               ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
               Object[] ${exprRunner.value} = $returnArray;
               ${noArrayParams.zipWithIndex.map{
-                case (p, index) => s"${returnArray}[$index] = ${p.variableName};"
+                case (p, index) => s"${returnArray}[$index] = ${p._1.variableName};"
               }.mkString(";\n")}
               """
         ), gr.extraClasses, gr.ignoreTopLevelSubExpressions)
@@ -395,7 +395,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
  */
 case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
-  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
+  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
                       expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
                       params: ParameterInformation, prefix: String, exprEnd: () => Block,
                       groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean):

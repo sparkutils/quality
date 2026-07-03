@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.shim.expressions.Names
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, ShimUtils}
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
@@ -236,10 +236,12 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res), processedRes)
   }
 
+  def resultElementType = if (flatten && canFlatten) elementType else actualType
+
   def dataType: DataType = StructType( Seq(
       StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
       StructField(name = "result", dataType =
-        if (flatten && canFlatten) ArrayType(elementType, includeNulls) else ArrayType(actualType, includeNulls),
+        ArrayType(resultElementType, includeNulls),
         nullable = true)
     ))
 
@@ -256,12 +258,15 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
           else
             els
 
-
         // tester to prove compilation on throughput tests
         // print("I AM GENERATING CODE!!!!")
 
         // needs resetting every row
-        val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
+        val bufferType = classOf[ArrayBuffer[_]]
+        val bufferTerm = ctx.addMutableState(bufferType.getName, ctx.freshName("results"))
+
+        // if TriggerGrouping is used this should not be in primitive type as we will store nulls.
+        val extras = Seq((VariableValue(bufferTerm, bufferType), ShimUtils.isPrimitive(resultElementType)))
 
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -421,7 +426,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
                 -1 // don't generate the default, there isn't a trigger
               else
                 0,
-            salience = salienceFromOffsets(_)
+            salience = salienceFromOffsets(_), runnerParams = extras
           )
 
         import compilerTerms._

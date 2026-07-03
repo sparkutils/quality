@@ -60,7 +60,7 @@ trait ClazzGenerator[T] {
  * @param biDirectionalParams These are essential input parameters and the only parameters returned.  Triggers uses this
  *                            to process inputs, SeparateClassGenerator to create "outer" scope for response processing
  */
-case class SeparateClassGenerator(className: String, usedParameters: ParameterInformation, index: Int, biDirectionalParams: Seq[ExprValue])
+case class SeparateClassGenerator(className: String, usedParameters: ParameterInformation, index: Int, biDirectionalParams: Seq[(ExprValue, Boolean)])
 
 object ClazzGenerator {
 
@@ -100,13 +100,17 @@ object ClazzGenerator {
         s"""
            Object[] $tmpArr = ${e.code};
            ${(t.biDirectionalParams ++ t.usedParameters.topLevelRunnerParams).distinct.
-            filterNot(_.javaType.isArray).zipWithIndex.map{
-              case (v,index) =>
+            filterNot(_._1.javaType.isArray).zipWithIndex.map{
+              case ((v, primitive), index) =>
                 val cast =
                   if (v.javaType.isPrimitive)
                     CodeGenerator.boxedType(v.javaType.getSimpleName)
-                  else
-                    v.javaType.getName
+                  else {
+                    if (v.javaType.isArray && primitive)
+                      CodeGenerator.boxedType(v.javaType.getComponentType.getSimpleName) + "[]"
+                    else
+                      v.javaType.getName
+                  }
 
                 s"${v.code} = ($cast) $tmpArr[$index];"}.mkString("\n")
             }
@@ -173,7 +177,7 @@ object SeparateCompilation {
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
-      createGenerateFunction: Boolean = true, extraParams: Seq[VariableValue] = Seq.empty,
+      createGenerateFunction: Boolean = true, extraParams: Seq[(VariableValue, Boolean)] = Seq.empty,
       useParams: CodegenContext => ParameterInformation = null,
       topLevelCompilationUnit: Boolean = false)(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]

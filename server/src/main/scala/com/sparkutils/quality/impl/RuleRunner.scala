@@ -138,7 +138,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
   protected[quality] def generateFunctionGroups(
     ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String,
-    additionalParams: Seq[VariableValue],
+    additionalParams: Seq[(VariableValue, Boolean)],
     expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
     groupSalienceCheck: String => Block = _ => code"", returnIfGroupSalienceCheckFalse: Boolean = false): TriggerResult = {
@@ -206,7 +206,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resNull = ctx.freshName("isNull")
 
     val groups = RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-      Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)
+      Seq((VariableValue(resultRow, classOf[InternalRow]), false)), allExpr)
 
     val funNames: Iterator[String] = groups.groupCalls
 

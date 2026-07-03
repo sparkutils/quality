@@ -231,12 +231,12 @@ object ParameterInformation {
  *                             will have them as mutable state through aritySafe
  */
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
-                                params: Seq[(String, String, Class[_], Boolean)], pushToTop: String = "",
+                                params: Seq[(String, String, Class[_], Boolean, Boolean)], pushToTop: String = "",
                                 outerCallParams: String = "",
                                 // split expressions pairs
-                                nonCombinedParams: Seq[(String, String, Class[_], Boolean)] = Seq.empty,
+                                nonCombinedParams: Seq[(String, String, Class[_], Boolean, Boolean)] = Seq.empty,
                                 returnTyp: String = "Object",//"InternalRow"
-                                topLevelRunnerParams: Seq[VariableValue] = Seq.empty
+                                topLevelRunnerParams: Seq[(VariableValue, Boolean)] = Seq.empty
                                ) {
 
   /**
@@ -275,7 +275,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       outerCallParams = (nparams.map(_._2) ++ prepped.map(_._2) ).distinct.mkString(", "),
       topLevelRunnerParams =
         if (topLevelRunnerParams.nonEmpty)
-          topLevelRunnerParams // grouped folder
+          topLevelRunnerParams // grouped folder / collector
         else
           if (topLevel)
             Seq.empty
@@ -327,8 +327,15 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         else
           (p._2, "")
 
+      val typ =
+        if (p._5 && p._3.isArray)
+          CodeGenerator.boxedType(p._3.getComponentType.getSimpleName) + "[]"
+        else
+          CodeGenerator.typeName(p._3)
+
+
       /*s"private ${p._1}$arrayExtraDim ${p._2};" */// TODO dim handling?
-      ctx.addMutableState(CodeGenerator.typeName(p._3)+arrayExtraDim, p._2, forceInline = true, useFreshName = false)
+      ctx.addMutableState(typ+arrayExtraDim, p._2, forceInline = true, useFreshName = false)
     }
 
   def aritySafeParamConversion(ctx: CodegenContext): String =
@@ -336,10 +343,14 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       aritySafe.map { p =>
 
         val cast =
-          if (p._3.isPrimitive && !p._4)
-            CodeGenerator.boxedType(p._3.getSimpleName)
+          if (p._5 && p._3.isArray)
+            CodeGenerator.boxedType(p._3.getComponentType.getSimpleName) + "[]"
           else
-            p._1
+            if (p._3.isPrimitive && !p._4)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1
+
         val (arrayExtraDim) =
           if (p._3.isArray)
             ("[]")//
@@ -407,8 +418,9 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def prepFields(ordered: Seq[VariableValue]) =
-    ordered.map { v =>
+  def prepFields(ordered: Seq[(VariableValue, Boolean)]) = {
+
+    ordered.map { case (v, box) =>
       val (stripped, arrayInName) = stripBrackets(v)
 
       val (typ, array) =
@@ -419,18 +431,23 @@ object Params {
         else
           (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
 
-      (s"$typ$array", stripped, v.javaType, array.nonEmpty) // if it's not empty we want to pass through
+      (s"$typ$array", stripped, v.javaType, array.nonEmpty, box) // if it's not empty we want to pass through
     }.distinct
+  }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[VariableValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
-      case a: VariableValue => Some(a)
+      case a: VariableValue => Some((a, false))
+      case _ => None
+    }
+    def filterOutArraysB(use: Seq[(ExprValue,Boolean)]) = use.flatMap {
+      case (a: VariableValue, b) => Some((a, b))
       case _ => None
     }
 
     val filteredA = filterOutArrays(a)
-    val filteredAdditional = filterOutArrays(additional)
+    val filteredAdditional = filterOutArraysB(additional)
 
     val size = filteredA.size + filteredAdditional.size
     val use =
@@ -451,15 +468,15 @@ object Params {
         //pairs ++ prepFields(filteredAdditional)
 
     val paramsCall =
-      ordered.map(v =>
+      ordered.map { case (v, primitive) =>
         if (v.javaType.isArray && callsKeepArrays)
           v.variableName
         else
           stripBrackets(v)._1
-      ).distinct.mkString(", ")
+      }.distinct.mkString(", ")
 
     ParameterInformation(pairs.map {
-      case (typ, stripped, _, _) =>
+      case (typ, stripped, _, _, _) =>
 
         s"$typ $stripped"
       }.distinct.mkString(", ")

@@ -126,7 +126,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
         val extras =
           lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {
-            case vv: VariableValue => vv
+            case vv: VariableValue => (vv, false) // isNull is ok as only boolean is assigned
           }
 
         // need to setup the folder variable to pass around, create it with "left"
