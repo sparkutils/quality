@@ -391,7 +391,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       }
 
     // ensure ordering and re-use
-    val allExpr = triggerRules.zipWithIndex.map { case (_, idx) =>
+    val allExpr = triggerRules.indices.map { idx =>
 
       val realI = orderOffset(idx)
 

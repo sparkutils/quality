@@ -115,9 +115,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         val cacheApproach =
           if (extraConfig.getOrElse(groupProcessorKey, defaultGrouper) != defaultGrouper)
             // assumed desirable for all
-            OptionCacheApproach()
+            () => OptionCacheApproach()
           else
-            MapBasedCacheApproach()
+            () => MapBasedCacheApproach()
 
         // pin a cache approach
         val lazyRefsGenCode = RefCodeGen.withCacheApproach(cacheApproach) {
@@ -127,7 +127,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         val extras =
           lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {
             case vv: VariableValue => (vv, false) // isNull is ok as only boolean is assigned
-          }
+          }.distinct
 
         // need to setup the folder variable to pass around, create it with "left"
         // thread it through
@@ -148,11 +148,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-        val reordered = // fill the index list, still only uniques
-          (0 until triggerCount).map{i =>
-            // lookup the output expressions
-            expressionOffsets(i)
-          } zip salience sortBy(_._2) map(_._1)
+        val outputs = (0 until triggerCount)
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
@@ -279,7 +276,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
       if (starter.resolved) {
 
         rest.map(_.transform{
-          case r@ RefExpressionLazyType(_, _, false) =>
+          case r@ RefExpressionLazyType(_, _, false, _) =>
             r.copy(_resolved = true)
         })
 

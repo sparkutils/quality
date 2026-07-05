@@ -109,12 +109,12 @@ case class OptionCacheApproach() extends CacheApproach {
 
 object RefCodeGen {
   private val cacheApproach = TSLocal[() => CacheApproach]( () => () => MapBasedCacheApproach() )
-  def withCacheApproach[R](t: => CacheApproach)(thunk: => R): R = {
-    cacheApproach.withT( () => t)(thunk)
+  def withCacheApproach[R](t: () => CacheApproach)(thunk: => R): R = {
+    cacheApproach.withT( t )(thunk)
   }
 }
 
-trait RefCodeGen {
+trait RefCodeGen extends LambdaVariablePattern {
   def dataType: DataType
 
   // never return a different object from this gen code

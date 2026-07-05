@@ -253,17 +253,17 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
   def doTestSimpleProductionRules(): Unit = evalCodeGensNoResolve {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        OutputExpression("thecurrent1 -> updateField(updateField(thecurrent1, 'subcode', 1234), 'transfer_type', 'from')"))),
         //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
 
         (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+          OutputExpression("thecurrent2 -> updateField(thecurrent2, 'transfer_type', 'to')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+          OutputExpression("thecurrent3 -> updateField(thecurrent3, 'transfer_type', 'from')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+          OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))"))),
         (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
-            OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+            OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))")))
       ), compileEvals = true, debugMode = true
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
