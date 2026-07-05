@@ -129,9 +129,9 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
+  test("folderShouldNotEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
 
-  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
+  test("folderShouldNotEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
 
 }
 
