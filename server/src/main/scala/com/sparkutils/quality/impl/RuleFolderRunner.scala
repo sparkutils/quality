@@ -276,7 +276,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
       if (starter.resolved) {
 
         rest.map(_.transform{
-          case r@ RefExpressionLazyType(_, _, false, _) =>
+          case r@ RefExpressionLazyType(_, _, false) =>
             r.copy(_resolved = true)
         })
 
