@@ -162,10 +162,10 @@
 </span>138 <span style=''>
 </span>139 <span style=''>  protected[quality] def generateFunctionGroups(
 </span>140 <span style=''>    ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String,
-</span>141 <span style=''>    additionalParams: Seq[VariableValue],
+</span>141 <span style=''>    additionalParams: Seq[(VariableValue, Boolean)],
 </span>142 <span style=''>    expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) =&gt; Block)],
 </span>143 <span style=''>    prefix: String = &quot;ruleRunner&quot;, exprEnd: () =&gt; Block = () =&gt; code&quot;&quot;,
-</span>144 <span style=''>    groupSalienceCheck: String =&gt; Block = _ =&gt; code&quot;&quot;): TriggerResult = {
+</span>144 <span style=''>    groupSalienceCheck: String =&gt; Block = _ =&gt; code&quot;&quot;, returnIfGroupSalienceCheckFalse: Boolean = false): TriggerResult = {
 </span>145 <span style=''>
 </span>146 <span style=''>    val impl: TriggerGrouper = </span><span style='background: #AEF1AE'>Triggers.loadTriggerGrouper(runner.extraConfig)</span><span style=''>
 </span>147 <span style=''>
@@ -173,7 +173,7 @@
 </span>149 <span style=''>
 </span>150 <span style=''>    val res =
 </span>151 <span style=''>      </span><span style='background: #AEF1AE'>impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
-</span>152 <span style=''></span><span style='background: #AEF1AE'>        prefix, exprEnd, groupSalienceCheck)</span><span style=''>
+</span>152 <span style=''></span><span style='background: #AEF1AE'>        prefix, exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse)</span><span style=''>
 </span>153 <span style=''>
 </span>154 <span style=''>    val end = </span><span style='background: #AEF1AE'>System.nanoTime()</span><span style=''>
 </span>155 <span style=''>    val groupingTime = </span><span style='background: #AEF1AE'>Duration.fromNanos(end - start)</span><span style=''>
@@ -230,7 +230,7 @@
 </span>206 <span style=''>    val resNull = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;isNull&quot;)</span><span style=''>
 </span>207 <span style=''>
 </span>208 <span style=''>    val groups = </span><span style='background: #AEF1AE'>RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-</span>209 <span style=''></span><span style='background: #AEF1AE'>      Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)</span><span style=''>
+</span>209 <span style=''></span><span style='background: #AEF1AE'>      Seq((VariableValue(resultRow, classOf[InternalRow]), false)), allExpr)</span><span style=''>
 </span>210 <span style=''>
 </span>211 <span style=''>    val funNames: Iterator[String] = </span><span style='background: #AEF1AE'>groups.groupCalls</span><span style=''>
 </span>212 <span style=''>
@@ -309,56 +309,58 @@
 </span>285 <span style=''>   */
 </span>286 <span style=''>  protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 </span>287 <span style=''>
-</span>288 <span style=''>    val </span><span style='background: #AEF1AE'>SeparateCompilation(clazz, fres, _)</span><span style=''> = </span><span style='background: #AEF1AE'>SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
-</span>289 <span style=''></span><span style='background: #AEF1AE'>      (ctx, ruleRunnerExpressionIdx, _) =&gt;
-</span>290 <span style=''></span><span style='background: #AEF1AE'>
-</span>291 <span style=''></span><span style='background: #AEF1AE'>        // must be called before the rule gen runs
-</span>292 <span style=''></span><span style='background: #AEF1AE'>        val params = genParams(ctx, this)
-</span>293 <span style=''></span><span style='background: #AEF1AE'>
-</span>294 <span style=''></span><span style='background: #AEF1AE'>        // bind the rules
-</span>295 <span style=''></span><span style='background: #AEF1AE'>        val utilsName = &quot;com.sparkutils.quality.impl.RuleRunnerUtils&quot;
-</span>296 <span style=''></span><span style='background: #AEF1AE'>
-</span>297 <span style=''></span><span style='background: #AEF1AE'>        val (res, triggerRes) =
-</span>298 <span style=''></span><span style='background: #AEF1AE'>          nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
-</span>299 <span style=''></span><span style='background: #AEF1AE'>            (code: ExprValue, idx: Int) =&gt; s&quot;com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)&quot;,
-</span>300 <span style=''></span><span style='background: #AEF1AE'>            ruleRunnerExpressionIdx
-</span>301 <span style=''></span><span style='background: #AEF1AE'>          )
-</span>302 <span style=''></span><span style='background: #AEF1AE'>
-</span>303 <span style=''></span><span style='background: #AEF1AE'>      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
-</span>304 <span style=''></span><span style='background: #AEF1AE'>        triggerRes.ignoreTopLevelSubExpressions)
-</span>305 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>306 <span style=''>    </span><span style='background: #AEF1AE'>setClazzSource(clazz)</span><span style=''>
-</span>307 <span style=''>    fres
-</span>308 <span style=''>  }
-</span>309 <span style=''>}
-</span>310 <span style=''>
-</span>311 <span style=''>case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-</span>312 <span style=''>                          variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
-</span>313 <span style=''>                          alreadyZero: Boolean = false)
-</span>314 <span style=''>  extends RuleRunnerBase[RuleRunnerEval] with CodegenFallback {
-</span>315 <span style=''>
-</span>316 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-</span>317 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
-</span>318 <span style=''>
-</span>319 <span style=''>  override implicit val tClass: ClassTag[RuleRunnerEval] = </span><span style='background: #AEF1AE'>ClassTag(classOf[RuleRunnerEval])</span><span style=''>
+</span>288 <span style=''>    val </span><span style='background: #AEF1AE'>SeparateCompilation(clazz, fres, _)</span><span style=''> =
+</span>289 <span style=''>      </span><span style='background: #AEF1AE'>SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+</span>290 <span style=''></span><span style='background: #AEF1AE'>        topLevelCompilationUnit = true) {
+</span>291 <span style=''></span><span style='background: #AEF1AE'>      (ctx, ruleRunnerExpressionIdx, _) =&gt;
+</span>292 <span style=''></span><span style='background: #AEF1AE'>
+</span>293 <span style=''></span><span style='background: #AEF1AE'>        // must be called before the rule gen runs
+</span>294 <span style=''></span><span style='background: #AEF1AE'>        val params = genParams(ctx, this)
+</span>295 <span style=''></span><span style='background: #AEF1AE'>
+</span>296 <span style=''></span><span style='background: #AEF1AE'>        // bind the rules
+</span>297 <span style=''></span><span style='background: #AEF1AE'>        val utilsName = &quot;com.sparkutils.quality.impl.RuleRunnerUtils&quot;
+</span>298 <span style=''></span><span style='background: #AEF1AE'>
+</span>299 <span style=''></span><span style='background: #AEF1AE'>        val (res, triggerRes) =
+</span>300 <span style=''></span><span style='background: #AEF1AE'>          nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
+</span>301 <span style=''></span><span style='background: #AEF1AE'>            (code: ExprValue, idx: Int) =&gt; s&quot;com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)&quot;,
+</span>302 <span style=''></span><span style='background: #AEF1AE'>            ruleRunnerExpressionIdx
+</span>303 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>304 <span style=''></span><span style='background: #AEF1AE'>
+</span>305 <span style=''></span><span style='background: #AEF1AE'>      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
+</span>306 <span style=''></span><span style='background: #AEF1AE'>        triggerRes.ignoreTopLevelSubExpressions)
+</span>307 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>308 <span style=''>    </span><span style='background: #AEF1AE'>setClazzSource(clazz)</span><span style=''>
+</span>309 <span style=''>    fres
+</span>310 <span style=''>  }
+</span>311 <span style=''>}
+</span>312 <span style=''>
+</span>313 <span style=''>case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
+</span>314 <span style=''>                          variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
+</span>315 <span style=''>                          alreadyZero: Boolean = false)
+</span>316 <span style=''>  extends RuleRunnerBase[RuleRunnerEval] with CodegenFallback {
+</span>317 <span style=''>
+</span>318 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>319 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
 </span>320 <span style=''>
-</span>321 <span style=''>  override def withZeroCode(): Runner = </span><span style='background: #F0ADAD'>copy(alreadyZero = true)</span><span style=''>
-</span>322 <span style=''>}
-</span>323 <span style=''>
-</span>324 <span style=''>case class RuleRunner(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-</span>325 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
-</span>326 <span style=''>                      alreadyZero: Boolean = false)
-</span>327 <span style=''>  extends RuleRunnerBase[RuleRunner] {
-</span>328 <span style=''>
-</span>329 <span style=''>  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>doGenCodeI(ctx, ev)</span><span style=''>
+</span>321 <span style=''>  override implicit val tClass: ClassTag[RuleRunnerEval] = </span><span style='background: #AEF1AE'>ClassTag(classOf[RuleRunnerEval])</span><span style=''>
+</span>322 <span style=''>
+</span>323 <span style=''>  override def withZeroCode(): Runner = </span><span style='background: #F0ADAD'>copy(alreadyZero = true)</span><span style=''>
+</span>324 <span style=''>}
+</span>325 <span style=''>
+</span>326 <span style=''>case class RuleRunner(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
+</span>327 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
+</span>328 <span style=''>                      alreadyZero: Boolean = false)
+</span>329 <span style=''>  extends RuleRunnerBase[RuleRunner] {
 </span>330 <span style=''>
-</span>331 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-</span>332 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
-</span>333 <span style=''>
-</span>334 <span style=''>  override implicit val tClass: ClassTag[RuleRunner] = </span><span style='background: #AEF1AE'>ClassTag(classOf[RuleRunner])</span><span style=''>
+</span>331 <span style=''>  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>doGenCodeI(ctx, ev)</span><span style=''>
+</span>332 <span style=''>
+</span>333 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>334 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
 </span>335 <span style=''>
-</span>336 <span style=''>  override def withZeroCode(): Runner = </span><span style='background: #F0ADAD'>copy(alreadyZero = true)</span><span style=''>
-</span>337 <span style=''>}
+</span>336 <span style=''>  override implicit val tClass: ClassTag[RuleRunner] = </span><span style='background: #AEF1AE'>ClassTag(classOf[RuleRunner])</span><span style=''>
+</span>337 <span style=''>
+</span>338 <span style=''>  override def withZeroCode(): Runner = </span><span style='background: #F0ADAD'>copy(alreadyZero = true)</span><span style=''>
+</span>339 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -376,7 +378,7 @@
           48
         </td>
         <td>
-          6403
+          6455
         </td>
         <td>
           3286
@@ -400,7 +402,7 @@
           48
         </td>
         <td>
-          6404
+          6456
         </td>
         <td>
           3238
@@ -424,7 +426,7 @@
           49
         </td>
         <td>
-          6405
+          6457
         </td>
         <td>
           3334
@@ -448,7 +450,7 @@
           50
         </td>
         <td>
-          6406
+          6458
         </td>
         <td>
           3382
@@ -472,7 +474,7 @@
           54
         </td>
         <td>
-          6407
+          6459
         </td>
         <td>
           3554
@@ -496,7 +498,7 @@
           54
         </td>
         <td>
-          6408
+          6460
         </td>
         <td>
           3554
@@ -520,7 +522,7 @@
           56
         </td>
         <td>
-          6409
+          6461
         </td>
         <td>
           3612
@@ -544,7 +546,7 @@
           59
         </td>
         <td>
-          6410
+          6462
         </td>
         <td>
           3669
@@ -568,7 +570,7 @@
           59
         </td>
         <td>
-          6411
+          6463
         </td>
         <td>
           3650
@@ -592,7 +594,7 @@
           60
         </td>
         <td>
-          6412
+          6464
         </td>
         <td>
           3700
@@ -616,7 +618,7 @@
           60
         </td>
         <td>
-          6413
+          6465
         </td>
         <td>
           3700
@@ -640,7 +642,7 @@
           63
         </td>
         <td>
-          6414
+          6466
         </td>
         <td>
           3828
@@ -664,7 +666,7 @@
           63
         </td>
         <td>
-          6415
+          6467
         </td>
         <td>
           3828
@@ -688,7 +690,7 @@
           66
         </td>
         <td>
-          6425
+          6477
         </td>
         <td>
           3938
@@ -718,7 +720,7 @@
           68
         </td>
         <td>
-          6416
+          6468
         </td>
         <td>
           4045
@@ -742,7 +744,7 @@
           70
         </td>
         <td>
-          6421
+          6473
         </td>
         <td>
           4134
@@ -769,7 +771,7 @@
           70
         </td>
         <td>
-          6422
+          6474
         </td>
         <td>
           4109
@@ -796,7 +798,7 @@
           72
         </td>
         <td>
-          6417
+          6469
         </td>
         <td>
           4236
@@ -820,7 +822,7 @@
           72
         </td>
         <td>
-          6418
+          6470
         </td>
         <td>
           4236
@@ -844,7 +846,7 @@
           73
         </td>
         <td>
-          6419
+          6471
         </td>
         <td>
           4282
@@ -868,7 +870,7 @@
           73
         </td>
         <td>
-          6420
+          6472
         </td>
         <td>
           4282
@@ -892,7 +894,7 @@
           75
         </td>
         <td>
-          6423
+          6475
         </td>
         <td>
           4333
@@ -916,7 +918,7 @@
           75
         </td>
         <td>
-          6424
+          6476
         </td>
         <td>
           3952
@@ -946,7 +948,7 @@
           94
         </td>
         <td>
-          6426
+          6478
         </td>
         <td>
           5617
@@ -970,7 +972,7 @@
           94
         </td>
         <td>
-          6433
+          6485
         </td>
         <td>
           5617
@@ -1003,7 +1005,7 @@
           95
         </td>
         <td>
-          6427
+          6479
         </td>
         <td>
           5763
@@ -1027,7 +1029,7 @@
           95
         </td>
         <td>
-          6428
+          6480
         </td>
         <td>
           5785
@@ -1051,7 +1053,7 @@
           95
         </td>
         <td>
-          6429
+          6481
         </td>
         <td>
           5781
@@ -1075,7 +1077,7 @@
           95
         </td>
         <td>
-          6432
+          6484
         </td>
         <td>
           5740
@@ -1099,7 +1101,7 @@
           96
         </td>
         <td>
-          6430
+          6482
         </td>
         <td>
           5833
@@ -1123,7 +1125,7 @@
           96
         </td>
         <td>
-          6431
+          6483
         </td>
         <td>
           5856
@@ -1147,7 +1149,7 @@
           104
         </td>
         <td>
-          6438
+          6490
         </td>
         <td>
           6067
@@ -1174,7 +1176,7 @@
           104
         </td>
         <td>
-          6439
+          6491
         </td>
         <td>
           6029
@@ -1201,7 +1203,7 @@
           106
         </td>
         <td>
-          6434
+          6486
         </td>
         <td>
           6152
@@ -1225,7 +1227,7 @@
           106
         </td>
         <td>
-          6435
+          6487
         </td>
         <td>
           6152
@@ -1249,7 +1251,7 @@
           107
         </td>
         <td>
-          6436
+          6488
         </td>
         <td>
           6236
@@ -1273,7 +1275,7 @@
           107
         </td>
         <td>
-          6437
+          6489
         </td>
         <td>
           6236
@@ -1297,7 +1299,7 @@
           111
         </td>
         <td>
-          6440
+          6492
         </td>
         <td>
           6449
@@ -1321,7 +1323,7 @@
           111
         </td>
         <td>
-          6441
+          6493
         </td>
         <td>
           6384
@@ -1345,7 +1347,7 @@
           114
         </td>
         <td>
-          6442
+          6494
         </td>
         <td>
           6611
@@ -1369,7 +1371,7 @@
           115
         </td>
         <td>
-          6446
+          6498
         </td>
         <td>
           6629
@@ -1398,7 +1400,7 @@
           116
         </td>
         <td>
-          6443
+          6495
         </td>
         <td>
           6690
@@ -1422,7 +1424,7 @@
           116
         </td>
         <td>
-          6444
+          6496
         </td>
         <td>
           6688
@@ -1446,7 +1448,7 @@
           116
         </td>
         <td>
-          6445
+          6497
         </td>
         <td>
           6665
@@ -1470,7 +1472,7 @@
           121
         </td>
         <td>
-          6463
+          6515
         </td>
         <td>
           6789
@@ -1497,7 +1499,7 @@
           122
         </td>
         <td>
-          6447
+          6499
         </td>
         <td>
           6815
@@ -1521,7 +1523,7 @@
           122
         </td>
         <td>
-          6448
+          6500
         </td>
         <td>
           6808
@@ -1545,7 +1547,7 @@
           123
         </td>
         <td>
-          6449
+          6501
         </td>
         <td>
           6858
@@ -1569,7 +1571,7 @@
           123
         </td>
         <td>
-          6450
+          6502
         </td>
         <td>
           6842
@@ -1593,7 +1595,7 @@
           124
         </td>
         <td>
-          6462
+          6514
         </td>
         <td>
           6896
@@ -1620,7 +1622,7 @@
           125
         </td>
         <td>
-          6451
+          6503
         </td>
         <td>
           6923
@@ -1644,7 +1646,7 @@
           125
         </td>
         <td>
-          6452
+          6504
         </td>
         <td>
           6955
@@ -1668,7 +1670,7 @@
           126
         </td>
         <td>
-          6453
+          6505
         </td>
         <td>
           6997
@@ -1692,7 +1694,7 @@
           127
         </td>
         <td>
-          6461
+          6513
         </td>
         <td>
           7037
@@ -1716,7 +1718,7 @@
           128
         </td>
         <td>
-          6454
+          6506
         </td>
         <td>
           7078
@@ -1740,7 +1742,7 @@
           128
         </td>
         <td>
-          6455
+          6507
         </td>
         <td>
           7062
@@ -1764,7 +1766,7 @@
           129
         </td>
         <td>
-          6460
+          6512
         </td>
         <td>
           7108
@@ -1788,7 +1790,7 @@
           130
         </td>
         <td>
-          6456
+          6508
         </td>
         <td>
           7141
@@ -1812,7 +1814,7 @@
           130
         </td>
         <td>
-          6457
+          6509
         </td>
         <td>
           7156
@@ -1836,7 +1838,7 @@
           130
         </td>
         <td>
-          6458
+          6510
         </td>
         <td>
           7194
@@ -1860,7 +1862,7 @@
           130
         </td>
         <td>
-          6459
+          6511
         </td>
         <td>
           7178
@@ -1884,7 +1886,7 @@
           137
         </td>
         <td>
-          6464
+          6516
         </td>
         <td>
           7304
@@ -1908,12 +1910,12 @@
           146
         </td>
         <td>
-          6465
+          6517
         </td>
         <td>
-          7825
+          7886
           -
-          7843
+          7904
         </td>
         <td>
           Select
@@ -1932,12 +1934,12 @@
           146
         </td>
         <td>
-          6466
+          6518
         </td>
         <td>
-          7797
+          7858
           -
-          7844
+          7905
         </td>
         <td>
           Apply
@@ -1956,12 +1958,12 @@
           148
         </td>
         <td>
-          6467
+          6519
         </td>
         <td>
-          7862
+          7923
           -
-          7879
+          7940
         </td>
         <td>
           Apply
@@ -1980,12 +1982,12 @@
           151
         </td>
         <td>
-          6468
+          6520
         </td>
         <td>
-          7901
+          7962
           -
-          8019
+          8113
         </td>
         <td>
           Apply
@@ -1997,19 +1999,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          impl.apply(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd, groupSalienceCheck)
+          impl.apply(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse)
         </td>
       </tr><tr>
         <td>
           154
         </td>
         <td>
-          6469
+          6521
         </td>
         <td>
-          8035
+          8129
           -
-          8052
+          8146
         </td>
         <td>
           Apply
@@ -2028,12 +2030,12 @@
           155
         </td>
         <td>
-          6470
+          6522
         </td>
         <td>
-          8095
+          8189
           -
-          8106
+          8200
         </td>
         <td>
           Apply
@@ -2052,12 +2054,12 @@
           155
         </td>
         <td>
-          6471
+          6523
         </td>
         <td>
-          8076
+          8170
           -
-          8107
+          8201
         </td>
         <td>
           Apply
@@ -2076,12 +2078,12 @@
           156
         </td>
         <td>
-          6472
+          6524
         </td>
         <td>
-          8116
+          8210
           -
-          8134
+          8228
         </td>
         <td>
           Select
@@ -2100,12 +2102,12 @@
           156
         </td>
         <td>
-          6473
+          6525
         </td>
         <td>
-          8143
+          8237
           -
-          8159
+          8253
         </td>
         <td>
           Select
@@ -2124,12 +2126,12 @@
           156
         </td>
         <td>
-          6474
+          6526
         </td>
         <td>
-          8161
+          8255
           -
-          8166
+          8260
         </td>
         <td>
           Literal
@@ -2148,12 +2150,12 @@
           156
         </td>
         <td>
-          6475
+          6527
         </td>
         <td>
-          8116
+          8210
           -
-          8167
+          8261
         </td>
         <td>
           Apply
@@ -2172,12 +2174,12 @@
           156
         </td>
         <td>
-          6478
+          6530
         </td>
         <td>
-          8168
+          8262
           -
-          8310
+          8404
         </td>
         <td>
           Block
@@ -2199,12 +2201,12 @@
           156
         </td>
         <td>
-          6479
+          6531
         </td>
         <td>
-          8112
+          8206
           -
-          8112
+          8206
         </td>
         <td>
           Literal
@@ -2223,12 +2225,12 @@
           156
         </td>
         <td>
-          6480
+          6532
         </td>
         <td>
-          8112
+          8206
           -
-          8112
+          8206
         </td>
         <td>
           Block
@@ -2247,12 +2249,12 @@
           157
         </td>
         <td>
-          6476
+          6528
         </td>
         <td>
-          8176
+          8270
           -
-          8279
+          8373
         </td>
         <td>
           Apply
@@ -2271,12 +2273,12 @@
           158
         </td>
         <td>
-          6477
+          6529
         </td>
         <td>
-          8286
+          8380
           -
-          8304
+          8398
         </td>
         <td>
           Apply
@@ -2295,12 +2297,12 @@
           165
         </td>
         <td>
-          6481
+          6533
         </td>
         <td>
-          8483
+          8577
           -
-          8509
+          8603
         </td>
         <td>
           Apply
@@ -2319,12 +2321,12 @@
           166
         </td>
         <td>
-          6482
+          6534
         </td>
         <td>
-          8540
+          8634
           -
-          8584
+          8678
         </td>
         <td>
           Apply
@@ -2343,12 +2345,12 @@
           167
         </td>
         <td>
-          6483
+          6535
         </td>
         <td>
-          8648
+          8742
           -
-          8674
+          8768
         </td>
         <td>
           Apply
@@ -2367,12 +2369,12 @@
           167
         </td>
         <td>
-          6489
+          6541
         </td>
         <td>
-          8608
+          8702
           -
-          8806
+          8900
         </td>
         <td>
           Apply
@@ -2391,12 +2393,12 @@
           168
         </td>
         <td>
-          6484
+          6536
         </td>
         <td>
-          8689
+          8783
           -
-          8689
+          8783
         </td>
         <td>
           Literal
@@ -2415,12 +2417,12 @@
           168
         </td>
         <td>
-          6485
+          6537
         </td>
         <td>
-          8691
+          8785
           -
-          8691
+          8785
         </td>
         <td>
           Literal
@@ -2439,12 +2441,12 @@
           168
         </td>
         <td>
-          6486
+          6538
         </td>
         <td>
-          8714
+          8808
           -
-          8714
+          8808
         </td>
         <td>
           Literal
@@ -2463,12 +2465,12 @@
           168
         </td>
         <td>
-          6487
+          6539
         </td>
         <td>
-          8738
+          8832
           -
-          8738
+          8832
         </td>
         <td>
           Literal
@@ -2487,12 +2489,12 @@
           168
         </td>
         <td>
-          6488
+          6540
         </td>
         <td>
-          8687
+          8781
           -
-          8805
+          8899
         </td>
         <td>
           Apply
@@ -2511,12 +2513,12 @@
           173
         </td>
         <td>
-          6490
+          6542
         </td>
         <td>
-          8920
+          9014
           -
-          8942
+          9036
         </td>
         <td>
           Apply
@@ -2535,12 +2537,12 @@
           173
         </td>
         <td>
-          6496
+          6548
         </td>
         <td>
-          8889
+          8983
           -
-          9064
+          9158
         </td>
         <td>
           Apply
@@ -2559,12 +2561,12 @@
           174
         </td>
         <td>
-          6491
+          6543
         </td>
         <td>
-          8957
+          9051
           -
-          8957
+          9051
         </td>
         <td>
           Literal
@@ -2583,12 +2585,12 @@
           174
         </td>
         <td>
-          6492
+          6544
         </td>
         <td>
-          8959
+          9053
           -
-          8959
+          9053
         </td>
         <td>
           Literal
@@ -2607,12 +2609,12 @@
           174
         </td>
         <td>
-          6493
+          6545
         </td>
         <td>
-          8973
+          9067
           -
-          8973
+          9067
         </td>
         <td>
           Literal
@@ -2631,12 +2633,12 @@
           174
         </td>
         <td>
-          6494
+          6546
         </td>
         <td>
-          8997
+          9091
           -
-          8997
+          9091
         </td>
         <td>
           Literal
@@ -2655,12 +2657,12 @@
           174
         </td>
         <td>
-          6495
+          6547
         </td>
         <td>
-          8955
+          9049
           -
-          9063
+          9157
         </td>
         <td>
           Apply
@@ -2679,12 +2681,12 @@
           177
         </td>
         <td>
-          6497
+          6549
         </td>
         <td>
-          9070
+          9164
           -
-          9102
+          9196
         </td>
         <td>
           Apply
@@ -2703,12 +2705,12 @@
           184
         </td>
         <td>
-          6498
+          6550
         </td>
         <td>
-          9432
+          9526
           -
-          9454
+          9548
         </td>
         <td>
           Apply
@@ -2727,12 +2729,12 @@
           187
         </td>
         <td>
-          6499
+          6551
         </td>
         <td>
-          9498
+          9592
           -
-          9542
+          9636
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2751,12 +2753,12 @@
           190
         </td>
         <td>
-          6500
+          6552
         </td>
         <td>
-          9623
+          9717
           -
-          9632
+          9726
         </td>
         <td>
           Select
@@ -2775,12 +2777,12 @@
           190
         </td>
         <td>
-          6501
+          6553
         </td>
         <td>
-          9591
+          9685
           -
-          9658
+          9752
         </td>
         <td>
           Apply
@@ -2799,12 +2801,12 @@
           192
         </td>
         <td>
-          6512
+          6564
         </td>
         <td>
-          9728
+          9822
           -
-          10051
+          10145
         </td>
         <td>
           Block
@@ -2829,12 +2831,12 @@
           192
         </td>
         <td>
-          6513
+          6565
         </td>
         <td>
-          9678
+          9772
           -
-          10057
+          10151
         </td>
         <td>
           Apply
@@ -2861,12 +2863,12 @@
           195
         </td>
         <td>
-          6502
+          6554
         </td>
         <td>
-          9860
+          9954
           -
-          9874
+          9968
         </td>
         <td>
           Apply
@@ -2885,12 +2887,12 @@
           197
         </td>
         <td>
-          6503
+          6555
         </td>
         <td>
-          9886
+          9980
           -
-          10000
+          10094
         </td>
         <td>
           Apply
@@ -2909,12 +2911,12 @@
           197
         </td>
         <td>
-          6504
+          6556
         </td>
         <td>
-          9895
+          9989
           -
-          9904
+          9998
         </td>
         <td>
           Select
@@ -2933,12 +2935,12 @@
           197
         </td>
         <td>
-          6508
+          6560
         </td>
         <td>
-          9886
+          9980
           -
-          10000
+          10094
         </td>
         <td>
           Apply
@@ -2957,12 +2959,12 @@
           199
         </td>
         <td>
-          6505
+          6557
         </td>
         <td>
-          9965
+          10059
           -
-          9975
+          10069
         </td>
         <td>
           Select
@@ -2981,12 +2983,12 @@
           199
         </td>
         <td>
-          6506
+          6558
         </td>
         <td>
-          9957
+          10051
           -
-          9981
+          10075
         </td>
         <td>
           Apply
@@ -3005,12 +3007,12 @@
           199
         </td>
         <td>
-          6507
+          6559
         </td>
         <td>
-          9923
+          10017
           -
-          9982
+          10076
         </td>
         <td>
           Apply
@@ -3029,12 +3031,12 @@
           202
         </td>
         <td>
-          6509
+          6561
         </td>
         <td>
-          10038
+          10132
           -
-          10039
+          10133
         </td>
         <td>
           Literal
@@ -3053,12 +3055,12 @@
           202
         </td>
         <td>
-          6510
+          6562
         </td>
         <td>
-          10018
+          10112
           -
-          10040
+          10134
         </td>
         <td>
           Apply
@@ -3077,12 +3079,12 @@
           202
         </td>
         <td>
-          6511
+          6563
         </td>
         <td>
-          10017
+          10111
           -
-          10051
+          10145
         </td>
         <td>
           Apply
@@ -3101,12 +3103,12 @@
           205
         </td>
         <td>
-          6514
+          6566
         </td>
         <td>
-          10077
+          10171
           -
-          10100
+          10194
         </td>
         <td>
           Apply
@@ -3125,12 +3127,12 @@
           206
         </td>
         <td>
-          6515
+          6567
         </td>
         <td>
-          10119
+          10213
           -
-          10142
+          10236
         </td>
         <td>
           Apply
@@ -3149,12 +3151,12 @@
           208
         </td>
         <td>
-          6516
+          6568
         </td>
         <td>
-          10224
+          10318
           -
-          10233
+          10327
         </td>
         <td>
           Select
@@ -3173,12 +3175,12 @@
           208
         </td>
         <td>
-          6521
+          6575
         </td>
         <td>
-          10161
+          10255
           -
-          10302
+          10405
         </td>
         <td>
           Apply
@@ -3190,19 +3192,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resTerms.resultRow, scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.apply(resTerms.resultRow, classOf[org.apache.spark.sql.catalyst.InternalRow])), allExpr, RuleRunnerUtils.generateFunctionGroups$default$7, RuleRunnerUtils.generateFunctionGroups$default$8, RuleRunnerUtils.generateFunctionGroups$default$9)
+          RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resTerms.resultRow, scala.`package`.Seq.apply[(org.apache.spark.sql.catalyst.expressions.codegen.VariableValue, Boolean)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue, Boolean](org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.apply(resTerms.resultRow, classOf[org.apache.spark.sql.catalyst.InternalRow]), false)), allExpr, RuleRunnerUtils.generateFunctionGroups$default$7, RuleRunnerUtils.generateFunctionGroups$default$8, RuleRunnerUtils.generateFunctionGroups$default$9, RuleRunnerUtils.generateFunctionGroups$default$10)
         </td>
       </tr><tr>
         <td>
           209
         </td>
         <td>
-          6517
+          6569
         </td>
         <td>
-          10259
+          10354
           -
-          10268
+          10363
         </td>
         <td>
           Select
@@ -3221,12 +3223,12 @@
           209
         </td>
         <td>
-          6518
+          6570
         </td>
         <td>
-          10270
+          10365
           -
-          10290
+          10385
         </td>
         <td>
           Literal
@@ -3245,12 +3247,12 @@
           209
         </td>
         <td>
-          6519
+          6571
         </td>
         <td>
-          10245
+          10340
           -
-          10291
+          10386
         </td>
         <td>
           Apply
@@ -3269,12 +3271,60 @@
           209
         </td>
         <td>
-          6520
+          6572
         </td>
         <td>
-          10241
+          10388
           -
-          10292
+          10393
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          6573
+        </td>
+        <td>
+          10339
+          -
+          10394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue, Boolean](org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.apply(resTerms.resultRow, classOf[org.apache.spark.sql.catalyst.InternalRow]), false)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          6574
+        </td>
+        <td>
+          10335
+          -
+          10395
         </td>
         <td>
           Apply
@@ -3286,19 +3336,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.apply(resTerms.resultRow, classOf[org.apache.spark.sql.catalyst.InternalRow]))
+          scala.`package`.Seq.apply[(org.apache.spark.sql.catalyst.expressions.codegen.VariableValue, Boolean)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue, Boolean](org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.apply(resTerms.resultRow, classOf[org.apache.spark.sql.catalyst.InternalRow]), false))
         </td>
       </tr><tr>
         <td>
           211
         </td>
         <td>
-          6522
+          6576
         </td>
         <td>
-          10341
+          10444
           -
-          10358
+          10461
         </td>
         <td>
           Select
@@ -3317,12 +3367,12 @@
           213
         </td>
         <td>
-          6523
+          6577
         </td>
         <td>
-          10406
+          10509
           -
-          10423
+          10526
         </td>
         <td>
           Select
@@ -3341,12 +3391,12 @@
           213
         </td>
         <td>
-          6524
+          6578
         </td>
         <td>
-          10383
+          10486
           -
-          10424
+          10527
         </td>
         <td>
           Apply
@@ -3365,12 +3415,12 @@
           213
         </td>
         <td>
-          6525
+          6579
         </td>
         <td>
-          10426
+          10529
           -
-          10449
+          10552
         </td>
         <td>
           Apply
@@ -3389,12 +3439,12 @@
           213
         </td>
         <td>
-          6526
+          6580
         </td>
         <td>
-          10374
+          10477
           -
-          10450
+          10553
         </td>
         <td>
           Apply
@@ -3413,12 +3463,12 @@
           215
         </td>
         <td>
-          6534
+          6588
         </td>
         <td>
-          10466
+          10569
           -
-          10699
+          10802
         </td>
         <td>
           Apply
@@ -3437,12 +3487,12 @@
           216
         </td>
         <td>
-          6527
+          6581
         </td>
         <td>
-          10488
+          10591
           -
-          10693
+          10796
         </td>
         <td>
           Apply
@@ -3461,12 +3511,12 @@
           216
         </td>
         <td>
-          6533
+          6587
         </td>
         <td>
-          10488
+          10591
           -
-          10693
+          10796
         </td>
         <td>
           Apply
@@ -3485,12 +3535,12 @@
           218
         </td>
         <td>
-          6528
+          6582
         </td>
         <td>
-          10521
+          10624
           -
-          10534
+          10637
         </td>
         <td>
           Select
@@ -3509,12 +3559,12 @@
           219
         </td>
         <td>
-          6529
+          6583
         </td>
         <td>
-          10543
+          10646
           -
-          10599
+          10702
         </td>
         <td>
           Apply
@@ -3533,12 +3583,12 @@
           221
         </td>
         <td>
-          6530
+          6584
         </td>
         <td>
-          10622
+          10725
           -
-          10631
+          10734
         </td>
         <td>
           Select
@@ -3557,12 +3607,12 @@
           221
         </td>
         <td>
-          6531
+          6585
         </td>
         <td>
-          10636
+          10739
           -
-          10645
+          10748
         </td>
         <td>
           Select
@@ -3581,12 +3631,12 @@
           222
         </td>
         <td>
-          6532
+          6586
         </td>
         <td>
-          10663
+          10766
           -
-          10673
+          10776
         </td>
         <td>
           Select
@@ -3605,12 +3655,12 @@
           226
         </td>
         <td>
-          6535
+          6589
         </td>
         <td>
-          10705
+          10808
           -
-          10718
+          10821
         </td>
         <td>
           Apply
@@ -3629,12 +3679,12 @@
           233
         </td>
         <td>
-          6536
+          6590
         </td>
         <td>
-          10974
+          11077
           -
-          11018
+          11121
         </td>
         <td>
           Apply
@@ -3653,12 +3703,12 @@
           235
         </td>
         <td>
-          6537
+          6591
         </td>
         <td>
-          11059
+          11162
           -
-          11072
+          11175
         </td>
         <td>
           Literal
@@ -3677,12 +3727,12 @@
           235
         </td>
         <td>
-          6538
+          6592
         </td>
         <td>
-          11074
+          11177
           -
-          11087
+          11190
         </td>
         <td>
           Literal
@@ -3701,12 +3751,12 @@
           235
         </td>
         <td>
-          6539
+          6593
         </td>
         <td>
-          11039
+          11142
           -
-          11192
+          11295
         </td>
         <td>
           Apply
@@ -3725,12 +3775,12 @@
           237
         </td>
         <td>
-          6540
+          6594
         </td>
         <td>
-          11233
+          11336
           -
-          11246
+          11349
         </td>
         <td>
           Literal
@@ -3749,12 +3799,12 @@
           237
         </td>
         <td>
-          6541
+          6595
         </td>
         <td>
-          11248
+          11351
           -
-          11259
+          11362
         </td>
         <td>
           Literal
@@ -3773,12 +3823,12 @@
           237
         </td>
         <td>
-          6542
+          6596
         </td>
         <td>
-          11213
+          11316
           -
-          11280
+          11383
         </td>
         <td>
           Apply
@@ -3797,12 +3847,12 @@
           240
         </td>
         <td>
-          6543
+          6597
         </td>
         <td>
-          11344
+          11447
           -
-          11401
+          11504
         </td>
         <td>
           Apply
@@ -3821,12 +3871,12 @@
           264
         </td>
         <td>
-          6544
+          6598
         </td>
         <td>
-          12192
+          12295
           -
-          12197
+          12300
         </td>
         <td>
           Literal
@@ -3845,12 +3895,12 @@
           265
         </td>
         <td>
-          6545
+          6599
         </td>
         <td>
-          12232
+          12335
           -
-          12244
+          12347
         </td>
         <td>
           Literal
@@ -3869,12 +3919,12 @@
           265
         </td>
         <td>
-          6550
+          6604
         </td>
         <td>
-          12247
+          12350
           -
-          12328
+          12431
         </td>
         <td>
           Apply
@@ -3893,12 +3943,12 @@
           265
         </td>
         <td>
-          6551
+          6605
         </td>
         <td>
-          12232
+          12335
           -
-          12328
+          12431
         </td>
         <td>
           Apply
@@ -3917,12 +3967,12 @@
           266
         </td>
         <td>
-          6546
+          6600
         </td>
         <td>
-          12282
+          12385
           -
-          12285
+          12388
         </td>
         <td>
           Literal
@@ -3941,12 +3991,12 @@
           266
         </td>
         <td>
-          6547
+          6601
         </td>
         <td>
-          12287
+          12390
           -
-          12291
+          12394
         </td>
         <td>
           Literal
@@ -3965,12 +4015,12 @@
           266
         </td>
         <td>
-          6548
+          6602
         </td>
         <td>
-          12293
+          12396
           -
-          12296
+          12399
         </td>
         <td>
           Literal
@@ -3989,12 +4039,12 @@
           266
         </td>
         <td>
-          6549
+          6603
         </td>
         <td>
-          12298
+          12401
           -
-          12327
+          12430
         </td>
         <td>
           Select
@@ -4013,12 +4063,12 @@
           273
         </td>
         <td>
-          6552
+          6606
         </td>
         <td>
-          12624
+          12727
           -
-          12670
+          12773
         </td>
         <td>
           Apply
@@ -4037,12 +4087,12 @@
           274
         </td>
         <td>
-          6553
+          6607
         </td>
         <td>
-          12675
+          12778
           -
-          12695
+          12798
         </td>
         <td>
           Apply
@@ -4061,12 +4111,12 @@
           277
         </td>
         <td>
-          6554
+          6608
         </td>
         <td>
-          12728
+          12831
           -
-          12747
+          12850
         </td>
         <td>
           Select
@@ -4085,189 +4135,12 @@
           288
         </td>
         <td>
-          6555
+          6632
         </td>
         <td>
-          13205
+          13197
           -
-          13217
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSuite.id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          RuleRunnerBase.this.ruleSuite.id
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6556
-        </td>
-        <td>
-          13152
-          -
-          13152
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$6
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$6[Nothing, Nothing]
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6557
-        </td>
-        <td>
-          13152
-          -
-          13152
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$7
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$7[Nothing, Nothing]
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6558
-        </td>
-        <td>
-          13152
-          -
-          13152
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$8
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$8[Nothing, Nothing]
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6573
-        </td>
-        <td>
-          13219
-          -
-          13219
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ClazzGenerator.direct
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          util.this.ClazzGenerator.direct
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6574
-        </td>
-        <td>
-          13219
-          -
-          13219
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.IdGen.versionedIdGen
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          util.this.IdGen.versionedIdGen[com.sparkutils.quality.Id]
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6575
-        </td>
-        <td>
-          13132
-          -
-          13860
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions[(com.sparkutils.quality.impl.util.ParameterInformation, String), com.sparkutils.quality.Id](this, RuleRunnerBase.this.realChildren, outerCtx, ev, RuleRunnerBase.this.ruleSuite.id, com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$6[Nothing, Nothing], com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$7[Nothing, Nothing], com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$8[Nothing, Nothing])(((ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ruleRunnerExpressionIdx: Int, x$2: com.sparkutils.quality.impl.util.ParameterInformation) =&gt; {
-  val params: com.sparkutils.quality.impl.util.ParameterInformation = org.apache.spark.sql.ClassicQualitySparkUtils.genParams(ctx, this, org.apache.spark.sql.ClassicQualitySparkUtils.genParams$default$3);
-  val utilsName: String = &quot;com.sparkutils.quality.impl.RuleRunnerUtils&quot;;
-  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$3: (org.apache.spark.sql.catalyst.expressions.codegen.ExprCode, com.sparkutils.quality.impl.TriggerResult) = (RuleRunnerUtils.nonOutputRuleGen[T](ctx, this, ev, utilsName, RuleRunnerBase.this.realChildren, ((code: org.apache.spark.sql.catalyst.expressions.codegen.ExprValue, idx: Int) =&gt; &quot;com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(&quot;.+(code).+(&quot;)&quot;)), ruleRunnerExpressionIdx)(RuleRunnerBase.this.tClass): (org.apache.spark.sql.catalyst.expressions.codegen.ExprCode, com.sparkutils.quality.impl.TriggerResult) @unchecked) match {
-    case (_1: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode, _2: com.sparkutils.quality.impl.TriggerResult): (org.apache.spark.sql.catalyst.expressions.codegen.ExprCode, com.sparkutils.quality.impl.TriggerResult)((res @ _), (triggerRes @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode, com.sparkutils.quality.impl.TriggerResult](res, triggerRes)
-  };
-  val res: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = x$3._1;
-  val triggerRes: com.sparkutils.quality.impl.TriggerResult = x$3._2;
-  com.sparkutils.quality.impl.util.GenerateResult.apply[(com.sparkutils.quality.impl.util.ParameterInformation, String)](scala.Tuple2.apply[com.sparkutils.quality.impl.util.ParameterInformation, String](params, classOf[com.sparkutils.quality.impl.RuleRunnerBase].getName()), res, scala.`package`.Seq.empty[Nothing], triggerRes.ignoreTopLevelSubExpressions, com.sparkutils.quality.impl.util.GenerateResult.apply$default$5[Nothing])
-}))(util.this.ClazzGenerator.direct, util.this.IdGen.versionedIdGen[com.sparkutils.quality.Id])
-        </td>
-      </tr><tr>
-        <td>
-          288
-        </td>
-        <td>
-          6576
-        </td>
-        <td>
-          13094
-          -
-          13129
+          13232
         </td>
         <td>
           Apply
@@ -4286,12 +4159,12 @@
           288
         </td>
         <td>
-          6577
+          6633
         </td>
         <td>
-          13094
+          13197
           -
-          13129
+          13232
         </td>
         <td>
           Block
@@ -4310,12 +4183,12 @@
           288
         </td>
         <td>
-          6578
+          6634
         </td>
         <td>
-          13114
+          13217
           -
-          13114
+          13217
         </td>
         <td>
           Select
@@ -4334,12 +4207,12 @@
           288
         </td>
         <td>
-          6579
+          6635
         </td>
         <td>
-          13121
+          13224
           -
-          13121
+          13224
         </td>
         <td>
           Select
@@ -4355,15 +4228,231 @@
         </td>
       </tr><tr>
         <td>
-          292
+          289
         </td>
         <td>
-          6559
+          6609
         </td>
         <td>
-          13337
+          13314
           -
-          13357
+          13326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerBase.this.ruleSuite.id
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          6611
+        </td>
+        <td>
+          13261
+          -
+          13261
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$6[Nothing, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          6612
+        </td>
+        <td>
+          13261
+          -
+          13261
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$7[Nothing, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          6613
+        </td>
+        <td>
+          13261
+          -
+          13261
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions$default$8[Nothing, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          6610
+        </td>
+        <td>
+          13362
+          -
+          13366
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          6628
+        </td>
+        <td>
+          13362
+          -
+          13362
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          6629
+        </td>
+        <td>
+          13368
+          -
+          13368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ClazzGenerator.direct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          util.this.ClazzGenerator.direct
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          6630
+        </td>
+        <td>
+          13368
+          -
+          13368
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.IdGen.versionedIdGen
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          util.this.IdGen.versionedIdGen[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          6631
+        </td>
+        <td>
+          13241
+          -
+          14009
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.SeparateCompilation.withSubExpressions[(com.sparkutils.quality.impl.util.ParameterInformation, String), com.sparkutils.quality.Id](x$1, x$2, x$3, x$4, x$5, x$7, x$8, x$9, true)(x$10)(util.this.ClazzGenerator.direct, util.this.IdGen.versionedIdGen[com.sparkutils.quality.Id])
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          6614
+        </td>
+        <td>
+          13486
+          -
+          13506
         </td>
         <td>
           Apply
@@ -4379,15 +4468,15 @@
         </td>
       </tr><tr>
         <td>
-          295
+          297
         </td>
         <td>
-          6560
+          6615
         </td>
         <td>
-          13409
+          13558
           -
-          13454
+          13603
         </td>
         <td>
           Literal
@@ -4403,15 +4492,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          299
         </td>
         <td>
-          6563
+          6618
         </td>
         <td>
-          13468
+          13617
           -
-          13485
+          13634
         </td>
         <td>
           Apply
@@ -4427,15 +4516,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          299
         </td>
         <td>
-          6564
+          6619
         </td>
         <td>
-          13468
+          13617
           -
-          13485
+          13634
         </td>
         <td>
           Block
@@ -4451,15 +4540,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          299
         </td>
         <td>
-          6565
+          6620
         </td>
         <td>
-          13469
+          13618
           -
-          13469
+          13618
         </td>
         <td>
           Select
@@ -4475,15 +4564,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          299
         </td>
         <td>
-          6566
+          6621
         </td>
         <td>
-          13474
+          13623
           -
-          13474
+          13623
         </td>
         <td>
           Select
@@ -4499,15 +4588,15 @@
         </td>
       </tr><tr>
         <td>
-          298
+          300
         </td>
         <td>
-          6561
+          6616
         </td>
         <td>
-          13517
+          13666
           -
-          13517
+          13666
         </td>
         <td>
           Select
@@ -4523,15 +4612,15 @@
         </td>
       </tr><tr>
         <td>
-          298
+          300
         </td>
         <td>
-          6562
+          6617
         </td>
         <td>
-          13498
+          13647
           -
-          13721
+          13870
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4547,15 +4636,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          6567
+          6622
         </td>
         <td>
-          13753
+          13902
           -
-          13787
+          13936
         </td>
         <td>
           Apply
@@ -4571,15 +4660,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          6568
+          6623
         </td>
         <td>
-          13744
+          13893
           -
-          13788
+          13937
         </td>
         <td>
           Apply
@@ -4595,15 +4684,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          6569
+          6624
         </td>
         <td>
-          13795
+          13944
           -
-          13804
+          13953
         </td>
         <td>
           TypeApply
@@ -4619,15 +4708,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          6571
+          6626
         </td>
         <td>
-          13729
+          13878
           -
-          13729
+          13878
         </td>
         <td>
           TypeApply
@@ -4643,15 +4732,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          6572
+          6627
         </td>
         <td>
-          13729
+          13878
           -
-          13854
+          14003
         </td>
         <td>
           Apply
@@ -4667,15 +4756,15 @@
         </td>
       </tr><tr>
         <td>
-          304
+          306
         </td>
         <td>
-          6570
+          6625
         </td>
         <td>
-          13814
+          13963
           -
-          13853
+          14002
         </td>
         <td>
           Select
@@ -4691,15 +4780,15 @@
         </td>
       </tr><tr>
         <td>
-          306
+          308
         </td>
         <td>
-          6580
+          6636
         </td>
         <td>
-          13865
+          14014
           -
-          13886
+          14035
         </td>
         <td>
           Apply
@@ -4715,15 +4804,15 @@
         </td>
       </tr><tr>
         <td>
-          317
+          319
         </td>
         <td>
-          6581
+          6637
         </td>
         <td>
-          14324
+          14473
           -
-          14352
+          14501
         </td>
         <td>
           Apply
@@ -4739,15 +4828,15 @@
         </td>
       </tr><tr>
         <td>
-          319
+          321
         </td>
         <td>
-          6582
+          6638
         </td>
         <td>
-          14413
+          14562
           -
-          14446
+          14595
         </td>
         <td>
           Apply
@@ -4763,15 +4852,15 @@
         </td>
       </tr><tr>
         <td>
-          321
+          323
         </td>
         <td>
-          6583
+          6639
         </td>
         <td>
-          14507
+          14656
           -
-          14511
+          14660
         </td>
         <td>
           Literal
@@ -4787,15 +4876,15 @@
         </td>
       </tr><tr>
         <td>
-          321
+          323
         </td>
         <td>
-          6584
+          6640
         </td>
         <td>
-          14488
+          14637
           -
-          14512
+          14661
         </td>
         <td>
           Apply
@@ -4811,15 +4900,15 @@
         </td>
       </tr><tr>
         <td>
-          329
+          331
         </td>
         <td>
-          6585
+          6641
         </td>
         <td>
-          14878
+          15027
           -
-          14897
+          15046
         </td>
         <td>
           Apply
@@ -4835,15 +4924,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          334
         </td>
         <td>
-          6586
+          6642
         </td>
         <td>
-          14994
+          15143
           -
-          15022
+          15171
         </td>
         <td>
           Apply
@@ -4859,15 +4948,15 @@
         </td>
       </tr><tr>
         <td>
-          334
+          336
         </td>
         <td>
-          6587
+          6643
         </td>
         <td>
-          15079
+          15228
           -
-          15108
+          15257
         </td>
         <td>
           Apply
@@ -4883,15 +4972,15 @@
         </td>
       </tr><tr>
         <td>
-          336
+          338
         </td>
         <td>
-          6588
+          6644
         </td>
         <td>
-          15169
+          15318
           -
-          15173
+          15322
         </td>
         <td>
           Literal
@@ -4907,15 +4996,15 @@
         </td>
       </tr><tr>
         <td>
-          336
+          338
         </td>
         <td>
-          6589
+          6645
         </td>
         <td>
-          15150
+          15299
           -
-          15174
+          15323
         </td>
         <td>
           Apply
