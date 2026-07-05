@@ -1,5 +1,6 @@
 package org.apache.spark.sql.qualityFunctions
 
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.trees.TreePattern.{LAMBDA_VARIABLE, TreePattern}
 
 /**
@@ -7,8 +8,8 @@ import org.apache.spark.sql.catalyst.trees.TreePattern.{LAMBDA_VARIABLE, TreePat
  * adds filtering from subExpr usage for [[TreePattern]] [[LAMBDA_VARIABLE]] patterns to stop EquivalentExpressions.
  * Disabling this can be observed with fails on RuleFolderClassicWithTopLevelGrouperTest.testSimpleProductionRules
  */
-trait LambdaVariablePattern {
+trait LambdaVariablePattern extends Expression {
 
-  protected val nodePatterns: Seq[TreePattern] = Seq(LAMBDA_VARIABLE)
+  override protected val nodePatterns: Seq[TreePattern] = Seq(LAMBDA_VARIABLE)
 
 }
