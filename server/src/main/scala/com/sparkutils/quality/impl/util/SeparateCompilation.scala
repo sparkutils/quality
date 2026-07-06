@@ -9,6 +9,7 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.qualityFunctions.FunNLambda
 import org.apache.spark.sql.types.DataType
 
 /**
@@ -193,16 +194,25 @@ object SeparateCompilation {
       else
         genParams(ctx, theThis, extraParams)
 
+    // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
+    val lambdaSafeChildren = children.map(FunNLambda.swap)
+
     val (genResult, subExpressionCode, childParams) =
       if (ctx.currentVars eq null) {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
-        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, children)
+        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
+        // replace the original non-subExpr FunNs
+        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
         val childParams = genParams(ctx, Holder(children), Seq.empty)
+
         (generate(ctx, ruleRunnerExpressionIdx, childParams), subExpressionCode, childParams)
       } else {
-        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
+        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
         val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+
+        // replace the original non-subExpr FunNs
+        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
 
         val (r, p) =
           QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {

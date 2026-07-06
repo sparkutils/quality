@@ -3,15 +3,13 @@ package org.apache.spark.sql.qualityFunctions
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.util.TSLocal
 import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
-import com.sparkutils.testing.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
-import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.types.{AbstractDataType, BooleanType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
@@ -291,6 +289,54 @@ trait Binder extends HigherOrderFunctionLike {
 
   }
 
+}
+
+/**
+ * Swapped out for FunN during SeparateCompilation to ensure pre 4 OSS and up to DBR 18 do not create
+ * subexpressions for usedAsLambda FunNs (e.g. collector processing or any folder output expression).
+ *
+ * Importantly, we _do_ want children to be subexpr eliminated where possible, hence throwaway code.
+ * @param funN
+ */
+case class FunNLambda(funN: FunN) extends Expression {
+
+  override def children: Seq[Expression] = funN.children
+
+  override def nullable: Boolean = funN.nullable
+
+  override def dataType: DataType = funN.dataType
+
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = ???
+
+  override def eval(input: InternalRow): Any = ???
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    ev.copy(isNull = TrueLiteral,
+      code =
+        code"""
+          // FunNLambda subExpr
+          ${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+        """)
+
+}
+
+object FunNLambda {
+  def swap(expr: Expression): Expression =
+    expr match {
+      case f: FunN if f.usedAsLambda => FunNLambda(f)
+      case _ =>
+        expr.transform{
+          case f: FunN if f.usedAsLambda => FunNLambda(f)
+        }
+    }
+  def swapBack(expr: Expression): Expression =
+    expr match {
+      case f: FunNLambda => f.funN
+      case _ =>
+        expr.transform{
+          case f: FunNLambda => f.funN
+        }
+    }
 }
 
 /**
