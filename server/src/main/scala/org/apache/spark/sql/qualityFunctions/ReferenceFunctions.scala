@@ -306,7 +306,8 @@ case class FunNLambda(funN: FunN) extends Expression {
 
   override def dataType: DataType = funN.dataType
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = ???
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(funN.withNewChildren(newChildren).asInstanceOf[FunN])
 
   override def eval(input: InternalRow): Any = ???
 
