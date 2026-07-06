@@ -250,6 +250,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
    * @return
    */
   def mergeParams(other: ParameterInformation, topLevel: Boolean): ParameterInformation = {
+    //println("mergeParams other names: " + other.params.map(_._2))
     val prepped =
       if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
         preppedTopLevel

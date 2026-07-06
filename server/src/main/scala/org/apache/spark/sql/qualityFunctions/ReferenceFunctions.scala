@@ -306,7 +306,7 @@ case class FunNLambda(funN: FunN) extends Expression {
 
   override def dataType: DataType = funN.dataType
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(funN.withNewChildren(newChildren).asInstanceOf[FunN])
 
   override def eval(input: InternalRow): Any = ???
@@ -322,14 +322,30 @@ case class FunNLambda(funN: FunN) extends Expression {
 }
 
 object FunNLambda {
-  def swap(expr: Expression): Expression =
-    expr match {
-      case f: FunN if f.usedAsLambda => FunNLambda(f)
-      case _ =>
-        expr.transform{
-          case f: FunN if f.usedAsLambda => FunNLambda(f)
-        }
+
+  // TODO do deeply nested calls double nest ?
+
+  def allAsLambdaChildrenAreAlsoLambdas(funNL: FunNLambda): FunNLambda =
+    funNL.copy(funNL.funN.transform{
+      case f: FunN => FunNLambda(f)
+    }.asInstanceOf[FunNLambda].funN)
+
+  def swap(expr: Expression): Expression = {
+    val nexpr =
+      expr match {
+        case f: FunN if f.usedAsLambda => FunNLambda(f)
+        case _ =>
+          expr.transform{
+            case f: FunN if f.usedAsLambda => FunNLambda(f)
+          }
+      }
+
+    nexpr match {
+      case f: FunNLambda => allAsLambdaChildrenAreAlsoLambdas(f)
+      case _ => nexpr
     }
+  }
+
   def swapBack(expr: Expression): Expression =
     expr match {
       case f: FunNLambda => f.funN

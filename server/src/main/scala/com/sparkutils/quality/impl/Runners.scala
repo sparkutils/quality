@@ -236,6 +236,10 @@ trait SplitCompilation extends Runner {
   }
 
   def setClazzSource(seq: Seq[(Int, CodeAndComment)]): Unit = {
+    /*this match {
+      case h: HasOutput => println(" children --- >" + h.realChildren)
+    }
+    seq.foreach(p => println(p._1 + " --> " + p._2.body)) */
     generatorClassSource = seq.toMap
   }
 

@@ -309,9 +309,10 @@ object SeparateCompilation {
       else ""
 
     val splitSubs =
-      if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
-        ""
-      else
+      /*if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
+        {println("Actually got subExpressions --> " + subExpressions)
+          ""}
+      else*/
         subExpressions
         //splitGlobalSubExprs(ctx, subExpressions)
 
