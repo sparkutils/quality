@@ -28,7 +28,7 @@ object TopLevelBoolean {
   }
 
   def apply(expressions: Seq[Trigger], triggerPercentFilter: Double): (mutable.HashMap[Expression, (Set[Expression], ArrayBuffer[Trigger])], Expression => Option[(Int, Expression)]) = {
-    val osubs = SubExprsFrom.apply(expressions.map(_.expression))
+    val osubs = SubExprs.apply(expressions.map(_.expression))
 
     val filterOut = {
       val t = ((expressions.size.toDouble / 100.toDouble) * triggerPercentFilter).toInt

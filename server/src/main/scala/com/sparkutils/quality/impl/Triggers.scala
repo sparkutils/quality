@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.util.SeparateCompilation.Holder
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
 import com.sparkutils.quality.{QualityException, getConfig, groupProcessorKey}
@@ -97,7 +98,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
               exprFunc <- exprGroup
             } yield {
               val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
-              val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
+              val argPairs = params.nonCombinedParams.map(t => t.typeDecl -> t.name)
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map( p =>
                   p._2.apply(ctx, params, p._1.expression, false).code + s"${exprEnd()}\n")
@@ -145,7 +146,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     val groupExprs = groups.map(_.groupFilter)
 
-    def builder = {
+    def builder(params: ParameterInformation) = {
 
       val grouped = groups.grouped(runner.variablesPerFunc).grouped(runner.variableFuncGroup).toSeq
 
@@ -181,20 +182,23 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
       val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
 
-      val (funNames, extraClasses, widerAdditionalParams) = builder
+      val childParams = params.mergeParams(ctx, genParams(ctx, Holder(groupExprs)), false)
+      val (funNames, extraClasses, widerAdditionalParams) = builder(childParams)
       TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
     } else {
       // will generate again, the sub exprs will be present on the projection unless ZeroCodeGen is enabled
-      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, groupExprs ++
+      val children = groupExprs ++
         ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
-      )
+      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
+
       val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
       val (funNames, extraClasses, widerAdditionalParams) =
         QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          builder
+          val childParams = params.mergeParams(ctx, genParams(ctx, Holder(children)), false)
+          builder(childParams)
         }
-      TriggerResult(funNames.iterator, SeparateCompilation.splitGlobalSubExprs(ctx, subExpressionCode), extraClasses, true, widerAdditionalParams)
+      TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
     }
   }
 
@@ -207,7 +211,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     val exprFuncName = ctx.freshName(prefix + "GEFuncGroup" + groupDepth)
 
     val shouldReturn = ctx.addMutableState("boolean", "shouldReturn", v => s"$v = false;")
-    val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
+    val argPairs = params.nonCombinedParams.map(t => t.typeDecl -> t.name)
 
     val groupCalls =
       groups.map {
@@ -243,7 +247,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
          $body
        }
       """.code
-    ), groupCalls.map(_._2), groupCalls.map(_._3).foldLeft(ParameterInformation.forMerging)(_.mergeParams(_, false)))
+    ), groupCalls.map(_._2), groupCalls.map(_._3).foldLeft(ParameterInformation.forMerging)(_.mergeParams(ctx, _, false)))
   }
 
   protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
@@ -314,7 +318,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     // remove the params usage, everything is in the object variables, this is top level only
     val preCalcParams = (ctx: CodegenContext) =>
       genParamsForNested(ctx, allGroupExprs ++ group.groupFilters, additionalParams)
-        .copy(paramsDef = "", paramsCall = "").mergeParams(outerParams, false)
+        .copy(paramsDef = "", paramsCall = "").mergeParams(ctx, outerParams, false)
 
     val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
       VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))

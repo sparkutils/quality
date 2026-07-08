@@ -216,6 +216,7 @@ object SeparateCompilation {
 
         val (r, p) =
           QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+
             val childParams = genParams(ctx, Holder(children), Seq.empty)
             (generate(ctx, ruleRunnerExpressionIdx, childParams), childParams)
           }
@@ -224,8 +225,8 @@ object SeparateCompilation {
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
     runnerCompilation(outerctx = outerCtx,
-      params.mergeParams(childParams, false).
-        mergeParams(implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType), topLevelCompilationUnit),
+      params.mergeParams(ctx, childParams, false).
+        mergeParams(ctx, implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType), topLevelCompilationUnit),
       genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
         generateStatsEvery = theThis.extraConfig.int("statsEvery", 0),
@@ -308,14 +309,6 @@ object SeparateCompilation {
         """
       else ""
 
-    val splitSubs =
-      /*if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
-        {println("Actually got subExpressions --> " + subExpressions)
-          ""}
-      else*/
-        subExpressions
-        //splitGlobalSubExprs(ctx, subExpressions)
-
     val initCode = splitGlobalSubExprs(ctx, ctx.initPartition(), name = "initCode", groupSize = 150)
 
     // extra params global (outer ctx subexprs and state), must be after code gen and requires QualityCodeGenUtils.clone
@@ -324,7 +317,6 @@ object SeparateCompilation {
 
     val classGen = implicitly[ClazzGenerator[T]]
 
-    // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       $generate
 
@@ -356,8 +348,9 @@ object SeparateCompilation {
           ${fullParams.aritySafeParamConversion(ctx)}
 
           // this context common sub exprs
-          $splitSubs
+          $subExpressions
 
+          // stats statBeforeCodeBody
           $statBeforeCodeBody
 
           // rule runner code body
@@ -403,7 +396,7 @@ object SeparateCompilation {
         // push to top
         ${parameterInformation.pushToTop}
         // Call to ${implicitly[IdGen[I]].forComment(idParam)}
-        ${fullParams.aritySafeParamCallPrep(outerctx)}
+        ${fullParams.aritySafeParamCallPrep(outerctx, ctx)}
         ${classGen.typ} ${ev.value} = ${classGen.cast} ($runner).apply(${fullParams.aritySafeParamCall});
         ${classGen.outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;

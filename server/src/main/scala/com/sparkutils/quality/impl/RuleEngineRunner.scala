@@ -12,6 +12,7 @@ import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
+import com.sparkutils.quality.impl.util.Params.prepFields
 import com.sparkutils.quality.impl.util.{GenerateResult, NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
@@ -251,7 +252,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val paramsInfo = {
       val t = genParams(ctx, child)
-      t.copy(topLevelRunnerParams = (t.topLevelRunnerParams ++ runnerParams).distinct)
+      val top = (t.topLevelRunnerParams ++ runnerParams).distinct
+      val prepped = prepFields(ctx, top, true, runnerParams)
+      t.copy(topLevelRunnerParams = top, preppedTopLevel = prepped)
     }
 
     val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
@@ -557,7 +560,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               // group specific subexprs
               ${grouped.subExpressions}
               // group calls
-              ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
               // result row code
               ${inPlaceOffsets.resultRowPrep}
           """

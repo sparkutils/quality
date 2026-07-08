@@ -323,8 +323,6 @@ case class FunNLambda(funN: FunN) extends Expression {
 
 object FunNLambda {
 
-  // TODO do deeply nested calls double nest ?
-
   def allAsLambdaChildrenAreAlsoLambdas(funNL: FunNLambda): FunNLambda =
     funNL.copy(funNL.funN.transform{
       case f: FunN => FunNLambda(f)

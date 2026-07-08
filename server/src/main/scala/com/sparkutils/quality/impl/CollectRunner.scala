@@ -54,7 +54,6 @@ case class InPlaceArray(children: Seq[Expression]) extends Expression {
       case (child, i) =>
 
         val eval = child.genCode(ctx)
-        // TODO will autoboxing work on databricks? it's had an old janino version for a long time - tests need
         s"""
           // InPlaceArray for elem $i
           ${eval.code}

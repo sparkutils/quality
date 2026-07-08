@@ -297,7 +297,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       df.write.mode("overwrite").parquet(outputDir + "/i_s_hav_it") // force relation as LocalRelation is driver only so no serialisation attempted
@@ -332,7 +333,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -368,6 +370,7 @@ class RuleEngineTest extends RuleEngineTestBase {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
       import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -405,7 +408,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -442,7 +446,8 @@ class RuleEngineTest extends RuleEngineTestBase {
 
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"

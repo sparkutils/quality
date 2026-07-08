@@ -338,7 +338,6 @@ class IDTests extends SharedPureConnectTests with VariableTestShims {
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     uniqueExploded.write.mode("overwrite").parquet(ouputDir + "uniqueidequal")
     // .cache doesn't work on connect base and 0 work finds 15000 rows, 1 doesn't match anything possibly https://issues.apache.org/jira/browse/SPARK-53917
-    // TODO verify if this works on 4.1
     val cached = sparkSession.read.parquet(ouputDir + "uniqueidequal")
 
     val count = uniqueExploded.count()

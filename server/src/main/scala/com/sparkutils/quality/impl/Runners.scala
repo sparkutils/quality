@@ -239,7 +239,7 @@ trait SplitCompilation extends Runner {
     /*this match {
       case h: HasOutput => println(" children --- >" + h.realChildren)
     }
-    seq.foreach(p => println(p._1 + " --> " + p._2.body)) */
+    seq.foreach(p => println(p._1 + " --> " + p._2.body))*/
     generatorClassSource = seq.toMap
   }
 

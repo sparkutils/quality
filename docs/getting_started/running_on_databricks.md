@@ -187,3 +187,14 @@ Supported as of 0.1.3.1.
 Supported as of 0.1.3.1.
 
 16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
+
+## Running on Databricks Runtime 18.3 / 18 LTS
+
+## Running on Databricks Runtime 19 Beta
+
+DBFS is no longer usable, so the bloom.root for bloom usage needs to be set.
+
+```scala
+// DBR 19 cannot use /dbfs/
+System.setProperty("sparkutils.quality.bloom.root", root_path + "/blooms")
+```

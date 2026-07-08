@@ -78,7 +78,7 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
       }
     }
   } }
-/*
+
   test("default processor"){ not3_0_or_3_1 {
     evalCodeGensNoResolve {
       funNRewrites {
@@ -94,6 +94,6 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
       }
     }
   } }
-*/
+
 
 }
