@@ -397,7 +397,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       s"""
         Object[] $pp = (Object[])input_ppp;
          """ +
-      params.zipWithIndex.map {
+      params.filterNot(_.isLocal).zipWithIndex.map {
         case (p, index) =>
           val cast =
             if (p.classType.isPrimitive && !p.isExtraDimensionArray)
