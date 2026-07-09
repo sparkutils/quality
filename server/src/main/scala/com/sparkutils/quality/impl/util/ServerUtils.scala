@@ -334,7 +334,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     )
   }
 
-  val useArity = if (arity > 22) 1 else arity
+  def useArity = if (arity > 22) 1 else aritySafe.length
 
   /**
    * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
@@ -347,7 +347,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     s"$prefix$useArity<$returnTyp${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
-          params.map { p => "Object"
+          aritySafe.map { p => "Object"
 /*            if (p._3.isPrimitive)
               CodeGenerator.boxedType(p._3.getSimpleName)
             else
