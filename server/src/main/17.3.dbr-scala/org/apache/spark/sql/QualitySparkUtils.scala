@@ -85,7 +85,7 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
-  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[ExprValue]): ParameterInformation = {
+  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
     val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq, additional)
@@ -100,7 +100,7 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[ExprValue] = Seq.empty): ParameterInformation = {
+  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[(VariableValue, Boolean)] = Seq.empty): ParameterInformation = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq, additional)
@@ -109,7 +109,7 @@ object ClassicQualitySparkUtils {
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
-    plan.transformExpressionsDownWithPruning {
+    plan.transformAllExpressionsWithPruning {
       // if it's an actual lambda (e.g. folder) we should not expand it for now
       case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
         case f: FunN =>

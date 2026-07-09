@@ -137,11 +137,11 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
   protected[quality] def generateFunctionGroups(
-               ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
-               expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
-               prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-               exprFunEnd: () => Block = () => code"",
-               groupSalienceCheck: String => Block = _ => code""): TriggerResult = {
+    ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String,
+    additionalParams: Seq[(VariableValue, Boolean)],
+    expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
+    prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
+    groupSalienceCheck: String => Block = _ => code"", returnIfGroupSalienceCheckFalse: Boolean = false): TriggerResult = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
@@ -149,7 +149,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res =
       impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
-        prefix, exprEnd, exprFunEnd, groupSalienceCheck)
+        prefix, exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse)
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)
@@ -191,7 +191,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val generate =
-        (ctx: CodegenContext, p: ParameterInformation, e: Expression) => {
+        (ctx: CodegenContext, p: ParameterInformation, e: Expression, b: Boolean) => {
           val eval = e.genCode(ctx)
 
           code"""${eval.code}\n
@@ -206,7 +206,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resNull = ctx.freshName("isNull")
 
     val groups = RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-      Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)
+      Seq((VariableValue(resultRow, classOf[InternalRow]), false)), allExpr)
 
     val funNames: Iterator[String] = groups.groupCalls
 
@@ -285,7 +285,9 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
    */
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs

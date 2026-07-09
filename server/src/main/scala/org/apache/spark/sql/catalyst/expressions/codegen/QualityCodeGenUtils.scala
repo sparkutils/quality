@@ -1,5 +1,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameterS
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
@@ -7,15 +8,50 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{GENERATE
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 import org.apache.spark.sql.internal.SQLConf
 
+import java.lang.reflect.Method
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object QualityCodeGenUtils {
 
-  lazy val freshNameIds = {
+  protected[codegen] lazy val freshNameIds: Method = {
     val method = classOf[CodegenContext].getDeclaredMethods.filter(_.getName == "freshNameIds").head
     method.setAccessible(true)
     method
+  }
+
+  protected[codegen] lazy val mutableStateNames: Method = {
+    val method = classOf[CodegenContext].getDeclaredMethods.filter(_.getName.contains("mutableStateNames")).head
+    method.setAccessible(true)
+    method
+  }
+
+  /**
+   * subExpr init code can create 'final ' local variables, these are not present in the mutable state.
+   * Probably because it's still possible for code to be introduced that is not in an subExpr ExprValue.
+   * inputadapter's are also not in mutableStateNames and will return false.
+   * @param ctx
+   * @param name
+   * @return
+   */
+  def isProbablyLocalScope(ctx: CodegenContext, name: String): Boolean = {
+    !(isCodeGenParameterS(ctx)(name) || isProbablyLocalCompilationScopeI(ctx, name))
+  }
+
+  private def isProbablyLocalCompilationScopeI(ctx: CodegenContext, name: String): Boolean = {
+    val names = mutableStateNames.invoke(ctx).asInstanceOf[mutable.HashSet[String]]
+    names.contains(name) || name == ctx.INPUT_ROW
+  }
+
+  /**
+   * subExpr init code can create 'final ' local variables, these are not present in the mutable state.
+   * Probably because it's still possible for code to be introduced that is not in an subExpr ExprValue.
+   * @param ctx
+   * @param name
+   * @return
+   */
+  def isProbablyLocalCompilationScope(ctx: CodegenContext, name: String): Boolean = {
+    !isProbablyLocalCompilationScopeI(ctx, name)
   }
 
   /**

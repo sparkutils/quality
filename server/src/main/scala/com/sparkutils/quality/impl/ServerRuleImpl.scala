@@ -403,8 +403,6 @@ trait OutputExprLogic extends quality.OutputExpression with HasExpr {
   def reset(): OutputExprLogic = this
 }
 
-// TODO convert api into ExprLogics !!!!
-
 object UpdateFolderExpression {
   val currentResult = "currentResult"
 

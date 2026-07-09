@@ -142,13 +142,18 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   /**
    * used by codegen
    */
-  override def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
-    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
+  override def applyNonEmptySuffix: String = "Expression"
 
   /**
    * used by codegen
+
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
+    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
+*/
+  /**
+   * used by codegen
    */
-  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
     val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
@@ -157,7 +162,9 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs
