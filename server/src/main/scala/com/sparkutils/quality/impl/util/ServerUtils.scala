@@ -225,11 +225,6 @@ object ParameterInformation {
 
   val forMerging: ParameterInformation = ParameterInformation("","",0,Seq.empty)
 
-  // TODO this should be possible to remove given currentVars check
-  lazy val codeGenParameters = (getConfig("quality.codeGenParameters").split(",").filterNot(_.isEmpty) ++
-    Seq("inputadapter", "project_expr", "columnartorow")
-    ).distinct
-
   def isCodeGenParameter(ctx: CodegenContext)(p: ParamType): Boolean =
     isCodeGenParameterS(ctx)(p.name)
 
@@ -243,13 +238,12 @@ object ParameterInformation {
       }
 
   def isCodeGenParameterS(ctx: CodegenContext)(Name: String): Boolean =
-    codeGenParameters.exists(Name.startsWith) ||
-      ((ctx.currentVars ne null) && ctx.currentVars.exists(ex =>
-        if (ex eq null)
-          false
-        else
-          exprValueMatches(ex.value, Name) || exprValueMatches(ex.isNull, Name)
-      ))
+    (ctx.currentVars ne null) && ctx.currentVars.exists(ex =>
+      if (ex eq null)
+        false
+      else
+        exprValueMatches(ex.value, Name) || exprValueMatches(ex.isNull, Name)
+    )
 
 }
 
@@ -295,16 +289,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         else
           other.preppedTopLevel
 
-    val locals = other.params.filter(_.isLocal)//.map(p => p.copy(isLocal = false))
-
     // input adapters are needed to pipe the Spark row generation through
     // local variables from subExpr code in the 'apply/processNext' may be needed for further calls
     val nparams = (params ++
-      other.params.filter(isCodeGenParameter(ctx))//.map(p => p.copy(isLocal = false))
+      other.params.filter(isCodeGenParameter(ctx))
       ).distinct
-
-    // ++ // locals are only for this compilation unit not parents
-    //      other.params.filter(p => QualityCodeGenUtils.isProbablyLocalScope(ctx, p._2))).distinct
 
     val nonLocalParams = nparams.filterNot(_.isLocal)
 
@@ -369,7 +358,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   def addAritySafeParamDecl(ctx: CodegenContext): Unit = {
     // any locally created (in apply) subexprs should not be in the arity
-    aritySafe = (params/*.filterNot(p => p.isLocal)*/ ++ preppedTopLevel).distinct
+    aritySafe = (params ++ preppedTopLevel).distinct
 
     aritySafe.map { p =>
       val (arrayExtraDecl, arrayExtraDim) =
@@ -384,8 +373,6 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         else
           CodeGenerator.typeName(p.classType)
 
-
-      /*s"private ${p._1}$arrayExtraDim ${p._2};" */// TODO dim handling?
       ctx.addMutableState(typ+arrayExtraDim, p.name, forceInline = true, useFreshName = false)
     }
   }

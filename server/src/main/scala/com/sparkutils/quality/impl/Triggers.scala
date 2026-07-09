@@ -197,7 +197,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
         QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
           val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
           builder(childParams)
-        } //widerAdditionalParams)//
+        }
       TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
     }
   }

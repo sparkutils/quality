@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.{groupProcessorKey, impl, topLevelBooleanGrouper}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.catalyst.expressions.Literal
 
 abstract class RuleFolderClassicTestBase extends SharedConnectTests with RuleFolderTestBase {
@@ -94,6 +94,5 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
       }
     }
   } }
-
 
 }
