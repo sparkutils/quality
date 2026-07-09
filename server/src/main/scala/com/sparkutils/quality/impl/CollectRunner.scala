@@ -443,7 +443,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
               // group specific subexprs
               ${grouped.subExpressions}
               // group calls
-              ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
 
               ${
                 hasDefault(

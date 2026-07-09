@@ -203,7 +203,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           // group specific subexprs
           ${grouped.subExpressions}
           // group calls
-          ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+          ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
 
           InternalRow $default = null;
 

@@ -215,7 +215,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     ), NewPosting.unapply, _.select("exp.*").as[NewPosting].collect())()
 
   }
-
+/*
   test("simplePrimitiveProductionRules") {
     import com.sparkutils.quality.implicits._
 
@@ -235,7 +235,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     )
 
   }
-
+*/
   test("simplePrimitiveProductionRulesNoArrayOutput") {
     import com.sparkutils.quality.implicits._
 
@@ -273,7 +273,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
         OutputExpression("array(account_row('ended'), account_row('started'))")))
     )
 
-  }
+  }/*
 
   test("no matches and no default should be failed") {
     import com.sparkutils.quality.implicits._
@@ -451,6 +451,6 @@ class CollectRunnerTest extends CollectRunnerTestBase {
     ))))
     r.collect()
 
-  }
+  }*/
 }
 

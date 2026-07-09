@@ -225,15 +225,32 @@ object ParameterInformation {
 
   val forMerging: ParameterInformation = ParameterInformation("","",0,Seq.empty)
 
+  // TODO this should be possible to remove given currentVars check
   lazy val codeGenParameters = (getConfig("quality.codeGenParameters").split(",").filterNot(_.isEmpty) ++
-    Seq("inputadapter", "project_expr")
+    Seq("inputadapter", "project_expr", "columnartorow")
     ).distinct
 
-  def isCodeGenParameter(p: ParamType): Boolean =
-    isCodeGenParameter(p.name)
+  def isCodeGenParameter(ctx: CodegenContext)(p: ParamType): Boolean =
+    isCodeGenParameterS(ctx)(p.name)
 
-  def isCodeGenParameter(name: String): Boolean =
-    codeGenParameters.exists(name.contains(_))
+  private def exprValueMatches(expr: ExprValue, Name: String) =
+    if (expr eq null)
+      false
+    else
+      expr match {
+        case VariableValue(Name,_) => true
+        case _ => false
+      }
+
+  def isCodeGenParameterS(ctx: CodegenContext)(Name: String): Boolean =
+    codeGenParameters.exists(Name.startsWith) ||
+      ((ctx.currentVars ne null) && ctx.currentVars.exists(ex =>
+        if (ex eq null)
+          false
+        else
+          exprValueMatches(ex.value, Name) || exprValueMatches(ex.isNull, Name)
+      ))
+
 }
 
 /**
@@ -268,7 +285,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
    * @return
    */
   def mergeParams(ctx: CodegenContext, other: ParameterInformation, topLevel: Boolean): ParameterInformation = {
-    //println("mergeParams other names: " + other.params.map(_._2))
+    //println("mergeParams other names: " + other.params.map(_.name))
     val prepped =
       if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
         preppedTopLevel
@@ -278,11 +295,13 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         else
           other.preppedTopLevel
 
-    val locals = other.params.filter(_.isLocal)
+    val locals = other.params.filter(_.isLocal)//.map(p => p.copy(isLocal = false))
 
     // input adapters are needed to pipe the Spark row generation through
     // local variables from subExpr code in the 'apply/processNext' may be needed for further calls
-    val nparams = (params ++ other.params.filter(isCodeGenParameter) ++ locals).distinct
+    val nparams = (params ++
+      other.params.filter(isCodeGenParameter(ctx))//.map(p => p.copy(isLocal = false))
+      ).distinct
 
     // ++ // locals are only for this compilation unit not parents
     //      other.params.filter(p => QualityCodeGenUtils.isProbablyLocalScope(ctx, p._2))).distinct
@@ -299,7 +318,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
           other.topLevelRunnerParams // non grouped
 
     copy(params = nparams,
-      nonCombinedParams = (nonCombinedParams ++ other.nonCombinedParams.filter(isCodeGenParameter)).distinct,
+      nonCombinedParams = (nonCombinedParams ++ other.nonCombinedParams.filter(isCodeGenParameter(ctx))).distinct,
         arity = (
           if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
             (nonLocalParams ++ preppedTopLevel).distinct.size

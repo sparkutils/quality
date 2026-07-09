@@ -1,6 +1,6 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
-import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameter
+import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameterS
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
@@ -35,7 +35,7 @@ object QualityCodeGenUtils {
    * @return
    */
   def isProbablyLocalScope(ctx: CodegenContext, name: String): Boolean = {
-    !(isCodeGenParameter(name) || isProbablyLocalCompilationScopeI(ctx, name))
+    !(isCodeGenParameterS(ctx)(name) || isProbablyLocalCompilationScopeI(ctx, name))
   }
 
   private def isProbablyLocalCompilationScopeI(ctx: CodegenContext, name: String): Boolean = {

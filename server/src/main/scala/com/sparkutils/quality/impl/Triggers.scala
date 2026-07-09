@@ -182,7 +182,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
       val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
 
-      val childParams = params.mergeParams(ctx, genParams(ctx, Holder(groupExprs)), false)
+      val childParams = genParamsForNested(ctx, groupExprs, Seq.empty).mergeParams(ctx, params, false)
       val (funNames, extraClasses, widerAdditionalParams) = builder(childParams)
       TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
     } else {
@@ -195,9 +195,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
       val (funNames, extraClasses, widerAdditionalParams) =
         QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          val childParams = params.mergeParams(ctx, genParams(ctx, Holder(children)), false)
+          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
           builder(childParams)
-        }
+        } //widerAdditionalParams)//
       TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
     }
   }
