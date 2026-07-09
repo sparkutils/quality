@@ -369,7 +369,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   def addAritySafeParamDecl(ctx: CodegenContext): Unit = {
     // any locally created (in apply) subexprs should not be in the arity
-    aritySafe = (params.filterNot(p => p.isLocal) ++ preppedTopLevel).distinct
+    aritySafe = (params/*.filterNot(p => p.isLocal)*/ ++ preppedTopLevel).distinct
 
     aritySafe.map { p =>
       val (arrayExtraDecl, arrayExtraDim) =
