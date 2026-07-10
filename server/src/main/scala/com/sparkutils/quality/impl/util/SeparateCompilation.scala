@@ -50,7 +50,7 @@ trait ClazzGenerator[T] {
   def typ: String = "InternalRow"
   def cast: String = s"($typ)"
   def box: String = s"(Object)"
-  def deeperParams(t: T): ParameterInformation = ParameterInformation.forMerging
+  def deeperParams(t: T): ParameterInformation
 }
 
 /**
@@ -166,18 +166,18 @@ case class SeparateCompilation(code: Seq[(Int, CodeAndComment)], callingCode: Ex
 object SeparateCompilation {
 
   case class Holder(children: Seq[Expression]) extends Expression with Unevaluable {
-
+    // $COVERAGE-OFF$
     override def nullable: Boolean = ???
 
     override def dataType: DataType = ???
-
+    // $COVERAGE-ON$
     protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(newChildren)
   }
 
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
-      createGenerateFunction: Boolean = true, extraParams: Seq[(VariableValue, Boolean)] = Seq.empty,
+      extraParams: Seq[(VariableValue, Boolean)] = Seq.empty,
       useParams: CodegenContext => ParameterInformation = null,
       topLevelCompilationUnit: Boolean = false)(
       generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
@@ -193,35 +193,6 @@ object SeparateCompilation {
       else
         genParams(ctx, theThis, extraParams)
 
-    // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
-    /*val lambdaSafeChildren = children.map(FunNLambda.swap)
-
-    val (genResult, (subExpressionCode, childParams)) =
-      if (ctx.currentVars eq null) {
-        // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
-
-        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
-        // replace the original non-subExpr FunNs
-        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
-        val childParams = genParams(ctx, Holder(children), Seq.empty)
-
-        (generate(ctx, ruleRunnerExpressionIdx, childParams), (subExpressionCode, childParams))
-      } else {
-        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
-        val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
-
-        // replace the original non-subExpr FunNs
-        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
-
-        val (r, p) =
-          QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-
-            val childParams = genParams(ctx, Holder(children), Seq.empty)
-            (generate(ctx, ruleRunnerExpressionIdx, childParams), childParams)
-          }
-        (r, (subExpressionCode, p))
-      }
-*/
     val (genResult, (subExpressionCode, childParams)) =
       QualityCodeGenUtils.produceCode(ctx, children){
         (children, subExprCode, _) =>
@@ -236,8 +207,7 @@ object SeparateCompilation {
         mergeParams(ctx, implicitly[ClazzGenerator[T]].deeperParams(genResult.resultType), topLevelCompilationUnit),
       genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
-        generateStatsEvery = theThis.extraConfig.int("statsEvery", 0),
-      createGenerateFunction
+        generateStatsEvery = theThis.extraConfig.int("statsEvery", 0)
     )
   }
 
@@ -251,8 +221,8 @@ object SeparateCompilation {
                                   parameterInformation: ParameterInformation,
                                   genResult: GenerateResult[T], ctx: CodegenContext,
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
-                                  generateStatsEvery: Int = 0,
-                                  createGenerateFunction: Boolean = true):
+                                  generateStatsEvery: Int = 0
+                                                    ):
     SeparateCompilation = {
     val fullParams = parameterInformation
 
@@ -308,13 +278,11 @@ object SeparateCompilation {
     val clazzName = className(id)
 
     val generate =
-      if (createGenerateFunction)
-        s"""
-        public $clazzName generate(Object[] references) {
-          return new $clazzName(references);
-        }
-        """
-      else ""
+      s"""
+      public $clazzName generate(Object[] references) {
+        return new $clazzName(references);
+      }
+      """
 
     val initCode = splitGlobalSubExprs(ctx, ctx.initPartition(), name = "initCode", groupSize = 150)
 

@@ -15,21 +15,24 @@ import org.apache.spark.sql.qualityFunctions.FunNLambda
 
 import scala.runtime.{AbstractFunction10, AbstractFunction9}
 
-sealed trait GroupOr {
-  def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T
-  def size: Int
-  def groupFilters: Seq[Expression] = Seq.empty
+trait LowestSalience {
   def lowestSalience: Int
 }
 
+sealed trait GroupOr extends LowestSalience {
+  def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T
+  def size: Int
+  def groupFilters: Seq[Expression] = Seq.empty
+}
+
 case class Triggers(triggers: Seq[Trigger], lowestSalience: Int) extends GroupOr {
-  override def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T = triggersF(triggers)
+  override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = triggersF(triggers)
 
   override def size: Int = triggers.size
 }
 
 case class Groups(groups: Seq[Group]) extends GroupOr {
-  override def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T = groupsF(groups)
+  override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = groupsF(this)
 
   override def size: Int = groups.map(_.size).sum
 
@@ -40,7 +43,7 @@ case class Groups(groups: Seq[Group]) extends GroupOr {
 
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
-case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) {
+case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) extends LowestSalience {
   def size = payload.size
 
   def groupFilters: Seq[Expression] = payload.groupFilters :+ groupFilter
@@ -131,8 +134,9 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
       }
     TriggerResult(funNames, "", Seq.empty[(Int, CodeAndComment)], params)
   }
-
+  // $COVERAGE-OFF$
   def dumpAudit(runner: HasOutput): Unit = {}
+  // $COVERAGE-ON$
 }
 
 /**
@@ -187,47 +191,13 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }.foldLeft((Seq.empty[String], Seq.empty[(Int, CodeAndComment)], null: ParameterInformation)) {
       case ((ns, cs, es), (n, c, e)) => (ns :+ n, cs ++ c.flatten, e) // actual params not needed at this level
     }
-    // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
-    //val lambdaSafeChildren = groupExprs.map(FunNLambda.swap)
 
     val ((funNames, extraClasses, widerAdditionalParams), subExpressionCode) =
       QualityCodeGenUtils.produceCode(ctx, groupExprs){
-        (children, subExprCode, currentVars) =>
-          val childrenToUse =
-            /*if (currentVars)
-              children ++
-                ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
-            else*/
-              children
-          val childParams = genParamsForNested(ctx, childrenToUse, Seq.empty).mergeParams(ctx, params, false)
+        (children, subExprCode, _) =>
+          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
           (builder(childParams), subExprCode)
       }
-      /*
-      if (ctx.currentVars eq null) {
-        // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
-
-        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
-        // replace the original non-subExpr FunNs
-        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
-
-        val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
-        (builder(childParams), subExpressionCode)
-      } else {
-
-        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
-        val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
-
-        // replace the original non-subExpr FunNs
-        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
-
-        (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-            // - the current ctx underlying subexprs are also required
-            val childrenToUse = children ++
-              ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
-            val childParams = genParamsForNested(ctx, childrenToUse, Seq.empty).mergeParams(ctx, params, false)
-            builder(childParams)
-          }, subExpressionCode)
-      } */
 
     TriggerResult(funNames.iterator, subExpressionCode, extraClasses, widerAdditionalParams)
   }
@@ -262,8 +232,10 @@ trait GroupBasedGrouper extends TriggerGrouper {
     val foldFunctions: Seq[String] => String =
       if (returnIfGroupSalienceCheckFalse)
         _.mkString("", earlyExit, ";")
+      // $COVERAGE-OFF$  // provided so it functionally works, but it's not clear why someone would use it
       else
         _.mkString("", ";\n", ";")
+      // $COVERAGE-ON$
 
     val body =
       QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"\n"),
@@ -287,8 +259,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
                               groupDepth: Int, outerParams: ParameterInformation,
                               returnIfGroupSalienceCheckFalse: Boolean,
                               shouldReturn: String): (String, Seq[(Int, CodeAndComment)], ParameterInformation) = {
-    group.payload.fold { groups =>
-
+    group.payload.fold { groupsHolder =>
+      val groups = groupsHolder.groups
+      // don't enter if the current salience is lower
       val allGroupExprs = groups.map(_.groupFilter)
 
       def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
@@ -305,7 +278,11 @@ trait GroupBasedGrouper extends TriggerGrouper {
           groupSalienceCheck, group, produceTriggerResult, allGroupExprs,
           returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
 
-      (body.code, clazzes, widerAdditionalParams)
+      (
+        returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
+          shouldReturn, "Groups_"+groupDepth, groupsHolder,
+          body
+        ).code, clazzes, widerAdditionalParams)
     } { triggers =>
 
       def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
@@ -330,6 +307,28 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
       (body.code, clazzes, widerAdditionalParams)
     }
+  }
+
+  protected def returnIfSalience(groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean,
+                                 shouldReturn: String, context: String, group: LowestSalience, block: Block): Block = {
+    val earlyExit = // only for RuleEngineRunner
+      if (returnIfGroupSalienceCheckFalse)
+        s"""
+           else {
+              $shouldReturn = true;
+              return;
+           }
+           """
+      else
+        ""
+
+    // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
+    code"""
+      // code for $context
+      if (${groupSalienceCheck(group.lowestSalience.toString)}) {
+        $block
+      } $earlyExit
+    """
   }
 
   protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)],
@@ -393,28 +392,17 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     val eval = group.groupFilter.genCode(ctx)
 
-    val earlyExit = // only for RuleEngineRunner
-      if (returnIfGroupSalienceCheckFalse)
-        s"""
-           else {
-              $shouldReturn = true;
-              return;
-           }
-           """
-      else
-        ""
-
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
     (
-      code"""
-        // code for filter ${group.groupFilter.toString}
-        if (${groupSalienceCheck(group.lowestSalience.toString)}) {
-          ${eval.code}
-          if ((!${eval.isNull}) && ${eval.value} ) {
-            ${expr.code}
-          }
-        } $earlyExit
-      """, body, compilationParams)
+      returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
+        shouldReturn, s"filter ${group.groupFilter.toString}", group,
+        code"""
+        ${eval.code}
+        if ((!${eval.isNull}) && ${eval.value} ) {
+          ${expr.code}
+        }
+        """
+      ), body, compilationParams)
   }
 }
 

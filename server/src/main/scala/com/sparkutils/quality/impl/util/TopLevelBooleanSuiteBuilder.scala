@@ -23,8 +23,8 @@ object TopLevelBooleanSuiteBuilder {
   def makeGroups(counter: Counter, runner: HasOutput, rules: Seq[Rule], group: Group): (Seq[RuleSuite], RuleSuite) = {
     val index = counter.next()
     val (groups, processedRules) =
-      group.payload.fold[(Seq[RuleSuite], Seq[Rule])]{groups =>
-        groups.foldLeft((Seq.empty[RuleSuite], Seq.empty[Rule])){
+      group.payload.fold[(Seq[RuleSuite], Seq[Rule])]{groupHolder =>
+        groupHolder.groups.foldLeft((Seq.empty[RuleSuite], Seq.empty[Rule])){
           case (cur, ng) =>
             val (ggroups, grules) = makeGroup(counter, runner, rules, ng)
             (cur._1 ++ ggroups, cur._2 ++ grules)
