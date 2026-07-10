@@ -153,8 +153,7 @@ object IdGen {
 
 }
 
-case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[(Int, CodeAndComment)],
-                             ignoreTopLevelSubExpressions: Boolean, id: Int = 0)
+case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[(Int, CodeAndComment)], id: Int = 0)
 
 /**
  * Represents a number of separate compilation units and the
@@ -195,9 +194,9 @@ object SeparateCompilation {
         genParams(ctx, theThis, extraParams)
 
     // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
-    val lambdaSafeChildren = children.map(FunNLambda.swap)
+    /*val lambdaSafeChildren = children.map(FunNLambda.swap)
 
-    val (genResult, subExpressionCode, childParams) =
+    val (genResult, (subExpressionCode, childParams)) =
       if (ctx.currentVars eq null) {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
@@ -206,7 +205,7 @@ object SeparateCompilation {
         val children = lambdaSafeChildren.map(FunNLambda.swapBack)
         val childParams = genParams(ctx, Holder(children), Seq.empty)
 
-        (generate(ctx, ruleRunnerExpressionIdx, childParams), subExpressionCode, childParams)
+        (generate(ctx, ruleRunnerExpressionIdx, childParams), (subExpressionCode, childParams))
       } else {
         val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
         val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
@@ -220,7 +219,15 @@ object SeparateCompilation {
             val childParams = genParams(ctx, Holder(children), Seq.empty)
             (generate(ctx, ruleRunnerExpressionIdx, childParams), childParams)
           }
-        (r, subExpressionCode, p)
+        (r, (subExpressionCode, p))
+      }
+*/
+    val (genResult, (subExpressionCode, childParams)) =
+      QualityCodeGenUtils.produceCode(ctx, children){
+        (children, subExprCode, _) =>
+          val childParams = genParams(ctx, Holder(children), Seq.empty)
+
+          (generate(ctx, ruleRunnerExpressionIdx, childParams), (subExprCode, childParams))
       }
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs

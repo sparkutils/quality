@@ -105,8 +105,7 @@ case class SwitchGroups(groupingExpression: Expression, typ: String,
           }
       }
 
-    TriggerResult( Seq(generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator, "", Seq.empty, true,
-      params)
+    TriggerResult( Seq(generateSwitch(ctx, prefix, groupDepth, params, groupCalls)).iterator, "", Seq.empty, params)
   }
 
   private def generateSwitch(ctx: CodegenContext, prefix: String, groupDepth: Int, params: ParameterInformation,

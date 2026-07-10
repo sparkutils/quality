@@ -247,7 +247,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
     val SeparateCompilation(clazz, fres, _) =
-      SeparateCompilation.withSubExpressions(this, children, outerCtx, ev, ruleSuite.id,
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(children), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
@@ -506,7 +507,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
             """
           )
 
-        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
+        GenerateResult(compilerTerms, res, grouped.extraClasses)
     }
     setClazzSource(clazz)
     fres

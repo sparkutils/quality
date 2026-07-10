@@ -286,7 +286,8 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
     val SeparateCompilation(clazz, fres, _) =
-      SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id,
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
@@ -302,8 +303,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
             ruleRunnerExpressionIdx
           )
 
-      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
-        triggerRes.ignoreTopLevelSubExpressions)
+      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)
     }
     setClazzSource(clazz)
     fres

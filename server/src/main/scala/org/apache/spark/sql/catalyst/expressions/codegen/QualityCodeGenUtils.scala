@@ -1,12 +1,16 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameterS
+import com.sparkutils.quality.impl.util.SeparateCompilation.Holder
+import com.sparkutils.shim.codegen.SubExprCodeGen
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{GENERATED_CLASS_SIZE_THRESHOLD, JAVA_BOOLEAN, javaType}
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.FunNLambda
 
 import java.lang.reflect.Method
 import scala.collection.mutable
@@ -283,5 +287,43 @@ object QualityCodeGenUtils {
     blocks += blockBuilder.toString()
     blocks.toSeq
   }
+
+  /**
+   * Manage project vs wholestage exec, lambdas and subexpr, the function f is responsible for using the results
+   *
+   * @param ctx
+   * @param fullChildren
+   * @param f children that have had FunNLambda.swap then swapBack applied, 2nd param is the subexpr 'pre' code, third
+   *          signifies currentVars present rather than itr
+   * @tparam R1
+   * @tparam R2
+   * @return
+   */
+  def produceCode[R1,R2](ctx: CodegenContext, fullChildren: Seq[Expression])
+                        (f: (Seq[Expression], String, Boolean) => (R1, R2)): (R1, R2) = {
+
+    // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
+    val lambdaSafeChildren = fullChildren.map(FunNLambda.swap)
+
+    if (ctx.currentVars eq null) {
+      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
+
+      // replace the original non-subExpr FunNs
+      val children = lambdaSafeChildren.map(FunNLambda.swapBack)
+
+      f(children, subExpressionCode, false)
+    } else {
+      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
+      val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+
+      // replace the original non-subExpr FunNs
+      val children = lambdaSafeChildren.map(FunNLambda.swapBack)
+
+      QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+        f(children, subExpressionCode, true)
+      }
+    }
+  }
+
 
 }

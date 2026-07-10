@@ -11,6 +11,7 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNes
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow}
+import org.apache.spark.sql.qualityFunctions.FunNLambda
 
 import scala.runtime.{AbstractFunction10, AbstractFunction9}
 
@@ -46,7 +47,7 @@ case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr)
 }
 
 case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
-                         extraClasses: Seq[(Int, CodeAndComment)], ignoreTopLevelSubExpressions: Boolean,
+                         extraClasses: Seq[(Int, CodeAndComment)],
                          usedParameters: ParameterInformation)
 
 /**
@@ -77,9 +78,19 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, 
    */
   def dumpAudit(runner: HasOutput): Unit
 
+  /**
+   * Returns the children to use for runner usage.  DefaultTriggerGrouper returns the original as is,
+   * custom groupers can choose what is returned
+   * @param original
+   * @return
+   */
+  def useChildrenForRunner(original: Seq[Expression]): Seq[Expression]
+
 }
 
 case class DefaultTriggerGrouper() extends TriggerGrouper {
+
+  override def useChildrenForRunner(original: Seq[Expression]): Seq[Expression] = original
 
   override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
                       expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
@@ -118,7 +129,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
 
         })
       }
-    TriggerResult(funNames, "", Seq.empty[(Int, CodeAndComment)], false, params)
+    TriggerResult(funNames, "", Seq.empty[(Int, CodeAndComment)], params)
   }
 
   def dumpAudit(runner: HasOutput): Unit = {}
@@ -176,30 +187,49 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }.foldLeft((Seq.empty[String], Seq.empty[(Int, CodeAndComment)], null: ParameterInformation)) {
       case ((ns, cs, es), (n, c, e)) => (ns :+ n, cs ++ c.flatten, e) // actual params not needed at this level
     }
+    // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
+    //val lambdaSafeChildren = groupExprs.map(FunNLambda.swap)
 
-    if (ctx.currentVars eq null) {
-      // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
+    val ((funNames, extraClasses, widerAdditionalParams), subExpressionCode) =
+      QualityCodeGenUtils.produceCode(ctx, groupExprs){
+        (children, subExprCode, currentVars) =>
+          val childrenToUse =
+            /*if (currentVars)
+              children ++
+                ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
+            else*/
+              children
+          val childParams = genParamsForNested(ctx, childrenToUse, Seq.empty).mergeParams(ctx, params, false)
+          (builder(childParams), subExprCode)
+      }
+      /*
+      if (ctx.currentVars eq null) {
+        // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
-      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
+        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
+        // replace the original non-subExpr FunNs
+        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
 
-      val childParams = genParamsForNested(ctx, groupExprs, Seq.empty).mergeParams(ctx, params, false)
-      val (funNames, extraClasses, widerAdditionalParams) = builder(childParams)
-      TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
-    } else {
-      // will generate again, the sub exprs will be present on the projection unless ZeroCodeGen is enabled
-      val children = groupExprs ++
-        ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
-      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
+        val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
+        (builder(childParams), subExpressionCode)
+      } else {
 
-      val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
+        val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
-      val (funNames, extraClasses, widerAdditionalParams) =
-        QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
-          builder(childParams)
-        }
-      TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true, widerAdditionalParams)
-    }
+        // replace the original non-subExpr FunNs
+        val children = lambdaSafeChildren.map(FunNLambda.swapBack)
+
+        (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+            // - the current ctx underlying subexprs are also required
+            val childrenToUse = children ++
+              ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
+            val childParams = genParamsForNested(ctx, childrenToUse, Seq.empty).mergeParams(ctx, params, false)
+            builder(childParams)
+          }, subExpressionCode)
+      } */
+
+    TriggerResult(funNames.iterator, subExpressionCode, extraClasses, widerAdditionalParams)
   }
 
   protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
@@ -267,7 +297,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
             groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups,
             returnIfGroupSalienceCheckFalse)
 
-        TriggerResult(Seq(funName).iterator, "", clazzes.flatten, false, widerAdditionalParams)
+        TriggerResult(Seq(funName).iterator, "", clazzes.flatten, widerAdditionalParams)
       }
 
       val (body, clazzes, widerAdditionalParams) =
@@ -279,9 +309,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     } { triggers =>
 
       def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
-        SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params).copy(
-          ignoreTopLevelSubExpressions = false // the group must provide its own subexpressions
-        )).getOrElse {
+        SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params)).getOrElse {
           simpleGrouper(ctx, runner, grpResult, additionalParams,
             triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, groupSalienceCheck,
             returnIfGroupSalienceCheckFalse)
@@ -360,7 +388,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
                 case (p, index) => s"${returnArray}[$index] = ${p._1.variableName};"
               }.mkString(";\n")}
               """
-        ), gr.extraClasses, gr.ignoreTopLevelSubExpressions)
+        ), gr.extraClasses)
       }
 
     val eval = group.groupFilter.genCode(ctx)
@@ -419,6 +447,8 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
     System.out.println(s"TopLevelBooleanGrouper - optimal size between 100 and 200 for ruleSuite ${runner.ruleSuite.id} is $size")
   }
 
+  // the groups themselves handled the children
+  override def useChildrenForRunner(original: Seq[Expression]): Seq[Expression] = Seq.empty
 }
 
 object Triggers {

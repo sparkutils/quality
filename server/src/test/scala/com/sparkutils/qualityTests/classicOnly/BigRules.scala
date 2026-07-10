@@ -310,15 +310,15 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doTriggerGetValueShouldWork(sparkSession)
   }
 
-  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 2g 1.5m. 0.04 ms / row (i9-9900), grouping takes 3s
     doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
   } }
 
-  test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 1.5m. 0.04 ms / row (i9-9900), grouping takes 3s
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
-  ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 5.22 ms / row
+  ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 3.8 ms / row
     do1to1RulesOnly(sparkSession)
   }
 

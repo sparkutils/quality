@@ -122,14 +122,15 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > 3.3 and above only uses subexpressions within the runner itself as needed by the groups.
 > 
 > NB: Testing on a cluster (e.g. Databricks or Fabric) will require 64gb, the expression trees are too large to deserialize
-> on the executors with less RAM. 
+> on the executors with less RAM.
+> 
 
 #137 Performance improvements for #129 for String based lookups and overall performance improvements in processing
 
 > When using TopLevelBooleanGrouper any remaining tests that are "field = 'value'" EqualTo relationships with the same field
 > are converted to nested binary branching String switches for optimised lookups.
 > All rule execution (including DQ) are optimised for the classic boolean triggers and for large test sets.  Using the 
-> linear BigRules test (20k rules) has an in Quality row processing time of 3.68 down from 5.03ms per row, a 37% improvement. 
+> linear BigRules test (20k rules) has an in Quality row processing time of 3.68 down from 5.03ms per row, a 37% improvement.
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
