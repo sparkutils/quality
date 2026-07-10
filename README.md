@@ -8,6 +8,8 @@ Rules are evaluated lazily during Spark actions, such as writing a row, with res
 
 The documentation site https://sparkutils.github.io/quality/ breaks down the reason for Quality's existence, and it's usage.
 
+Please be advised that 0.2.0-RC8, likely the last release candidate for the 0.2.0 series has been released, it is advised to start using this.
+
 ## What's it written in?
 
 Scala with sprinklings of java for WholeStageCodeGen optimisations.
@@ -21,7 +23,7 @@ For oss with Spark 4.0.0 use properties:
     <qualityRuntime>4.0.0.oss_</qualityRuntime>
     <scalaCompatVersion>2.13</scalaCompatVersion>
     <sparkShortVersion>4.0</sparkShortVersion>
-    <qualityVersion>0.1.3.1</qualityVersion>
+    <qualityVersion>0.1.4</qualityVersion>
     <snakeVersion>2.0</snakeVersion>
 </properties>
 ```
