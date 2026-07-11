@@ -9,9 +9,9 @@ LTS' get explicit support, other interim versions may be supported as needed.
 
 ## Testing out Quality via Notebooks
 
-You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 17.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_17.3.dbr_4.0_2.13/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
+You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 18.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_18.3.dbr_4.1_2.13/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
 
-Then, with cluster nodes of 32gb ram, using:
+Then, with cluster nodes of 64gb ram (only BigRules requires this, so 16gb is fine when just using the shades to experiment), using:
 
 ```scala
 import com.sparkutils.qualityTests.QualityTestRunner
@@ -74,20 +74,18 @@ all Quality test batches completed
 !!! note "Databricks 18.x / UC introduces different delta behaviour"
     When running the test suite on 18.x the Delta extension tests will fail with spurious errors, these do not occur when using OSS or earlier DBRs.
 
-## Running on Databricks Runtime 18.1
-
-The 18.1 build is, with the exception of the Spark 4.1 upgrade, identical to the 17.3 build.
+## Running on Databricks Runtime 18.3
 
 The following test combinations are supported as of 0.2.0:
 
-| Compute Type   | Cluster Library                     | Extension              | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                | SPARKUTILS_DISABLE_CLASSIC_TESTS (default false) | SPARKUTILS_DISABLE_CONNECT_TESTS (default false) | Time Taken Standard_D8ds_v5 32gb 8 cores 2 executors (m) |
-|----------------|-------------------------------------|------------------------|-------------------------|------------------------------|---------------------------------------------|--------------------------------------------------|--------------------------------------------------|---------------------------------------------------------:|
-| Non Shared     | quality_testshade_18.1              |                        |                         | :octicons-checkbox-24:       | > 500                                       |                                                  | true                                             |                                                       30 |
-| Non Shared     | quality_testshade_18.1              | quality_testshade_18.1 | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |                                                  |                                                  |                                                       60 |
-| Shared Compute | quality_connect_testshade_18.1      | quality_testshade_18.1 | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
-| Shared Compute | quality_connect_testshade_4.1.0.oss | quality_testshade_18.1 | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
-| Shared Compute | quality_api_18.1                    | quality_18.1           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
-| Shared Compute | quality_api_4.1.0.oss               | quality_18.1           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
+| Compute Type   | Cluster Library                      | Extension                    | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                | SPARKUTILS_DISABLE_CLASSIC_TESTS (default false) | SPARKUTILS_DISABLE_CONNECT_TESTS (default false) | Time Taken Standard_D8ds_v5 32gb 8 cores 2 executors (m) |
+|----------------|--------------------------------------|------------------------------|-------------------------|------------------------------|---------------------------------------------|--------------------------------------------------|--------------------------------------------------|---------------------------------------------------------:|
+| Non Shared     | quality_testshade_18.3.dbr           |                              |                         | :octicons-checkbox-24:       | > 500                                       |                                                  | true                                             |                                                       30 |
+| Non Shared     | quality_testshade_18.3.dbr           | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |                                                  |                                                  |                                                       60 |
+| Shared Compute | quality_connect_testshade_18.3.dbr   | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_connect_testshade_4.1.0.oss  | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_api_18.3.dbr                 | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
+| Shared Compute | quality_api_4.1.0.oss                | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
 
 ## Running on Databricks Runtime 17.3 LTS
 
@@ -188,11 +186,13 @@ Supported as of 0.1.3.1.
 
 16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
 
-## Running on Databricks Runtime 18.3 / 18 LTS
+## Running on Databricks Runtime 17.3 / 18.3 / 18 LTS
+
+Support via 0.2.0 and is tested on latest 17.3 and 18 (via 18.3.dbr - build 18.3.1 observed via spark.databricks.clusterUsageTags.sparkImageLabel).
 
 ## Running on Databricks Runtime 19 Beta
 
-DBFS is no longer usable, so the bloom.root for bloom usage needs to be set.
+Support via 0.2.0 and the 18.3, DBFS is no longer usable, so the bloom.root for bloom usage needs to be set.
 
 ```scala
 // DBR 19 cannot use /dbfs/

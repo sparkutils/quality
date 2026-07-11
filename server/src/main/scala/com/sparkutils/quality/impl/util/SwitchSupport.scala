@@ -14,6 +14,8 @@ object SwitchGroups {
 
   private val uuid = UUID.randomUUID().toString
 
+  val assumedSize = 4
+
   def groups(triggers: Seq[Trigger]): Option[SwitchGroups] = {
     val operands = mutable.Set.empty[Expression]
     val types = mutable.Set.empty[DataType]

@@ -22,6 +22,8 @@ trait LowestSalience {
 sealed trait GroupOr extends LowestSalience {
   def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T
   def size: Int
+  // size if any optimisations such as SwitchGroups is possible
+  def optimisedSize: Int = size
   def groupFilters: Seq[Expression] = Seq.empty
 }
 
@@ -29,12 +31,16 @@ case class Triggers(triggers: Seq[Trigger], lowestSalience: Int) extends GroupOr
   override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = triggersF(triggers)
 
   override def size: Int = triggers.size
+
+  override def optimisedSize: Int = SwitchGroups.groups(triggers).map(_ => SwitchGroups.assumedSize).getOrElse(size)
 }
 
 case class Groups(groups: Seq[Group]) extends GroupOr {
   override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = groupsF(this)
 
   override def size: Int = groups.map(_.size).sum
+
+  override def optimisedSize: Int = groups.map(_.optimisedSize).sum
 
   override def groupFilters: Seq[Expression] = groups.flatMap(_.groupFilters)
 
@@ -44,7 +50,9 @@ case class Groups(groups: Seq[Group]) extends GroupOr {
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
 case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) extends LowestSalience {
-  def size = payload.size
+  def size = payload.size + 1
+
+  def optimisedSize = payload.optimisedSize + 1
 
   def groupFilters: Seq[Expression] = payload.groupFilters :+ groupFilter
 }
@@ -431,8 +439,11 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
   override def dumpAudit(runner: HasOutput): Unit = {
     TopLevelBooleanSuiteBuilder.build(runner)
-    val (_,size) = TopLevelBoolean.bestFit(triggers(runner))
-    System.out.println(s"TopLevelBooleanGrouper - optimal size between 100 and 200 for ruleSuite ${runner.ruleSuite.id} is $size")
+    val bestFit = TopLevelBoolean.bestFit(triggers(runner), runner)
+    System.out.println(s"TopLevelBooleanGrouper - optimal size between ${bestFit.rangeMin} and ${bestFit.rangeMax}" +
+      s" at percentage ${bestFit.percent} for " +
+      s"ruleSuite ${runner.ruleSuite.id} is ${bestFit.optimalBucketSize} (with max evaluation size " +
+      s"${bestFit.maxDeepestEvaluationSize} and ${bestFit.optimisedDeepestEvaluationSize} optimised depth)")
   }
 
   // the groups themselves handled the children

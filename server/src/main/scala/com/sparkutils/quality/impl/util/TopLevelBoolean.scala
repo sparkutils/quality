@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercentFilter}
+import com.sparkutils.quality.{groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
@@ -11,9 +11,11 @@ import scala.collection.{Set, mutable}
 
 object TopLevelBoolean {
 
+  def defaultPercentFilter = 0.010
+
   def params(runner: Runner): (Int, Double) = {
     val targetBucket = runner.extraConfig.int(groupProcessorBucketSizeKey, 130)
-    val targetFilter = runner.extraConfig.double(groupProcessorPercentFilter, 0.010)
+    val targetFilter = runner.extraConfig.double(groupProcessorPercentFilter, defaultPercentFilter)
     (targetBucket, targetFilter)
   }
 
@@ -156,25 +158,30 @@ object TopLevelBoolean {
   // too memory intensive for CI
   // $COVERAGE-OFF$
 
-  def bestFit(expressions: Seq[Trigger]): (Seq[Group], Int) = {
-    var min = 100
-    var max = 200
+  case class BestFit(groups: Seq[Group], optimalBucketSize: Int, maxDeepestEvaluationSize: Int,
+                     optimisedDeepestEvaluationSize: Int, rangeMin: Int, rangeMax: Int, percent: Double)
 
-    var step = 10
+  def bestFit(expressions: Seq[Trigger], runner: Runner): BestFit = {
+    val startingMin = runner.extraConfig.int(groupProcessorAuditMinBucket, 100)
+    val startingMax = runner.extraConfig.int(groupProcessorAuditMaxBucket, 200)
+    var min = startingMin
+    var max = startingMax
+
+    val triggerPercentFilter = runner.extraConfig.double(groupProcessorPercentFilter, defaultPercentFilter)
+
+    var step = runner.extraConfig.int(groupProcessorAuditBucketStep, 10)
 
     var found = false
     var res: Seq[Group] = Seq.empty
     var resCount = Integer.MAX_VALUE
     var bucketSize = 0
 
-    val trigger = 0.12
-
     while(!found) {
       //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
-      val b = bucket(triggers = expressions, targetParams = (min, trigger))
-      val bCount = b.maxBy(_.size).size + b.size
-      val t = bucket(triggers = expressions, targetParams = (max, trigger))
-      val tCount = t.maxBy(_.size).size + t.size
+      val b = bucket(triggers = expressions, targetParams = (min, triggerPercentFilter))
+      val bCount = b.maxBy(_.optimisedSize).optimisedSize + b.size
+      val t = bucket(triggers = expressions, targetParams = (max, triggerPercentFilter))
+      val tCount = t.maxBy(_.optimisedSize).optimisedSize + t.size
       res =
         if (tCount <= bCount)
           if (tCount <= resCount) {
@@ -212,7 +219,11 @@ object TopLevelBoolean {
 
     //println(s"'optimal' bucket size was $bucketSize")
 
-    (res, bucketSize)
+    val optimal = bucket(triggers = expressions, targetParams = (bucketSize, triggerPercentFilter))
+    BestFit(res, bucketSize,
+      optimal.maxBy(_.size).size + optimal.size,
+      optimal.maxBy(_.optimisedSize).optimisedSize + optimal.size,
+      startingMin, startingMax, triggerPercentFilter)
   }
   // $COVERAGE-ON$
 

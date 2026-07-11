@@ -20,39 +20,18 @@ Details of the analysis are below.
     Using withColumn is strongly discouraged, it very quickly introduces performance issues in spark code, prefer to use select and the Quality transform functions.
     A large part of the performance hit for using UDFs over Expressions is due to the conversion from user types to InternalRow - this cannot be avoided.
    
-## Catalyst Expression Performance
+## What does the performance actually look like?
 
-This diagram illustrates the overhead of cost of using Expressions using a simulated complexity of rule suites with increasing number of column checks ( c here is the column number, for a simple even check ): (`$c` % 2) = 0
+Run on Spark 4.1 [the following](https://sparkutils.github.io/quality_performance_tests/reports/report_rc7preview3_4.1_pure_spark/) shows
+a simple DQ run with 15 rules, with a baseline ["boolean array"](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L90) result (the bottom orange) and an audit trail version using [pure spark](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L112) (the top blue line):   
 
-![Performance compiled vs eval with 1k rows](../../img/expr_eval_writes_1k.PNG)
+![Performance of Quality vs Spark SQL](../../img/0.2.0_rc7_dq_perf.png)
 
-This measurement against 1k rows shows for the last column 230ms for 27 rules each with 27 columns applied, i.e. 0.23 ms per row for 84 rules total (albeit simple rules) on a single 4 core machine (24G heap).  Orange representing the default compiled evaluations.
+The middle green line is the performance of Quality (at about 0.014ms per row's 15 rules) with user functions [abstracting repetitive](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L41) case statement logic.
+Of note is that although the Quality rule processing is faster this is only true in Spark 4.1 if the FunNRewrite optimisation is used, e.g. via enableFunNRewrites.
 
-However, this doesn't illustrate very well how things can scale.  Running the 27 rules against 1m rows we see:
+## How big can the rule suite be?
 
-![Performance compiled vs eval with 1m rows](../../img/expr_eval_writes_1m.PNG)
+With Quality 0.2.0 rule engine and TopLevelBooleanGrouper runs of exact boolean 'and' matches (e.g. truth tables) can process a 20k RuleSuite in sub 0.03ms per row, or 3.68ms per row when not using grouping.
 
-with a mean time of 80,562ms for 1m rows that's 0.08ms per row for 27 rules, again orange representing the default options for compilation.  Conversely, the same test run against 1m rows without rules has a mean of 14,052 - so 66,510ms overhead for processing 27m rules (i.e. 0.0025ms per simple rule).  
-
-Stepping the complexity up a bit to 150 columns at 100k (24G ram) with a baseline no rules time of 15,847ms.  Running with rules gives:
-
-![Performance compiled vs eval with 150 rules and 100k rows](../../img/expr_eval_writes_100k_150rules.PNG)
-
-so for compiled at a mean of 174,583ms we have 15m rules run at 0.011ms per rule.  So although increased rule count obviously generates more work the overhead is still low per each rule even with larger counts and the benefit of the default (orange) compilation is visible (see the note at the bottom for when this may not be the case).
-
-When using RuleEngineRunners you should try to re-use output expressions (RunOnPassProcessor) wherever possible to improve performance.
-
-!!! warn "Using custom compilation settings (compileEvals = true, forceTriggerEval = true, forceRunnerEval = true) and chaining runner is not supported"
-    Chaining calls to runners using the result of a runner in another runner can lead to nesting of runners, as if you called runners via sql directly within a trigger or an output expression.
-    This is only supported when using the default compilation options and correctly working as part of wholestage codegen, allowing Spark to "do it's thing" will also allow for higher degrees of sub expression elimination, constant folding etc..
-
-    If you must use this, or if compilation - despite Quality's function grouping approach - becomes impossible (due to time or code size) you may use .cache or write out intermediatary results. (see #110)
-
-!!! note "Sometimes Interpreted Is Better"
-    For very large complex rules (tested sample is 1k rules with over 50k expressions - over 30s compilation for a show and write) compilation can dominate time, as such you can set forceRunnerEval to true on RuleRunner and RuleEngineRunner to skip compilation.
-    While compilation can be slow the execution is heavily optimised with minimal memory allocation, as such you should balance this out when using huge RuleSuites.
-
-    Make sure to .cache or write out intermediate results if you are chaining calls and never directly nest calls to runners without the supported defaults. (see #110)
-
-!!! info "Disabling compilation entirely is not a great idea"
-    Disabled generation, via `#!scala ruleRunner(ruleSuite, compileEvals = false, forceRunnerEval = true)`, takes 208,518ms for 150 rules over 100k data - 34s longer than the default, this of course adds up fast over millions of rows. 
+Please reach out if there are interesting performance bottlenecks or even larger RuleSuite sizes and complexity.  

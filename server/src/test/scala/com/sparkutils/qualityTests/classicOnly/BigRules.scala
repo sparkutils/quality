@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality._
+import com.sparkutils.quality.{groupProcessorPercentFilter, _}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
 import com.sparkutils.quality.impl.TopLevelBooleanGrouper
@@ -220,8 +220,8 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
-        useEmptyRuleSetResults -> "true",
-        groupProcessorPercentFilter -> "0.012"
+        useEmptyRuleSetResults -> "true"//,
+        //groupProcessorPercentFilter -> "0.012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -276,7 +276,9 @@ var start = System.nanoTime()
       extraConfig = Map(
         groupProcessorKey -> classOf[TopLevelBooleanGrouper].getName,
         groupProcessorDumpAuditKey -> "true",
-        groupProcessorAuditLocation -> outputDir
+        groupProcessorAuditLocation -> outputDir,
+        groupProcessorAuditMinBucket -> "1400",
+        groupProcessorAuditMaxBucket -> "1500"
       ))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
