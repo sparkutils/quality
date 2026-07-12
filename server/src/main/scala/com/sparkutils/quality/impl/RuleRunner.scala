@@ -262,7 +262,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
   lazy val realChildren = getRealChildren(children)
 
   override def nullable: Boolean = false
-  override def toString: String = "RuleRunner" + truncatedString(
+  override def toString: String = s"RuleRunner(${ruleSuite.id})" + truncatedString(
     realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly

@@ -22,6 +22,8 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
     realChild.genCode(ctx)
   }
 
+  override lazy val canonicalized: Expression = realChild.canonicalized
+
   override def dataType: DataType = realChild.dataType
 
   protected def withNewChildInternal(newChild: Expression): Expression =

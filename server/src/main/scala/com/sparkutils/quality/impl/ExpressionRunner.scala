@@ -109,7 +109,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   lazy val realChildren = getRealChildren(children)
 
-  override def toString: String = "ExpressionRunner" + truncatedString(
+  override def toString: String = s"ExpressionRunner(${ruleSuite.id})" + truncatedString(
     realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   override def nullable: Boolean = false

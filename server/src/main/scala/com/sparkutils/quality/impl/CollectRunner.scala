@@ -222,7 +222,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   }
 
   override def nullable: Boolean = false
-  override def toString: String = classTagT.runtimeClass.getName + truncatedString(
+  override def toString: String = classTagT.runtimeClass.getName + s"(${ruleSuite.id})" + truncatedString(
     children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
@@ -242,7 +242,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
       StructField(name = "result", dataType =
         ArrayType(resultElementType, includeNulls),
         nullable = true)
-    ))
+    ) )
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 

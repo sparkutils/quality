@@ -88,7 +88,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = "RuleFolderRunner" + truncatedString(
+  override def toString: String = s"RuleFolderRunner(${ruleSuite.id})" + truncatedString(
     children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
