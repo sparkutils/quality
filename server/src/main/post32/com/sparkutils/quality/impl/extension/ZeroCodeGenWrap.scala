@@ -12,7 +12,7 @@ object ZeroCodeGenWrap {
 
     fallbackMode match {
       case CodegenObjectFactoryMode.NO_CODEGEN =>
-        runner  // when running in no_codegen the real children should be present
+        runner  // when running in no_codegen the real children should be present otherwise SubExpressionEliminationRuntime cannot find subexprs
       case _  => // CodegenObjectFactoryMode.CODEGEN_ONLY as well as fallback
         val nr = runner.withZeroCode()
         ZeroCodeGen(nr, nr, on32 = SparkVersions.sparkVersion == "3.2")
