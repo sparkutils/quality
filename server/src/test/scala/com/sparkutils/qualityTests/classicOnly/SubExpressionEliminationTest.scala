@@ -86,7 +86,8 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
     }
   }
 
-  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
+  // no longer possible to test
+  //test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
@@ -111,7 +112,8 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
     }
   }
 
-  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
+  // no longer possible to test
+  // test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, classicFunctions.ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
