@@ -278,7 +278,10 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
    * @param topLevel if it's toplevel we do not use other.additionalParams as the next compilation unit creates them
    * @return
    */
-  def mergeParams(ctx: CodegenContext, other: ParameterInformation, topLevel: Boolean): ParameterInformation = {
+  def mergeParams(ctx: CodegenContext, other: ParameterInformation, topLevel: Boolean): ParameterInformation =
+    if (other eq null)
+      this
+    else {
     //println("mergeParams other names: " + other.params.map(_.name))
     val prepped =
       if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays

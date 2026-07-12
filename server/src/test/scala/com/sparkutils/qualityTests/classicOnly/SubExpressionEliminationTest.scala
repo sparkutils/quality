@@ -79,7 +79,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
   test("controlRunner") {
-    if (sparkVersionNumericMajor != 30) {
+    v3_2_and_above {
       evalCodeGensNoResolve {
         doRunner(expectedTriggerRules / 2, ruleRunner(_))
       }
@@ -105,7 +105,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedOutputRules = rows // one for each row is extra called
 
   test("controlEngine") {
-    if (sparkVersionNumericMajor != 30) {
+    v3_2_and_above {
       evalCodeGensNoResolve {
         doOutput((expectedTriggerRules / 2), ruleEngineRunner(_), outputExpr)
       }
