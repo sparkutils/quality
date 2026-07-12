@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
@@ -28,54 +28,6 @@ import scala.collection.mutable
  */
 object ClassicQualitySparkUtils {
 
-  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues
-  def getLocalInputVariableValues(
-                                   ctx: CodegenContext,
-                                   expr: Seq[Expression],
-                                   subExprs: Map[ExpressionEquals, SubExprEliminationState])
-  : (Set[VariableValue], Set[ExprCode]) = {
-    val argSet = mutable.Set[VariableValue]()
-    val exprCodesNeedEvaluate = mutable.Set[ExprCode]()
-
-    if (ctx.INPUT_ROW != null) {
-      argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
-    }
-
-    // Collects local variables from a given `expr` tree
-    val collectLocalVariable = (ev: ExprValue) => ev match {
-      case vv: VariableValue => argSet += vv
-      case _ =>
-    }
-
-    val stack = mutable.Stack[Expression]()
-    stack.pushAll(expr)
-    while (stack.nonEmpty) {
-      stack.pop() match {
-        case ref: BoundReference if ctx.currentVars != null &&
-          ctx.currentVars(ref.ordinal) != null =>
-          val exprCode = ctx.currentVars(ref.ordinal)
-          // If the referred variable is not evaluated yet.
-          if (exprCode.code != EmptyBlock) {
-            exprCodesNeedEvaluate += exprCode.copy()
-            exprCode.code = EmptyBlock
-          }
-          collectLocalVariable(exprCode.value)
-          collectLocalVariable(exprCode.isNull)
-
-        case e =>
-          subExprs.get(ExpressionEquals(e)) match {
-            case Some(state) =>
-              collectLocalVariable(state.eval.value)
-              collectLocalVariable(state.eval.isNull)
-            case None =>
-              stack.pushAll(e.children)
-          }
-      }
-    }
-
-    (argSet.toSet, exprCodesNeedEvaluate.toSet)
-  }
-
   /**
    * Only evaluates against subexpressions
    *
@@ -84,7 +36,7 @@ object ClassicQualitySparkUtils {
    * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
   def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
-    val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
+    val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq, additional)
 
