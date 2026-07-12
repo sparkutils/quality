@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
-import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, RuleSetMap}
+import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, ParameterInformation, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
@@ -243,4 +243,10 @@ trait SplitCompilation extends Runner {
     generatorClassSource = seq.toMap
   }
 
+  @transient
+  var usedParameters_ : ParameterInformation = _
+
+  def setUsedParameters(parameters: ParameterInformation) = {
+    usedParameters_ = parameters
+  }
 }

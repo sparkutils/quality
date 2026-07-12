@@ -148,7 +148,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
       RunOnPassProcessor(1000, Id(1040,1),OutputExpression("array(TEMP_O_1, 'a', 'EX_3')")))
     val rule4 = Rule(Id(101, 2), ExpressionRule("I2 = 'A' AND I3 IN ('a', 'b') AND I4 IS NOT NULL"),
       RunOnPassProcessor(1000, Id(1040,1),OutputExpression("array(I4, 'b', 'EX_4')")))
-    val ruleSuite2 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule3,rule4))))
+    val ruleSuite2 = RuleSuite(Id(42, 1034), Seq(RuleSet(Id(33, 345), Seq(rule3,rule4))))
     val schema2=DataType.fromDDL("ARRAY<STRING>")
     val rer2 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite2,Some(schema2))//, compileEvals = true, forceTriggerEval = true)
 
@@ -166,7 +166,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
     val rule7 = Rule(Id(102, 2), ExpressionRule("TEMP_O_2 ='UNKNOWN'"), RunOnPassProcessor(1000, Id(1040,1),
       OutputExpression("array('R', 'EX_8')")))
 
-    val ruleSuite3 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule5,rule6,rule7))))
+    val ruleSuite3 = RuleSuite(Id(62, 1034), Seq(RuleSet(Id(33, 345), Seq(rule5,rule6,rule7))))
     val schema3=DataType.fromDDL("ARRAY<STRING>")
     val rer3 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite3,Some(schema3))//, compileEvals = true, forceTriggerEval = true)
 

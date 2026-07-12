@@ -496,7 +496,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val SeparateCompilation(clazz, fres, _) =
+    val SeparateCompilation(clazz, fres, parameters) =
       SeparateCompilation.withSubExpressions(this,
         Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
@@ -609,6 +609,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
     }
 
     setClazzSource( clazz )
+    setUsedParameters( parameters )
     fres
 
   }
