@@ -192,9 +192,4 @@ Support via 0.2.0 and is tested on latest 17.3 and 18 (via 18.3.dbr - build 18.3
 
 ## Running on Databricks Runtime 19 Beta
 
-Support via 0.2.0 and the 18.3, DBFS is no longer usable, so the bloom.root for bloom usage needs to be set.
-
-```scala
-// DBR 19 cannot use /dbfs/
-System.setProperty("sparkutils.quality.bloom.root", root_path + "/blooms")
-```
+Support via 0.2.0 and the 18.3 (tested against 19.1.0), DBFS however is no longer usable as such, per #141, bucketed large bloom filters no longer work. 

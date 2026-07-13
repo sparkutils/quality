@@ -145,8 +145,9 @@ on the executors with less RAM and is not a limitation of these platforms, just 
 
 ### SwitchSupport
 
-Groups which have trigger rules that, after grouping, all match the pattern 'field = literal', where the literal is a string or integral type
+Groups which have trigger rules that, after grouping, all match the pattern 'field = literal', where the literal is a string or integral type,
 can be converted to Java switches.  The SwitchSupport runs independently of actual GroupBasedGrouper implementation and
 applies a binary branching strategy across multiple smaller functions each with a switch statement to allow inlining as appropriate.
 
-If it is not possible to use a switch the behaviour degrades back to mod's across any field and literal groupings.
+If it is not possible to use a switch the behaviour degrades back to whatever the groupProcessorKey's approach is,
+TopLevelBoolean for example will use mod's across any field against literal groupings.

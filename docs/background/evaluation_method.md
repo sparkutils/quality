@@ -26,21 +26,18 @@ Details of the analysis are below.
 
 In short - Quality will typically run faster than native Spark SQL code, how much so depends on your rules and often the appropriate use of FunReWrite
 
-Run on Spark 4.1 [the following](https://sparkutils.github.io/quality_performance_tests/reports/report_rc7preview3_4.1_pure_spark/) (on GitHub 4 core 16gb runners) shows
-a simple DQ run with 15 rules, with a baseline ["boolean array"](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L90) result (the bottom orange) and an audit trail version using [pure spark](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L112) (the top blue line):   
+Run on Spark 4.1 [the following](https://sparkutils.github.io/quality_performance_tests/reports/report_0.2.0_rc9_1m_noop/) (on GitHub 4 core 16gb runners) shows
+a simple DQ run with 15 rules, with a baseline ["boolean array"](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L90)
+result (the bottom orange) and an audit trail version using [pure spark](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L112) (the top blue line):   
 
-![Performance of Quality vs Spark SQL](../../img/0.2.0_rc7_dq_perf.png)
+![Performance of Quality vs Spark SQL](../../img/0.2.0_dq_perf.png)
 
-The middle green line is the performance of Quality (at about 0.014ms per row's 15 rules) with user functions [abstracting repetitive](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L41) case statement logic.
-Of note is that although the Quality rule processing is faster this is only true in Spark 4.1 if the FunNRewrite optimisation is used, e.g. via enableFunNRewrites.
-
-### I have billions of rows, how does this scale?
-
-Running the performance test against 1b rows (audit versions only) shows the difference in mean clock times with larger amounts of data:
+The middle green line is the performance of Quality (at about 843ns per row's 15 rules, or 56ns per rule) with user functions [abstracting repetitive](https://github.com/sparkutils/quality_performance_tests/blob/main/src/main/scala/com/sparkutils/quality_performance_tests/PerfTests.scala#L41) case statement logic.
+Although the Quality rule processing is faster the use of user functions requires the FunNRewrite optimisation, e.g. via enableFunNRewrites, Spark does not optimise subexpressions for user functions.
 
 ## What about the number of rules?
 
-As the number of rules increases the overhead of the audit trail also increases.  In the native sql audit trail case the Spark primitives CreateArray uses the following logic for each row (from 4.1):
+As the number of rules increases the overhead of the audit trail also increases.  In the native SQL audit trail case the Spark primitives CreateArray uses the following logic for each row (from 4.1):
 
 ```scala
 s"""ArrayData $arrayName = ArrayData.allocateArrayData(
@@ -73,14 +70,14 @@ CreateMap does similar with two arrays, i.e. for each row of input data the audi
 The performance test simulates rule id, filling the key array with literals of the rules indices, which must take place for every row.  
 Similarly, the default "failure" state (e.g. Failed or Unevaluated) must be set for each value entry in the audit (equivalent to the setNullAt in the above Spark sample code).
 
-Quality, as of 0.2.0, does not need to do this as it knows about the types involved and can, instead:
+Quality, as of 0.2.0, knows about the types involved does can instead:
 
 - create a "default" result row, using custom Int and Long row types with underlying primitive arrays
 - initialise this row once per partition, saving ruleid's and the default "failure" state
 - for each row use clone on the "default" row
 - primitive arrays use memcpy when cloning, and do not zero/null out, or force the use of fill loops
 
-So although Quality must also create the same number of same-sized arrays the Id key arrays do not need to be re-filled, nor does each entry in the value array need it's default filled.
+So although Quality must also create the same number of same-sized arrays the Id key arrays do not need to be re-filled, nor does each entry in the value array need its default filled.
 Given ruleEngineRunner can avoid calling entries entirely by early exiting or using TriggerGrouping (as of 0.2.0), this can provide substantial speed benefits on very large rulesets.
 
 The actual expression code which is generated is of course the same, only that TriggerGrouping may also further reduce runtime costs by forcing sub expression evaluation to be in more appropriate compilation units. 
