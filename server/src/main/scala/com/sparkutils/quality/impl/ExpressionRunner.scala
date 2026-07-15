@@ -191,14 +191,14 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               """
         )
 
-        def yamlOrType(code: ExprValue, idx: Int): String =
+        def yamlOrType(code: ExprValue, isNull: ExprValue, idx: Int): String =
           if (ddlType == impl.types.expressionResultTypeYaml)
             s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
           else
             s"$code"
 
         val (res, triggerRes) =
-          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType(_, _), ruleRunnerExpressionIdx)
+          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType(_, _, _), ruleRunnerExpressionIdx)
 
       GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty)
     }
