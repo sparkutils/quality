@@ -1,0 +1,1307 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/VariableProcessIfMissing.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality
+</span>4 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>5 <span style=''>import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultParseTypes, getString}
+</span>6 <span style=''>import com.sparkutils.quality.{Id, NoOpRunOnPassProcessor, RuleSuite}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+</span>8 <span style=''>import org.apache.spark.sql.ShimUtils
+</span>9 <span style=''>import org.apache.spark.sql.types.{BinaryType, StructType}
+</span>10 <span style=''>
+</span>11 <span style=''>object VariableProcessIfMissingFunctions {
+</span>12 <span style=''>
+</span>13 <span style=''>  val process_if_attribute_missing_name = </span><span style='background: #AEF1AE'>&quot;process_if_attribute_missing&quot;</span><span style=''>
+</span>14 <span style=''>
+</span>15 <span style=''>  // if they are we'll blow the stack, there isn't a valid reason for trying to call it as part of a rule
+</span>16 <span style=''>  private def checkNestedCallsInSuite(ruleSuite: RuleSuite): Unit = {
+</span>17 <span style=''>
+</span>18 <span style=''>    def checkRuleSuiteHasProcess(rule: String, ruleId: Id, typ: String): Unit =
+</span>19 <span style=''>      if (</span><span style='background: #AEF1AE'>rule.toLowerCase.contains(process_if_attribute_missing_name)</span><span style=''>) {
+</span>20 <span style=''>        </span><span style='background: #AEF1AE'>qualityException(s&quot;$process_if_attribute_missing_name should not be used in RuleSuite expressions but was found in $typ with Id $ruleId with text $rule&quot;)</span><span style=''>
+</span>21 <span style=''>      }
+</span>22 <span style=''>
+</span>23 <span style=''>    // unlike classic rulesuite calls these will still have rule text
+</span>24 <span style=''>    </span><span style='background: #AEF1AE'>ruleSuite.ruleSets.foreach(ruleSet =&gt; ruleSet.rules.map { rule =&gt;
+</span>25 <span style=''></span><span style='background: #AEF1AE'>      rule.expression match {
+</span>26 <span style=''></span><span style='background: #AEF1AE'>        case h: quality.HasRuleText =&gt;
+</span>27 <span style=''></span><span style='background: #AEF1AE'>          checkRuleSuiteHasProcess(h.rule, rule.id, &quot;trigger rule&quot;)
+</span>28 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>29 <span style=''></span><span style='background: #AEF1AE'>      if (rule.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
+</span>30 <span style=''></span><span style='background: #AEF1AE'>        checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, &quot;output expression&quot;)
+</span>31 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>32 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>33 <span style=''>    </span><span style='background: #AEF1AE'>ruleSuite.lambdaFunctions.foreach{
+</span>34 <span style=''></span><span style='background: #AEF1AE'>      l =&gt;
+</span>35 <span style=''></span><span style='background: #AEF1AE'>        checkRuleSuiteHasProcess(l.rule, l.id, &quot;lambda function&quot;)
+</span>36 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>37 <span style=''>  }
+</span>38 <span style=''>
+</span>39 <span style=''>  protected[quality] def registerProcessIfAttributeMissingForAgnostic(registerFunction: (String, Seq[Expression] =&gt; Expression) =&gt; Unit): Unit = {
+</span>40 <span style=''>    // parse the rulesuite, call the functions with structs, set a new variable, probably needs to be direct
+</span>41 <span style=''>    </span><span style='background: #AEF1AE'>registerFunction(process_if_attribute_missing_name, {
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      case Seq(OfRuleSuite(ruleSuite), ddl, name) =&gt;
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        val s = defaultParseTypes(getString(ddl, 1)).
+</span>44 <span style=''></span><span style='background: #AEF1AE'>          collect {case s:StructType =&gt; s}.
+</span>45 <span style=''></span><span style='background: #AEF1AE'>          getOrElse(</span><span style='background: #F0ADAD'>qualityException(process_if_attribute_missing_name + &quot; Did not get a struct dll for param 2&quot;)</span><span style='background: #AEF1AE'>)
+</span>46 <span style=''></span><span style='background: #AEF1AE'>
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        checkNestedCallsInSuite(ruleSuite)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>
+</span>49 <span style=''></span><span style='background: #AEF1AE'>        // call for side effect
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        com.sparkutils.quality.classicFunctions.validate(s, ruleSuite)
+</span>51 <span style=''></span><span style='background: #AEF1AE'>
+</span>52 <span style=''></span><span style='background: #AEF1AE'>        // the resulting rulesuite will have the corrected unresolved expressions already available,
+</span>53 <span style=''></span><span style='background: #AEF1AE'>        // the raw sql remains untouched
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        val r = com.sparkutils.quality.classicFunctions.processIfAttributeMissing(ruleSuite, s)
+</span>55 <span style=''></span><span style='background: #AEF1AE'>
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        ShimUtils.createVariable(getString(name, 2), Literal.create(RuleSuiteHelpers.serialize(r), BinaryType), true)
+</span>57 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>58 <span style=''>  }
+</span>59 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          2359
+        </td>
+        <td>
+          548
+          -
+          578
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;process_if_attribute_missing&quot;
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          2360
+        </td>
+        <td>
+          873
+          -
+          906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.process_if_attribute_missing_name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          2361
+        </td>
+        <td>
+          847
+          -
+          907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.toLowerCase().contains(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name)
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          2364
+        </td>
+        <td>
+          843
+          -
+          843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          2365
+        </td>
+        <td>
+          843
+          -
+          843
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          2362
+        </td>
+        <td>
+          919
+          -
+          1072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.QualityException.qualityException(&quot;&quot;.+(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name).+(&quot; should not be used in RuleSuite expressions but was found in &quot;).+(typ).+(&quot; with Id &quot;).+(ruleId).+(&quot; with text &quot;).+(rule), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          2363
+        </td>
+        <td>
+          919
+          -
+          1072
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.QualityException.qualityException(&quot;&quot;.+(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name).+(&quot; should not be used in RuleSuite expressions but was found in &quot;).+(typ).+(&quot; with Id &quot;).+(ruleId).+(&quot; with text &quot;).+(rule), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          2381
+        </td>
+        <td>
+          1194
+          -
+          1560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSet.rules.map[Unit](((rule: com.sparkutils.quality.Rule) =&gt; {
+  rule.expression match {
+    case (h @ (_: com.sparkutils.quality.HasRuleText)) =&gt; checkRuleSuiteHasProcess(h.rule, rule.id, &quot;trigger rule&quot;)
+  };
+  if (rule.runOnPassProcessor.!=(com.sparkutils.quality.NoOpRunOnPassProcessor.noOp))
+    checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, &quot;output expression&quot;)
+  else
+    ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          2382
+        </td>
+        <td>
+          1156
+          -
+          1561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.ruleSets.foreach[Seq[Unit]](((ruleSet: com.sparkutils.quality.RuleSet) =&gt; ruleSet.rules.map[Unit](((rule: com.sparkutils.quality.Rule) =&gt; {
+  rule.expression match {
+    case (h @ (_: com.sparkutils.quality.HasRuleText)) =&gt; checkRuleSuiteHasProcess(h.rule, rule.id, &quot;trigger rule&quot;)
+  };
+  if (rule.runOnPassProcessor.!=(com.sparkutils.quality.NoOpRunOnPassProcessor.noOp))
+    checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, &quot;output expression&quot;)
+  else
+    ()
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          2366
+        </td>
+        <td>
+          1228
+          -
+          1243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.expression
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2367
+        </td>
+        <td>
+          1326
+          -
+          1332
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.HasRuleText.rule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          h.rule
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2368
+        </td>
+        <td>
+          1334
+          -
+          1341
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.id
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2369
+        </td>
+        <td>
+          1343
+          -
+          1357
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;trigger rule&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2370
+        </td>
+        <td>
+          1301
+          -
+          1358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkRuleSuiteHasProcess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          checkRuleSuiteHasProcess(h.rule, rule.id, &quot;trigger rule&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2371
+        </td>
+        <td>
+          1301
+          -
+          1358
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkRuleSuiteHasProcess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          checkRuleSuiteHasProcess(h.rule, rule.id, &quot;trigger rule&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          2372
+        </td>
+        <td>
+          1404
+          -
+          1431
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.NoOpRunOnPassProcessor.noOp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.NoOpRunOnPassProcessor.noOp
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          2373
+        </td>
+        <td>
+          1377
+          -
+          1431
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.runOnPassProcessor.!=(com.sparkutils.quality.NoOpRunOnPassProcessor.noOp)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          2379
+        </td>
+        <td>
+          1373
+          -
+          1373
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          2380
+        </td>
+        <td>
+          1373
+          -
+          1373
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2374
+        </td>
+        <td>
+          1468
+          -
+          1496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.HasRuleText.rule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.runOnPassProcessor.rule
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2375
+        </td>
+        <td>
+          1498
+          -
+          1524
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RunOnPassProcessor.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.runOnPassProcessor.id
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2376
+        </td>
+        <td>
+          1526
+          -
+          1545
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;output expression&quot;
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2377
+        </td>
+        <td>
+          1443
+          -
+          1546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkRuleSuiteHasProcess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, &quot;output expression&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2378
+        </td>
+        <td>
+          1443
+          -
+          1546
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkRuleSuiteHasProcess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, &quot;output expression&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2387
+        </td>
+        <td>
+          1566
+          -
+          1683
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions.foreach[Unit](((l: com.sparkutils.quality.LambdaFunction) =&gt; checkRuleSuiteHasProcess(l.rule, l.id, &quot;lambda function&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2383
+        </td>
+        <td>
+          1645
+          -
+          1651
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.HasRuleText.rule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.rule
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2384
+        </td>
+        <td>
+          1653
+          -
+          1657
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunction.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.id
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2385
+        </td>
+        <td>
+          1659
+          -
+          1676
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;lambda function&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2386
+        </td>
+        <td>
+          1620
+          -
+          1677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkRuleSuiteHasProcess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          checkRuleSuiteHasProcess(l.rule, l.id, &quot;lambda function&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          2388
+        </td>
+        <td>
+          1966
+          -
+          1999
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.process_if_attribute_missing_name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          2405
+        </td>
+        <td>
+          1949
+          -
+          2781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          registerFunction.apply(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name, ((x0$1: Seq[org.apache.spark.sql.catalyst.expressions.Expression]) =&gt; x0$1 match {
+  case scala.`package`.Seq.unapplySeq[org.apache.spark.sql.catalyst.expressions.Expression](&lt;unapply-selector&gt;) &lt;unapply&gt; (OfRuleSuite.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((ruleSuite @ _)), (ddl @ _), (name @ _)) =&gt; {
+    val s: org.apache.spark.sql.types.StructType = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(ddl, 1)).collect[org.apache.spark.sql.types.StructType](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.types.DataType =&gt; org.apache.spark.sql.types.StructType&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.types.DataType, B1 &gt;: org.apache.spark.sql.types.StructType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.types.DataType): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType])).getOrElse[org.apache.spark.sql.types.StructType](com.sparkutils.quality.QualityException.qualityException(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name.+(&quot; Did not get a struct dll for param 2&quot;), com.sparkutils.quality.QualityException.qualityException$default$2));
+    VariableProcessIfMissingFunctions.this.checkNestedCallsInSuite(ruleSuite);
+    com.sparkutils.quality.classicFunctions.`package`.validate(s, ruleSuite);
+    val r: com.sparkutils.quality.RuleSuite = com.sparkutils.quality.classicFunctions.`package`.processIfAttributeMissing(ruleSuite, s);
+    org.apache.spark.sql.ShimUtils.createVariable(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(name, 2), org.apache.spark.sql.catalyst.expressions.Literal.create(RuleSuiteHelpers.serialize(r), org.apache.spark.sql.types.BinaryType), true)
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          2404
+        </td>
+        <td>
+          2053
+          -
+          2774
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val s: org.apache.spark.sql.types.StructType = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(ddl, 1)).collect[org.apache.spark.sql.types.StructType](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.types.DataType =&gt; org.apache.spark.sql.types.StructType&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.types.DataType, B1 &gt;: org.apache.spark.sql.types.StructType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.types.DataType): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType])).getOrElse[org.apache.spark.sql.types.StructType](com.sparkutils.quality.QualityException.qualityException(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name.+(&quot; Did not get a struct dll for param 2&quot;), com.sparkutils.quality.QualityException.qualityException$default$2));
+  VariableProcessIfMissingFunctions.this.checkNestedCallsInSuite(ruleSuite);
+  com.sparkutils.quality.classicFunctions.`package`.validate(s, ruleSuite);
+  val r: com.sparkutils.quality.RuleSuite = com.sparkutils.quality.classicFunctions.`package`.processIfAttributeMissing(ruleSuite, s);
+  org.apache.spark.sql.ShimUtils.createVariable(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(name, 2), org.apache.spark.sql.catalyst.expressions.Literal.create(RuleSuiteHelpers.serialize(r), org.apache.spark.sql.types.BinaryType), true)
+}
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          2389
+        </td>
+        <td>
+          2090
+          -
+          2107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(ddl, 1)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2390
+        </td>
+        <td>
+          2150
+          -
+          2151
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.$anonfun.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2391
+        </td>
+        <td>
+          2128
+          -
+          2128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2392
+        </td>
+        <td>
+          2191
+          -
+          2266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name.+(&quot; Did not get a struct dll for param 2&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2393
+        </td>
+        <td>
+          2174
+          -
+          2267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name.+(&quot; Did not get a struct dll for param 2&quot;), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2394
+        </td>
+        <td>
+          2072
+          -
+          2268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(ddl, 1)).collect[org.apache.spark.sql.types.StructType](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.types.DataType =&gt; org.apache.spark.sql.types.StructType&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.types.DataType, B1 &gt;: org.apache.spark.sql.types.StructType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.types.DataType): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.types.DataType]: org.apache.spark.sql.types.DataType): org.apache.spark.sql.types.DataType @unchecked) match {
+      case (s @ (_: org.apache.spark.sql.types.StructType)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.types.DataType,org.apache.spark.sql.types.StructType])).getOrElse[org.apache.spark.sql.types.StructType](com.sparkutils.quality.QualityException.qualityException(VariableProcessIfMissingFunctions.this.process_if_attribute_missing_name.+(&quot; Did not get a struct dll for param 2&quot;), com.sparkutils.quality.QualityException.qualityException$default$2))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2395
+        </td>
+        <td>
+          2278
+          -
+          2312
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.checkNestedCallsInSuite
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariableProcessIfMissingFunctions.this.checkNestedCallsInSuite(ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2396
+        </td>
+        <td>
+          2354
+          -
+          2416
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.ValidationImports.validate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.classicFunctions.`package`.validate(s, ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2397
+        </td>
+        <td>
+          2576
+          -
+          2655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.ProcessDisableIfMissingImports.processIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.classicFunctions.`package`.processIfAttributeMissing(ruleSuite, s)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2398
+        </td>
+        <td>
+          2690
+          -
+          2708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(name, 2)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2399
+        </td>
+        <td>
+          2725
+          -
+          2754
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSuiteHelpers.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteHelpers.serialize(r)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2400
+        </td>
+        <td>
+          2756
+          -
+          2766
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2401
+        </td>
+        <td>
+          2710
+          -
+          2767
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.create(RuleSuiteHelpers.serialize(r), org.apache.spark.sql.types.BinaryType)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2402
+        </td>
+        <td>
+          2769
+          -
+          2773
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2403
+        </td>
+        <td>
+          2665
+          -
+          2774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.createVariable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.createVariable(com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(name, 2), org.apache.spark.sql.catalyst.expressions.Literal.create(RuleSuiteHelpers.serialize(r), org.apache.spark.sql.types.BinaryType), true)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
