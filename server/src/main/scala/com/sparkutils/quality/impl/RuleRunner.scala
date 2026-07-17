@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
@@ -178,7 +179,8 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   }
 
   def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
-                       realChildren: Seq[Expression], resultF: (ExprValue, ExprValue, Int) => String,
+                       realChildren: Seq[Expression],
+                       resultF: (ExprValue, ExprValue, Int) => String,
                        ruleRunnerExpressionIdx: Int
                       ): (ExprCode, TriggerResult) = {
     val paramInfo = genParams(ctx, runner)
@@ -194,9 +196,10 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
         (ctx: CodegenContext, p: ParameterInformation, e: Expression, b: Boolean) => {
           val eval = e.genCode(ctx)
 
+          val res = resultF(eval.value, eval.isNull, idx)
           code"""${eval.code}\n
 
-            ${inPlaceOffsets.offsets(idx).apply(resultF(eval.value, eval.isNull, idx))}
+            ${inPlaceOffsets.offsets(idx).apply(res)}
              """
         }
       (Trigger(child, idx, 0), generate)
@@ -300,10 +303,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
         val (res, triggerRes) =
           nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
             (code: ExprValue, isNull: ExprValue, idx: Int) =>
-              if (code.javaType.isPrimitive && code.javaType == java.lang.Boolean.TYPE)
-                s"(${isNull} ? false : ${code}) ? $PassedInt : $FailedInt"
-              else
-                s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
+              anyToRuleResultIntGen(code, isNull),
             ruleRunnerExpressionIdx
           )
 
@@ -312,12 +312,6 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
     setClazzSource(clazz)
     fres
   }
-
-  /**
-   * used by codegen, as the default is Passed only NonPassed need be actioned
-   */
-  override def nonDefaultResultTest(result: String): Block =
-    code"($result) != $defaultRuleResult"
 
 }
 

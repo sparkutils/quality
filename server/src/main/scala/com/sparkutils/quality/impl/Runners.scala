@@ -149,21 +149,11 @@ trait Runner extends Expression {
           case (_, level2) =>
             (result: String) =>
               code"""
-               if (${nonDefaultResultTest(result)}) {
-                 $runner.apply${empty}Result${suffix}($level1, $level2, $resultRow, $result);
-               }
+               $runner.apply${empty}Result${suffix}($level1, $level2, $resultRow, $result);
                 """
         }
     }, code"", code"", runner, this.getClass)
   }
-
-  /*
-   by default the result row has the default value, as such any entries that are default do not need to be written
-   The apply result overhead can be avoided, mostly relevant for DQ
-   used by codegen
-   */
-  def nonDefaultResultTest(result: String): Block =
-    code"true"
 
 }
 

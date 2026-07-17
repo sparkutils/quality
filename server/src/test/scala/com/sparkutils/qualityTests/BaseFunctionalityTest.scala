@@ -149,6 +149,28 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     res
   }
 
+  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), expected: Seq[RuleResult],
+                    seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq): Unit = evalCodeGens {
+    import quality.implicits._
+
+    val base = sparkSession.range(1000)
+
+    val processed = (
+      if (inCodegen) {
+        base.repartition(2).write.mode(SaveMode.Overwrite).parquet(outputDir + "/baseResultChecker")
+        base.sparkSession.read.parquet(outputDir + "/baseResultChecker")
+      } else
+        base
+    ).select(ruleRunner(rs).as("res"))
+
+    val res = processed.selectExpr("res.*").as[RuleSuiteResult].collect().head
+    assert(res.overallResult == overalls._1)
+    val rsres = res.ruleSetResults.head._2
+    assert(rsres.overallResult == overalls._2)
+
+    seqF(rsres.ruleResults.values) shouldBe expected
+  }
+
 }
 
 
@@ -691,7 +713,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-    )))), (Passed,Passed), _.forall(_ == SoftFailed))
+    )))), (Passed,Passed), Seq.fill(3)(SoftFailed))
   }
 
   test("failedOnOne") {
@@ -700,7 +722,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("id > 5")),
         Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
         Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-      )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+      )))), (Failed, Failed), Seq(Failed, SoftFailed, SoftFailed))
   }
 
   test("probabilityOnThree") { resultChecker(
@@ -708,7 +730,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(32, 3), ExpressionRule("85.0"))
-    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+    )))), (Passed, Passed), Seq(SoftFailed, SoftFailed, Probability(85)))
   }
 
   test("disabled") {
@@ -717,7 +739,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("'disabled'")),
         Rule(Id(31, 3), ExpressionRule("'disabledrule'")),
         Rule(Id(32, 3), ExpressionRule("-2"))
-      )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+      )))), (Passed, Passed), Seq(DisabledRule, DisabledRule, DisabledRule))
   }
 
   test("ignored") {
@@ -726,7 +748,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("'ignored'")),
         Rule(Id(31, 3), ExpressionRule("'ignoredrule'")),
         Rule(Id(32, 3), ExpressionRule("-3"))
-      )))), (Passed, Passed), _.toSeq == Seq(IgnoredRule, IgnoredRule, IgnoredRule))
+      )))), (Passed, Passed), Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
   test("mixedIgnore") {
@@ -735,20 +757,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
         Rule(Id(31, 3), ExpressionRule("'Passed'")),
         Rule(Id(32, 3), ExpressionRule("'disabled'"))
-      )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
-  }
-
-  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
-    import quality.implicits._
-
-    val processed = sparkSession.sql("select 4 id").select(
-      ruleRunner(rs).as("res"))
-
-    val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
-    assert(res.overallResult == overalls._1)
-    val rsres = res.ruleSetResults.head._2
-    assert(rsres.overallResult == overalls._2)
-    assert(comparison(rsres.ruleResults.values))
+      )))), (Passed, Passed), Seq(SoftFailed, Passed, DisabledRule))
   }
 
   test("softShouldShowPassed") { evalCodeGens {
