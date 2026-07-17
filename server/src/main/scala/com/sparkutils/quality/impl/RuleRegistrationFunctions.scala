@@ -268,6 +268,7 @@ object RuleRegistrationFunctions {
         // placeholders that are 1:1
         val res = fun.function
         res
+      case e => qualityException(s"Quality _lambda_ can only be used with Quality User Functions, but was called with $e")
     }, Set(1))
 
     register(LambdaFunctions.CallFun, {

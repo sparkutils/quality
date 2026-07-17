@@ -2,7 +2,7 @@
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
 
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
 The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
 large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
@@ -101,6 +101,14 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 
 > When using TopLevelBooleanGrouper any remaining tests that are "field = 'value'" EqualTo relationships with the same field
 > are converted to nested binary branching String switches for optimised lookups.
+
+#142 - Significantly faster special case handling for boolean and int / long trigger results in codegen, rewrite SoftFail to Int case
+
+> DQ ruleRunner and the rule engine, collect and folder trigger usage has specific per trigger result processing based on type.
+> When boolean, int or long are provided custom checks are implemented, otherwise it defaults to a more comprehensive Scala "Any" pattern match derivation.
+> In addition, DQ runner benefits from only storing results that deviate from the default Passed, this leads to 4% speed bump in the Quality performance tests. 
+
+#143 - Support for Spark 4.2
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
