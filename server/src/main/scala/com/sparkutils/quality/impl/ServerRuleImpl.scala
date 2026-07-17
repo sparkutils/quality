@@ -219,7 +219,7 @@ object RuleLogicUtils {
 
   // used during compilation code gen
   def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
-    // auto boxing on databricks doesn't work due to old janino see #82
+    // auto boxing on Databricks doesn't work due to old Janino see #82
     val edt = code.javaType
     val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 

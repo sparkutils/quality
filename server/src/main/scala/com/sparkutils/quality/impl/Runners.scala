@@ -131,6 +131,8 @@ trait Runner extends Expression {
 
   def applyNonEmptySuffix: String = ""
 
+  def applyInterimType: String = "int"
+
   def inPlaceArrayOffsets(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
     val className = this.getClass.getName
     val runner = ctx.freshName("runner")
@@ -152,11 +154,11 @@ trait Runner extends Expression {
               val ires = ctx.freshName("interimResult")
 
               code"""
-               int $ires = $result;
+               $applyInterimType $ires = $result;
                if (${nonDefaultResultTest(ires)}) {
                  $runner.apply${empty}Result${suffix}($level1, $level2, $resultRow, $ires);
                }
-                """
+               """
         }
     }, code"", code"", runner, this.getClass)
   }

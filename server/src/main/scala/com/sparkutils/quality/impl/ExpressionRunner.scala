@@ -11,7 +11,7 @@ import com.sparkutils.quality.impl.types._
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -143,6 +143,10 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
    * used by codegen
    */
   override def applyNonEmptySuffix: String = "Expression"
+  /**
+   * used by codegen
+   */
+  override def applyInterimType: String = "Object"
 
   /**
    * used by codegen
@@ -194,8 +198,13 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         def yamlOrType(code: ExprValue, isNull: ExprValue, idx: Int): String =
           if (ddlType == impl.types.expressionResultTypeYaml)
             s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
-          else
-            s"$code"
+          else {
+            // #82 DBR Janino autobox issue
+            val edt = code.javaType
+            val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+            s"($theCast) ( $code )"
+          }
 
         val (res, triggerRes) =
           nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType, ruleRunnerExpressionIdx)
