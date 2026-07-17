@@ -149,11 +149,13 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     res
   }
 
+  val resultCheckerCodeGenSize = 1000
+
   def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), expected: Seq[RuleResult],
                     seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq): Unit = evalCodeGens {
     import quality.implicits._
 
-    val base = sparkSession.range(1000)
+    val base = sparkSession.range(resultCheckerCodeGenSize)
 
     val processed = (
       if (inCodegen) {
@@ -168,7 +170,7 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     val rsres = res.ruleSetResults.head._2
     assert(rsres.overallResult == overalls._2)
 
-    seqF(rsres.ruleResults.values) shouldBe expected
+    seqF(rsres.ruleResults.toSeq.sortBy(_._1.id).map(_._2)) shouldBe expected
   }
 
 }
@@ -710,25 +712,25 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
 
   test("softFail") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize )"))
     )))), (Passed,Passed), Seq.fill(3)(SoftFailed))
   }
 
   test("failedOnOne") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("id > 5")),
-        Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-        Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+        Rule(Id(30, 3), ExpressionRule(s"id > 5 * $resultCheckerCodeGenSize")),
+        Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+        Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)"))
       )))), (Failed, Failed), Seq(Failed, SoftFailed, SoftFailed))
   }
 
   test("probabilityOnThree") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
       Rule(Id(32, 3), ExpressionRule("85.0"))
     )))), (Passed, Passed), Seq(SoftFailed, SoftFailed, Probability(85)))
   }
@@ -754,7 +756,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
   test("mixedIgnore") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+        Rule(Id(30, 3), ExpressionRule(s"softFail(id > 6 * $resultCheckerCodeGenSize)")),
         Rule(Id(31, 3), ExpressionRule("'Passed'")),
         Rule(Id(32, 3), ExpressionRule("'disabled'"))
       )))), (Passed, Passed), Seq(SoftFailed, Passed, DisabledRule))

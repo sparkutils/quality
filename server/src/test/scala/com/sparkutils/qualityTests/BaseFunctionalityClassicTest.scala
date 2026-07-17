@@ -165,7 +165,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
           Rule(Id(34, 3), ExpressionRule("cast(-3.0 as double)")),
           Rule(Id(35, 3), ExpressionRule("-3.0")),
           Rule(Id(36, 3), ExpressionRule("null")),
-          Rule(Id(37, 3), ExpressionRule("id * 10000")), // stop constant folding the output away to force codegen
+          Rule(Id(37, 3), ExpressionRule(s"id * $resultCheckerCodeGenSize")), // stop constant folding the output away to force codegen
         )))), (Failed, Failed), Seq(IgnoredRule, IgnoredRule, IgnoredRule, IgnoredRule, Probability(-3.0), Failed), _.toSeq.dropRight(1))
     }
   }

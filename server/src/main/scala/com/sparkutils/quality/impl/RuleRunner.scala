@@ -313,6 +313,12 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
     fres
   }
 
+  /**
+   * used by codegen, as the default is Passed only NonPassed need be actioned
+   */
+  override def nonDefaultResultTest(result: String): Block =
+    code"($result) != $defaultRuleResult"
+
 }
 
 case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,

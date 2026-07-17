@@ -225,18 +225,21 @@ object RuleLogicUtils {
 
     val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
 
-    if (code.javaType.isPrimitive)
-      code.javaType match {
-        case java.lang.Boolean.TYPE =>
-          s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
-        case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
-          s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
-            s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
-        case _ =>
-          default
-      }
-    else
-      default
+    val res =
+      if (code.javaType.isPrimitive)
+        code.javaType match {
+          case java.lang.Boolean.TYPE =>
+            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+          case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
+            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+          case _ =>
+            default
+        }
+      else
+        default
+
+    res
   }
 }
 
