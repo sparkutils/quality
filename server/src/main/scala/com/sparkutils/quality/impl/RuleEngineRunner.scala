@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms, ruleResultToRow}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms}
 import com.sparkutils.quality._
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
@@ -10,6 +10,7 @@ import com.sparkutils.quality
 import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.util.Params.prepFields
@@ -317,16 +318,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         } else {
           val eval = exp.genCode(ctx)
 
-          // auto boxing on databricks doesn't work due to old janino see #82
-          val edt = eval.value.javaType
-          val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
-
-          (eval.code,
-            if (eval.value.javaType.isPrimitive && eval.value.javaType == java.lang.Boolean.TYPE)
-              s"(${eval.isNull} ? false : ${eval.value}) ? $PassedInt : $FailedInt"
-            else
-              s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value})"
-          )
+          (eval.code, anyToRuleResultIntGen(eval.value, eval.isNull))
         }
 
       val converted =

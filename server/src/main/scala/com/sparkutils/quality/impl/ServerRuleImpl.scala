@@ -14,7 +14,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
@@ -201,7 +201,7 @@ object RuleLogicUtils {
     any match {
       case b: Boolean => if (b) PassedInt else FailedInt
       case 0 | 0.0 | 0L => FailedInt
-      case 1 | 1.0 | 1L => PassedInt
+      case TRUE_INT | 1.0 | 1L => PassedInt
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
@@ -215,6 +215,32 @@ object RuleLogicUtils {
       case _ => FailedInt // anything else is a fail
     }
 
+  private val TRUE_INT = 1
+
+  // used during compilation code gen
+  def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
+    // auto boxing on Databricks doesn't work due to old Janino see #82
+    val edt = code.javaType
+    val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+    val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
+
+    val res =
+      if (code.javaType.isPrimitive)
+        code.javaType match {
+          case java.lang.Boolean.TYPE =>
+            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+          case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
+            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+          case _ =>
+            default
+        }
+      else
+        default
+
+    res
+  }
 }
 
 /**
