@@ -3,10 +3,11 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
+import frameless.TypedEncoder
 import org.scalatest.Matchers
 import com.sparkutils.quality.implicits._
 
-class GroupResultsTest extends SharedPureConnectTests with Matchers {
+trait GroupTestBase extends SharedPureConnectTests with Matchers {
 
   def group = RuleSuiteGroup(
     Set(
@@ -46,17 +47,131 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
     )
   }
 
-  test("dq results should group") {
+  val group_function: String
+
+  def dqResultsShouldGroup(arrayStart: String = "array(", arrayEnd: String = ")"): Unit = {
     val name = register_rule_suite_group(group)
     val s = sparkSession
     import s.implicits._
     val tds = testData.toDS()
-    val ds = tds.selectExpr(s"group_results( array( dq_rule_runner(rule_suite_from($name, 1)), " +
-      s"dq_rule_runner(rule_suite_from($name, 2)), dq_rule_runner(rule_suite_from($name, 3)) ) ) as res")
+    val ds = tds.selectExpr(s"$group_function( $arrayStart dq_rule_runner(rule_suite_from($name, 1)), " +
+      s"dq_rule_runner(rule_suite_from($name, 2)), dq_rule_runner(rule_suite_from($name, 3)) $arrayEnd ) as res")
     //ds.show()
     import com.sparkutils.quality.implicits._
     val r = ds.selectExpr("res.*").as[RuleSuiteGroupResults].collect()
     verifyRuleSuites(r)(_)
+  }
+
+  def engineResultShouldGroup[T: TypedEncoder](conv: T => RuleSuiteGroupResults, arrayStart: String = "array(", arrayEnd: String = ")"): Unit = {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val ds = tds.selectExpr(s"$group_function( $arrayStart rule_engine_runner(rule_suite_from($name, 1)), " +
+      s"rule_engine_runner(rule_suite_from($name, 2)), rule_engine_runner(rule_suite_from($name, 3)) $arrayEnd ) as res")
+    //ds.show()
+
+    import frameless._
+    implicit val enc = TypedExpressionEncoder[T]
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+    verifyRuleSuites(r)(conv)
+  }
+
+  def folderResultShouldGroup[T: TypedEncoder](conv: T => RuleSuiteGroupResults, arrayStart: String = "array(", arrayEnd: String = ")"): Unit = {
+    // folder needs a struct / row, so wrap the array up in outputs, starter and in the type
+    val name = register_rule_suite_group(group.copy(ruleSuites = group.ruleSuites.mapValues(v => RuleSuite.mapRules(v){
+      r =>
+        val nrop = r.runOnPassProcessor.withExpr( OutputExpression( "cur -> struct(" +
+          r.runOnPassProcessor.outputExpression.asInstanceOf[HasRuleText].rule +" )"))
+        r.copy( runOnPassProcessor = nrop )
+    }).toMap))
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val starter = ", named_struct('arr', array(struct('' as transfer_type, account, product, subcode)))"
+
+    val ds = tds.selectExpr(s"$group_function( $arrayStart rule_folder_runner(rule_suite_from($name, 1)$starter), " +
+      s"rule_folder_runner(rule_suite_from($name, 2)$starter), rule_folder_runner(rule_suite_from($name, 3)$starter) $arrayEnd ) as res")
+    //ds.show()
+
+    import frameless._
+    implicit val enc = TypedExpressionEncoder[T]
+    // ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+    verifyRuleSuites(r)(conv)
+  }
+
+  def collectorResultShouldGroup[T: TypedEncoder](conv: T => RuleSuiteGroupResults, arrayStart: String = "array(", arrayEnd: String = ")"): Unit = {
+
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+
+    val ds = tds.selectExpr(s"$group_function( $arrayStart collect_runner(rule_suite_from($name, 1)), " +
+      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) $arrayEnd ) as res")
+    //ds.show()
+
+    import frameless._
+    implicit val enc = TypedExpressionEncoder[T]
+    // ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+    verifyRuleSuites(r)(conv)
+  }
+
+  def resultGroupsShouldGroup(arrayStart: String = "array(", arrayEnd: String = ")"): Unit = {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    import s.implicits._
+    val tds = testData.toDS()
+    val sub = s"$group_function( $arrayStart dq_rule_runner(rule_suite_from($name, 1)), " +
+      s"dq_rule_runner(rule_suite_from($name, 2)), dq_rule_runner(rule_suite_from($name, 3)) $arrayEnd )"
+    val ds = tds.selectExpr(s"$group_function( $arrayStart $sub, $sub, $sub $arrayEnd ) as res")
+    //ds.show()
+    import com.sparkutils.quality.implicits._
+    val r = ds.selectExpr("res.*").as[RuleSuiteGroupResults].collect()
+
+    verifyRuleSuites(r)(_)
+  }
+
+  def collectorResultGroupsShouldGroup[T: TypedEncoder](conv: T => RuleSuiteGroupResults, arrayStart: String = "array(", arrayEnd: String = ")"): Seq[T] = {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val sub = s"$group_function( $arrayStart collect_runner(rule_suite_from($name, 1)), " +
+      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) $arrayEnd )"
+    val ds = tds.selectExpr(s"$group_function( $arrayStart $sub, $sub, $sub $arrayEnd ) as res")
+    //ds.show()
+
+    import frameless._
+    implicit val enc = TypedExpressionEncoder[T]
+    //ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+    verifyRuleSuites(r)(conv)
+    r
+  }
+
+}
+
+class GroupResultsTest extends GroupTestBase {
+
+  val group_function: String = "group_results"
+
+  test("dq results should group") {
+    dqResultsShouldGroup()
   }
 
   test("dq results shouldn't allow processing") {
@@ -76,80 +191,32 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
   }
 
   test("engine results should group") {
-    val name = register_rule_suite_group(group)
-    val s = sparkSession
-    val tds = {
-      import s.implicits._
-      testData.toDS()
-    }
-    val ds = tds.selectExpr(s"group_results( array( rule_engine_runner(rule_suite_from($name, 1)), " +
-      s"rule_engine_runner(rule_suite_from($name, 2)), rule_engine_runner(rule_suite_from($name, 3)) ) ) as res")
-    //ds.show()
-
     type T = (RuleSuiteGroupResults, Seq[(Option[SalientRule], Option[Seq[NewPosting]])])
 
     import frameless._
+    import com.sparkutils.quality.implicits._
     implicit val tenc = TypedEncoder[T]
-    implicit val enc = TypedExpressionEncoder[T]
-
-    val r = ds.selectExpr("res.*").as[T].collect()
-    verifyRuleSuites(r)(_._1)
+    engineResultShouldGroup[T](_._1)
   }
 
   test("folder results should group") {
-    // folder needs a struct / row, so wrap the array up in outputs, starter and in the type
-    val name = register_rule_suite_group(group.copy(ruleSuites = group.ruleSuites.mapValues(v => RuleSuite.mapRules(v){
-      r =>
-        val nrop = r.runOnPassProcessor.withExpr( OutputExpression( "cur -> struct(" +
-          r.runOnPassProcessor.outputExpression.asInstanceOf[HasRuleText].rule +" )"))
-        r.copy( runOnPassProcessor = nrop )
-    }).toMap))
-    val s = sparkSession
-    val tds = {
-      import s.implicits._
-      testData.toDS()
-    }
-    val starter = ", named_struct('arr', array(struct('' as transfer_type, account, product, subcode)))"
-
-    val ds = tds.selectExpr(s"group_results( array( rule_folder_runner(rule_suite_from($name, 1)$starter), " +
-      s"rule_folder_runner(rule_suite_from($name, 2)$starter), rule_folder_runner(rule_suite_from($name, 3)$starter) ) ) as res")
-    //ds.show()
-
     // the results of folder are optional / nullable
     type T = (RuleSuiteGroupResults, Seq[Option[Tuple1[Seq[NewPosting]]]])
     //type T = (RuleSuiteGroupResults, Seq[Option[Seq[NewPosting]]])
 
     import frameless._
     implicit val tenc = TypedEncoder[T]
-    implicit val enc = TypedExpressionEncoder[T]
-    // ds.printSchema()
-
-    val r = ds.selectExpr("res.*").as[T].collect()
-    verifyRuleSuites(r)(_._1)
+    folderResultShouldGroup[T](_._1)
   }
 
   test("collector results should group") {
-    val name = register_rule_suite_group(group)
-    val s = sparkSession
-    val tds = {
-      import s.implicits._
-      testData.toDS()
-    }
-
-    val ds = tds.selectExpr(s"group_results( array( collect_runner(rule_suite_from($name, 1)), " +
-      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) ) ) as res")
-    //ds.show()
-
     // the results of folder are optional / nullable
     type T = (RuleSuiteGroupResults, Seq[Option[Seq[NewPosting]]])
 
     import frameless._
     implicit val tenc = TypedEncoder[T]
-    implicit val enc = TypedExpressionEncoder[T]
-    // ds.printSchema()
 
-    val r = ds.selectExpr("res.*").as[T].collect()
-    verifyRuleSuites(r)(_._1)
+    collectorResultShouldGroup[T](_._1)
   }
 
   test("collector results should group - with flatten") {
@@ -179,45 +246,19 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
   }
 
   test("result groups should group") {
-    val name = register_rule_suite_group(group)
-    val s = sparkSession
-    import s.implicits._
-    val tds = testData.toDS()
-    val sub = s"group_results( array( dq_rule_runner(rule_suite_from($name, 1)), " +
-      s"dq_rule_runner(rule_suite_from($name, 2)), dq_rule_runner(rule_suite_from($name, 3)) ) )"
-    val ds = tds.selectExpr(s"group_results( array( $sub, $sub, $sub ) ) as res")
-    //ds.show()
-    import com.sparkutils.quality.implicits._
-    val r = ds.selectExpr("res.*").as[RuleSuiteGroupResults].collect()
-
-    verifyRuleSuites(r)(_)
+    resultGroupsShouldGroup()
   }
 
   test("collector results groups should group") {
-    val name = register_rule_suite_group(group)
-    val s = sparkSession
-    val tds = {
-      import s.implicits._
-      testData.toDS()
-    }
-    val sub = s"group_results( array( collect_runner(rule_suite_from($name, 1)), " +
-      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) ) )"
-    val ds = tds.selectExpr(s"group_results( array( $sub, $sub, $sub ) ) as res")
-    //ds.show()
-
     // the results of folder are optional / nullable
     type T = (RuleSuiteGroupResults, Seq[Seq[Option[Seq[NewPosting]]]])
 
     import frameless._
     implicit val tenc = TypedEncoder[T]
-    implicit val enc = TypedExpressionEncoder[T]
-    //ds.printSchema()
 
-    val r = ds.selectExpr("res.*").as[T].collect()
+    val r = collectorResultGroupsShouldGroup[T](_._1)
     // check the collect of collect of collect had the expected results
     r.map(_._2.flatten.forall(_.get.nonEmpty)) shouldBe Seq(true, false, false, true, true, true)
-
-    verifyRuleSuites(r)(_._1)
   }
 
   test("collector results groups should group and flatten a lot") {
@@ -295,7 +336,7 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
                   r.runOnPassProcessor.outputExpression.asInstanceOf[HasRuleText].rule +" )"))
                 r.copy( runOnPassProcessor = nrop )
             }
-        else
+          else
             rs
       }.toMap
     ))
@@ -309,7 +350,7 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
     val sub = s"group_results( array( unify_result( collect_runner(rule_suite_from($name, 1)) ), " +
       s"unify_result( rule_engine_runner(rule_suite_from($name, 2)) ), " +
       s"unify_result( struct(rule_folder_runner(rule_suite_from($name, 3)$starter).ruleSuiteResults, " +
-        s"rule_folder_runner(rule_suite_from($name, 3)$starter).result.arr as result ) ) ) )" // unpack for folder
+      s"rule_folder_runner(rule_suite_from($name, 3)$starter).result.arr as result ) ) ) )" // unpack for folder
     val ds = tds.selectExpr(s"group_results( array( $sub, unify_result( $sub ), $sub ), f -> flatten(flatten(f)) ) as res")
     //ds.show()
 

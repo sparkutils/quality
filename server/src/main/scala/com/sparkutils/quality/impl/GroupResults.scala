@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import cats.kernel.{CommutativeGroup, Semigroup}
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.GroupResults.{rd, typeCheckText}
+import com.sparkutils.quality.impl.GroupResults.{hasGroupResultType, hasResultType, rd, typeCheckText}
 import com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
 import com.sparkutils.quality.{RuleResult, RuleSetResult, RuleSuiteGroupResults, RuleSuiteResult, VersionedId}
 import org.apache.spark.sql.ShimUtils
@@ -12,7 +12,6 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
 import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
-
 import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
 
 import scala.reflect.ClassTag
@@ -54,11 +53,11 @@ object MergeGroups {
       (cur, next) =>
         cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| next.ruleSuiteResults)
     }
+
+  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = implicitly[MergeGroups[T]].merge(rs)
 }
 
 object GroupResults {
-
-  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = implicitly[MergeGroups[T]].merge(rs)
 
   def apply(group: Expression): GroupResults = {
     val rsDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer
@@ -95,13 +94,7 @@ object GroupResults {
 
   def typeCheckText(typ: DataType) = s"GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and " +
     s"ruleSuiteResults: RuleSuiteResult as their first (or as the direct array member), instead $typ was provided"
-}
 
-// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
-trait GroupResultsBase
-  extends NonSQLExpression with CodegenFallback {
-
-  def processResult(row: InternalRow, input: ArrayData): Any
 
   def hasResultTypeF(of: DataType, names: Set[String])(s: StructType): Boolean =
     if (s.fields.exists(
@@ -116,6 +109,14 @@ trait GroupResultsBase
   // group is used when returned from this expression as the object name, and ruleSuiteResults are the internal (e.g. for dq)
   val hasGroupResultType = hasResultTypeF( Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, Set("ruleSuiteGroup", "ruleSuiteResults")) _
 
+}
+
+// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
+trait GroupResultsBase
+  extends NonSQLExpression with CodegenFallback {
+
+  def processResult(row: InternalRow, input: ArrayData): Any
+
   def groupFrom[T: MergeGroups: ClassTag](deserializer: Expression, row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow => Any): (InternalRow, Any) = {
     val a = arr.asInstanceOf[ArrayData]
     val copied = Array.ofDim[T](a.numElements())
@@ -127,7 +128,7 @@ trait GroupResultsBase
       copiedResult(i) = f(r)
     })
 
-    (children(1).eval(InternalRow(GroupResults.group(copied))).asInstanceOf[InternalRow],
+    (children(1).eval(InternalRow(MergeGroups.group(copied))).asInstanceOf[InternalRow],
       processResult(row, new GenericArrayData(copiedResult)))
   }
 

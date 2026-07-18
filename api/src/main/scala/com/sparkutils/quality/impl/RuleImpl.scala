@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
-import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, SoftFailedInt}
-import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, SoftFailed}
+import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, SoftFailedInt, UnevaluatedRuleInt}
+import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, SoftFailed, UnevaluatedRule}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
@@ -37,7 +37,8 @@ object RuleSuiteHelpers {
     res
   }
 
-  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = serializeImpl(ruleSuite)(toSeq)
+  // sparkutils to allow tests to call
+  protected[sparkutils] def serialize(ruleSuite: RuleSuite): Array[Byte] = serializeImpl(ruleSuite)(toSeq)
 
   protected[quality] def deserializeGroup(in: Array[Byte]): RuleSuiteGroup = deserializeImpl[RuleSuiteGroup](in)
 
@@ -54,6 +55,7 @@ object RuleSuiteHelpers {
       case Passed => PassedInt
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
+      case UnevaluatedRule => UnevaluatedRuleInt
     }
 
 }

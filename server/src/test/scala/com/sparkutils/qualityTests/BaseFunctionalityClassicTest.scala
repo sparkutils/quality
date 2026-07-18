@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{ExpressionRule, Failed, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite}
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
@@ -153,4 +153,21 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
       }
     }
   }
+
+  // retested for compilation
+  test("compilation any test") {
+    evalCodeGensNoResolve {
+      resultChecker(
+        rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+          Rule(Id(30, 3), ExpressionRule("'ignored'")),
+          Rule(Id(31, 3), ExpressionRule("ignored_rule()")),
+          Rule(Id(32, 3), ExpressionRule("-3")),
+          Rule(Id(34, 3), ExpressionRule("cast(-3.0 as double)")),
+          Rule(Id(35, 3), ExpressionRule("-3.0")),
+          Rule(Id(36, 3), ExpressionRule("null")),
+          Rule(Id(37, 3), ExpressionRule(s"id * $resultCheckerCodeGenSize")), // stop constant folding the output away to force codegen
+        )))), (Failed, Failed), Seq(IgnoredRule, IgnoredRule, IgnoredRule, IgnoredRule, Probability(-3.0), Failed), _.toSeq.dropRight(1))
+    }
+  }
+
 }

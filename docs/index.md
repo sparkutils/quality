@@ -17,11 +17,18 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} Spark 4 [Connect Support](getting_started/connect/)
+* :new:{.pulseABit} Spark 4.1, 4.2 and 4.x [Connect Support](getting_started/connect/)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
-* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results 
+* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results
+* :new:{.pulseABit} Improved compilation performance for large scale RuleSuites by separate compilation
+* :new:{.pulseABit} Result processing is 30% faster and applies to all rule execution
+* :new:{.pulseABit} Experimental and optional support for optimised large scale rules (>20k RuleSuites) with up to 100x speed improvements and lower memory requirements via [TriggerGrouper](advanced/triggerGrouping.md)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
+
+!!! warn "Databricks 18 changes it's release process"
+    Per [this link](https://docs.databricks.com/aws/en/release-notes/runtime/18) Databricks will no longer have minor releases.
+    Please pay attention to the [Running On Databricks](getting_started/running_on_databricks.md) page for exact versions tested against. 
 
 ## Enhanced Spark Functionality
 
@@ -35,9 +42,6 @@ Rules are evaluated lazily during Spark actions, such as writing a row, with res
 
 
 * Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
-
-
-* Support for massive [Bloom Filters](advanced/blooms/) while retaining FPP (i.e. several billion items at 0.001 would not fit into a normal 2gb byte array) on Spark Classic
 
 
 Plus a collection of handy [functions](sqlfunctions.md) to integrate it all.

@@ -1,25 +1,29 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.{Id, impl, _}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms}
+import com.sparkutils.quality._
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
-import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
+import com.sparkutils.quality.impl.util.Params.prepFields
+import com.sparkutils.quality.impl.util.{GenerateResult, NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.GenericArrayData
+import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
@@ -50,7 +54,8 @@ object RuleEngineRunnerImpl {
    */
   def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: Option[DataType], compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false,
+                           extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
@@ -68,11 +73,11 @@ object RuleEngineRunnerImpl {
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleEngineRunnerEval(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
-          forceTriggerEval, triggerCount = triggerCount)
+          forceTriggerEval, triggerCount = triggerCount, extraConfig)
       else
         new RuleEngineRunner(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
-          forceTriggerEval, triggerCount = triggerCount)
+          forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
     ShimUtils.column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -83,7 +88,7 @@ object RuleEngineRunnerImpl {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse runner
+      } getOrElse ZeroCodeGenWrap.wrap(runner)
     )
   }
 }
@@ -215,36 +220,58 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else output(currentOutputIndex)
       )
 
-  case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
-                           paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
-                           currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String)
+  case class CompilerTerms(grouped: TriggerResult,
+                           utilsName: String, ruleSuitTerm: String, currentSalience: String, ruleTupleArrTerm: String,
+                           currentOutputIndex: String, outArrTerm: String,
+                           salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
+                           runnerClassName: String, parameterInformation: ParameterInformation,
+                           resultRow: String, resultRowCopy: String, outArrayType: String, inPlaceOffsets: InPlaceOffsets)
 
-  def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
-                  child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
-                       debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
-                       extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
-                       orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
+  // exprEnd and exprFunEnd take currRuleResTerm as params
+  def genCompilerTerms[T: ClassTag](runner: Runner, ruleRunnerExpressionIdx: Int,
+                        outerctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                        ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                        child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
+                        debugMode: Boolean, forceTriggerEval: Boolean,
+                        extraResult: (String, Int) => String = (_ : String, _: Int) => "",
+                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
+                        orderOffset: Int => Int = identity,
+                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
+                        // used after each expression and before output expression code, as salience is used at a chain of triggers level passed is enough to exit
+                        // the parameter represents the currentResult token
+                        exprEnd: String => Block = _ => code"",
+                        salience: Int => Int = _ => 0,
+                        groupSalienceCheck: (String, String, String) => Block = // String for externalSalience as it may be a term
+                         (externalSalience, currentSalience, currentResult) =>
+                           // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+                           code"true",
+                         returnIfGroupSalienceCheckFalse: Boolean = false,
+                         runnerParams: Seq[(VariableValue, Boolean)] = Seq.empty
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, child)
+    val paramsInfo = {
+      val t = genParams(ctx, child)
+      val top = (t.topLevelRunnerParams ++ runnerParams).distinct
+      val prepped = prepFields(ctx, top, true, runnerParams)
+      t.copy(topLevelRunnerParams = top, preppedTopLevel = prepped)
+    }
+
+    val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
+    import resTerms._
+
+    import paramsInfo._
+
+    val inPlaceOffsets = runner.inPlaceArrayOffsets(ctx, resultRow, ruleRunnerExpressionIdx)
 
     // bind the rules
-    val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
+    val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)
     val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
     val hasAPassTerm = ctx.addMutableState("boolean", ctx.freshName("hasAPass"))
 
     val childrenFuncTerm = termFun("compiledRealChildren", classOf[ExpressionWrapper].getName + "[]")
-
-    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
-      ctx.freshName("ruleSuiteArrays"),
-      v => s"$v = $utilsName.ruleSuiteArrays($ruleSuitTerm);"
-    )
 
     val currentSalience = ctx.addMutableState("int", ctx.freshName("currentSalience"),
       v => s"$v = java.lang.Integer.MAX_VALUE;"
@@ -253,18 +280,14 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size + sizeAdjustment
-
-    val ruleRes = "java.lang.Object"
-    val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
-      v => s"$v = new $ruleRes[$offset];")
+    val offset = expressionOffsets.length + sizeAdjustment
 
     val currRuleRes = "int"
     val currRuleResTerm = ctx.addMutableState(currRuleRes, ctx.freshName("currRuleRes"),
       v => s"$v = 0;")
 
-
-    val ruleTupleRes = classOf[Tuple3[_,_,_]].getName
+    val ruleTupleClass = classOf[Tuple3[_,_,_]]
+    val ruleTupleRes = ruleTupleClass.getName
     val ruleTupleArrTerm = ctx.addMutableState(ruleTupleRes+"[]", ctx.freshName("ruleId"),
       v => s"$v = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenEngineIds($ruleSuitTerm);")
 
@@ -272,10 +295,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     val salienceArrTerm = ctx.addMutableState(salienceType+"[]", ctx.freshName("salience"),
       v => s"$v = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience($ruleSuitTerm);")
 
-    val output = {
+    val (output, outputJavaType) = {
       val javaType = realChildren.last.genCode(ctx).value.javaType // last should always be good
       // can't use the primitive type as it can't handle nulls
-      if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
+      (if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName, javaType)
     }
 
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
@@ -283,26 +306,27 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    def codeGen(exp: Expression, idx: Int, funName: String) = {
+    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String, params: ParameterInformation,
+                itsAlreadyPassed: Boolean) = {
+      import params._
+
       val (evalPre, eval) =
         if (forceTriggerEval)
           ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
-        else {
+        else if (itsAlreadyPassed) {
+          ("", PassedInt.toString)
+        } else {
           val eval = exp.genCode(ctx)
 
-          // auto boxing on databricks doesn't work due to old janino see #82
-          val edt = eval.value.javaType
-          val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
-
-          (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
+          (eval.code, anyToRuleResultIntGen(eval.value, eval.isNull))
         }
 
       val converted =
-        s"""
+        code"""
             $evalPre
             $currRuleResTerm = $eval;
 
-            $resArrTerm[$idx] = (Integer) $currRuleResTerm;
+            ${inPlaceOffsets.offsets(idx).apply(currRuleResTerm)}
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
               $hasAPassTerm = true;
               $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
@@ -323,70 +347,93 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
-        val eval = exp.genCode(ctx)
+        (ctx: CodegenContext, params: ParameterInformation) => {
+          val eval = exp.genCode(ctx)
+          import params._
 
-        val body =
-          s"""
-              ${extraSetup(index, i)} \n
-              ${eval.code} \n
+          val body =
+            code"""
+                ${extraSetup(index, i)} \n
+                ${eval.code} \n
 
-              $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
-        """
+                $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
+                ${extraResult(s"$outArrTerm[$i]", i)}
+          """
 
-        ctx.addNewFunction(exprFuncName,
-          s"""
-   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
-            $body
+          ctx.addNewFunction(exprFuncName,
+            code"""
+     private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
+              $body
 
-      ${
-            if (debugMode)
-              s"""
-              $currentOutputIndex += 1; \n
+        ${
+              if (debugMode)
+                s"""
+                $currentOutputIndex += 1; \n
 
-              """
-            else
-              s"""
+                """
+              else
+                s"""
 
-              $currentSalience = $salienceArrTerm[$index]; \n
-              $currentOutputIndex = $index; \n
-              """
-          }
-      }
-  """
-            )
-
+                $currentSalience = $salienceArrTerm[$index]; \n
+                $currentOutputIndex = $index; \n
+                """
+            }
+        }
+    """.code
+             )
+        }
 
       }
 
     // ensure ordering and re-use
-    val allExpr = triggerRules.zipWithIndex.map { case (_, idx) =>
+    val allExpr = triggerRules.indices.map { idx =>
 
       val realI = orderOffset(idx)
 
-      val offset = expressionOffsets(realI)
-      val funName = outExprFunTerms(offset)
-      val trigger = triggerRules(realI) // the original trigger is useless
-      val stepWithIf = codeGen(trigger, realI, funName)
+      val eoffset = expressionOffsets(realI)
+      val funName = outExprFunTerms(eoffset)
+      val starter = triggerRules(realI) // the original trigger is useless
+      val stepWithIf =
+        (ctx: CodegenContext, params: ParameterInformation, trigger: Expression, alreadyPassed: Boolean) =>
+          codeGen(ctx, trigger, realI, funName(ctx, params), params, alreadyPassed)
 
-      stepWithIf
-    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
+      (Trigger(starter, realI, salience(realI), Some( realChildren(eoffset + offset) )), stepWithIf)
+    }
 
+    // required for any TriggerGrouping or further splitting of code
+    val additionalParams = Seq(
+      (VariableValue(resultRow, classOf[InternalRow]), false),
+      (VariableValue(outArrTerm, java.lang.reflect.Array.newInstance(outputJavaType, 0).getClass), outputJavaType.isPrimitive),
+      (VariableValue(salienceArrTerm, java.lang.reflect.Array.newInstance(java.lang.Integer.TYPE, 0).getClass), false),
+      (VariableValue(currentOutputIndex, java.lang.Integer.TYPE), false),
+      (VariableValue(currentSalience, java.lang.Integer.TYPE), false),
+      (VariableValue(hasAPassTerm, java.lang.Boolean.TYPE), false),
+      (VariableValue(currRuleResTerm, java.lang.Integer.TYPE), false),
+      (VariableValue(ruleTupleArrTerm, java.lang.reflect.Array.newInstance(ruleTupleClass, 0).getClass), false),
+      (VariableValue(inPlaceOffsets.runner, inPlaceOffsets.runnerClazz), false)
+    )
 
-    CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
-      paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
-      currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop, hasAPassTerm)
+    CompilerTerms(
+      RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
+        additionalParams, allExpr, exprEnd = () => exprEnd(currRuleResTerm),
+        groupSalienceCheck = a => groupSalienceCheck(a, currentSalience, currRuleResTerm),
+        prefix = implicitly[ClassTag[T]].runtimeClass.getSimpleName,
+        returnIfGroupSalienceCheckFalse = returnIfGroupSalienceCheckFalse),
+      utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
+      salienceArrTerm, hasAPassTerm, currRuleResTerm,
+      runnerClassName = runnerClassName, paramsInfo, resultRow, resultRowCopy, output, inPlaceOffsets)
 
   }
-
 }
 
 /**
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleEngineRunnerBase[T] extends NonSQLExpression {
+trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasOutput {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"rule_engine_runner($ruleSuiteCall)"
+
   val ruleSuite: RuleSuite
   val compileEvals: Boolean
   val debugMode: Boolean
@@ -396,6 +443,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val expressionOffsets: Array[Int]
   val userResultDataType: Option[DataType]
   val triggerCount: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
 
@@ -414,12 +462,14 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   lazy val realChildren = getRealChildren(children)
 
   // only used for compilation
+  @transient
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = s"RuleEngineRunner(${realChildren.mkString(", ")})"
+  override def toString: String = s"RuleEngineRunner(${ruleSuite.id})" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
-  // used only for eval, compiled uses the children directly TODO TEST ENGINE
+  // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
@@ -436,57 +486,123 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval)
+    val SeparateCompilation(clazz, fres, parameters) =
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
-    import compilerTerms._
-
-    // for debug currentOutputIndex is the count of matches
-
-    val pre = s"""
-          $pushToTop
-          $currentSalience = java.lang.Integer.MAX_VALUE;
-          $currentOutputIndex = -1;
-          $hasAPassTerm = false;
-
-          ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
-      """
-    val post = s"""
-
-          boolean ${ev.isNull} = false;
-      """
-
-    val res =
-      if (debugMode)
-        ev.copy(code = code"""
-          $pre
-
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
-              $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-            ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, null));
-
-          $post
+        // #128 jump out of expr or rule groups
+        val earlyReturn =
+          if (debugMode) (_: String) => code""
+          else
+          (currRuleResTerm: String) =>
+            code"""
+            if ($currRuleResTerm == $PassedInt) {
+              return;
+            }
           """
-        )
-      else
-        ev.copy(code = code"""
-          $pre
+        // don't evaluate groups
+        val groupSalienceCheck: (String, String, String) => Block =
+          if (debugMode)
+            (externalSalience, currentSalience, currentResult) =>
+              // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+              code"(($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
+          else
+            (externalSalience, currentSalience, currentResult) =>
+              // if we haven't matched anything yet, proceed, but also proceed if there are rules with a lower salience in this group
+              code"($currentResult != $PassedInt) && (($externalSalience < $currentSalience) || $currentSalience == java.lang.Integer.MAX_VALUE)"
 
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEval(
-              $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-              $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
+        // order by salience
+        val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
+        val outputs = 0 until triggerCount
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
-          $post
+        val compilerTerms =
+          RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
+            PassThroughEvalOnly(realChildren),
+            expressionOffsets, realChildren,
+            debugMode, forceTriggerEval,
+            orderOffset = (idx: Int) => reordered(idx),
+            // we shouldn't check salience as we are already ordered by it
+            salienceCheck = false,
+            exprEnd = earlyReturn, groupSalienceCheck = groupSalienceCheck, salience = salience(_),
+            returnIfGroupSalienceCheckFalse = true
+          )
+
+        import compilerTerms._
+        import parameterInformation._
+
+        // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
+
+        val pre =
+          code"""
+              $currentSalience = java.lang.Integer.MAX_VALUE;
+              $currentOutputIndex = -1;
+              $hasAPassTerm = false;
+              // #128 enable early exit
+              $currRuleResTerm = $UnevaluatedRuleInt;
+              $outArrTerm = new $outArrayType[$triggerCount];
+
+              // copy row
+              $resultRowCopy
+              ${inPlaceOffsets.beforeProcessing}
+
+              // group specific subexprs
+              ${grouped.subExpressions}
+              // group calls
+              ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
+              // result row code
+              ${inPlaceOffsets.resultRowPrep}
           """
-        )
 
-    res
+        val resName = ctx.freshName("result")
+        val resNull = ctx.freshName("isNull")
+
+        val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
+        val post =
+          code"""
+
+              boolean ${exp.isNull} = false;
+          """
+
+        val res =
+          if (debugMode)
+            exp.copy(code =
+              code"""
+              $pre
+
+              InternalRow ${exp.value} =
+                com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
+                  $resultRow,
+                ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, null));
+
+              $post
+              """
+            )
+          else
+            exp.copy(code =
+              code"""
+              $pre
+
+              InternalRow ${exp.value} =
+                com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEval(
+                  $resultRow,
+                  $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
+
+              $post
+              """
+            )
+
+        GenerateResult(compilerTerms, res, grouped.extraClasses)
+    }
+
+    setClazzSource( clazz )
+    setUsedParameters( parameters )
+    fres
 
   }
 }
@@ -494,23 +610,37 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+                            forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
+                            audited: Boolean = false, alreadyZero: Boolean = false)
+  extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 
 case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunner] {
+                                forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
+                                audited: Boolean = false, alreadyZero: Boolean = false)
+  extends RuleEngineRunnerBase[RuleEngineRunner] {
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
+    val r = copy(children = newChildren, audited = true)
+    if (!audited) {
+      r.performGroupingAuditDump()
+    }
+    r
+  }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
   override implicit val classTagT: ClassTag[RuleEngineRunner] = ClassTag(classOf[RuleEngineRunner])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 

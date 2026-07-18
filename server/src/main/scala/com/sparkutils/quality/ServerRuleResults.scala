@@ -40,13 +40,15 @@ sealed trait ResultStatisticsProviderImpl[T <: ResultStatistics[_]] extends Seri
 
   def update(t: T)(failed: Long = t.failed, passed: Long = t.passed, softFailed: Long = t.softFailed, disabled: Long = t.disabled,
              ignored: Long = t.ignored, defaulted: Long = t.defaulted, probabilityPassed: Long = t.probabilityPassed,
-             probabilityFailed: Long = t.probabilityFailed): T
+             probabilityFailed: Long = t.probabilityFailed, unevaluated: Long = t.unevaluated): T
 
   def combineResults(t: T, other: T): T =
     update(t)(failed = t.failed + other.failed, passed = t.passed + other.passed, softFailed = t.softFailed + other.softFailed,
       disabled = t.disabled + other.disabled, ignored = t.ignored + other.ignored, defaulted = t.defaulted + other.defaulted,
       probabilityPassed = t.probabilityPassed + other.probabilityPassed,
-      probabilityFailed = t.probabilityFailed + other.probabilityFailed)
+      probabilityFailed = t.probabilityFailed + other.probabilityFailed,
+      unevaluated = t.unevaluated + other.unevaluated
+    )
 
   def combine(t: T, other: T): T
 
@@ -63,6 +65,7 @@ sealed trait ResultStatisticsProviderImpl[T <: ResultStatistics[_]] extends Seri
       case Probability(_) => update(t)(probabilityFailed = t.probabilityFailed + 1)
       case RuleResultWithProcessor(ruleResult: RuleResult, _) =>
         processResult(t)(ruleResult, probabilityPass)
+      case UnevaluatedRule => update(t)(unevaluated = t.unevaluated + 1)
     }
 
 }
@@ -80,9 +83,11 @@ object ResultStatisticsProvider {
     ResultStatisticsProvider[RuleStatistics, RuleResult]  {
 
     override def update(t: RuleStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
-                                           defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleStatistics =
+                                           defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleStatistics =
       t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
-        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
+        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+        unevaluated = unevaluated
+      )
 
     override def combine(t: RuleStatistics, other: RuleStatistics): RuleStatistics = combineResults(t, other)
 
@@ -93,9 +98,10 @@ object ResultStatisticsProvider {
     ResultStatisticsProvider[RuleSetStatistics, RuleSetResult] {
 
     override def update(t: RuleSetStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
-                                              defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSetStatistics =
+                                              defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleSetStatistics =
       t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
-        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
+        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+        unevaluated = unevaluated)
 
     override def combine(t: RuleSetStatistics, other: RuleSetStatistics): RuleSetStatistics = combineResults(t, other).copy(
       rules = other.rules.foldLeft(t.rules){
@@ -122,9 +128,10 @@ object ResultStatisticsProvider {
     ResultStatisticsProvider[RuleSuiteStatistics, RuleSuiteResult] {
 
     override def update(t: RuleSuiteStatistics)(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long,
-                                                defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSuiteStatistics =
+                                                defaulted: Long, probabilityPassed: Long, probabilityFailed: Long, unevaluated: Long): RuleSuiteStatistics =
       t.copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
-        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
+        defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed,
+        unevaluated = unevaluated)
 
     override def combine(t: RuleSuiteStatistics, other: RuleSuiteStatistics): RuleSuiteStatistics = combineResults(t, other).copy(
       rowCount = t.rowCount + other.rowCount,

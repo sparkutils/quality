@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
 import com.sparkutils.quality.impl.{RuleRunnerImpl, RuleSuiteHelpers}
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.functions.{lit, typedLit}
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
 trait ClassicRuleRunnerImports {
@@ -21,11 +21,14 @@ trait ClassicRuleRunnerImports {
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
+  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = false, resolveWith: Option[DataFrame] = None,
+                 variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false,
+                 extraConfig: Map[String, String] = Map.empty): Column =
     if (checkResolveMakesSenseOrClassic(resolveWith))
-      RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+      RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith,
+        variablesPerFunc, variableFuncGroup, forceRunnerEval, extraConfig)
     else
       ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        lit(variablesPerFunc), lit(variableFuncGroup))
+        lit(variablesPerFunc), lit(variableFuncGroup), typedLit(extraConfig))
 
 }

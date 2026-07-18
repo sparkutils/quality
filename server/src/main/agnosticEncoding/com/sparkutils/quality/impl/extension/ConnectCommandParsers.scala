@@ -3,19 +3,18 @@ package com.sparkutils.quality.impl.extension
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.extension.ConnectCommandParsers.{nameDFOrNoneS, tempView}
 import com.sparkutils.quality.impl.extension.QualityCombineConstants.{NoneQuoted, QUALITY_COMBINE}
+import com.sparkutils.quality.impl.extension.QualityMapConstants.{QUALITY_MAP_BROADCAST, QUALITY_MAP_BROADCAST_ALL_CHILDREN}
 import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{FROM_DF, QUALITY_VERSIONED, QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULESUITES_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
-import com.sparkutils.quality.impl.util.SerializingShim.combineImplI
+import com.sparkutils.quality.impl.util.CombineImpl.combineImplI
 import com.sparkutils.quality.impl.util.SimpleVersioning
 import com.sparkutils.shim.AbstractInjectableParser
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.parser.ParserInterface
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, View}
-import org.apache.spark.sql.execution.QueryExecution
-import org.apache.spark.sql.execution.command.CreateViewCommand
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, NoopCommand}
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.{DoubleType, IntegerType}
-import org.apache.spark.sql.util.QueryExecutionListener
+
 /*
 class EchoListener extends QueryExecutionListener {
 
@@ -93,7 +92,14 @@ case class ConnectCommandParsers(sparkSession: SparkSession, delegate: ParserInt
               )
           }
         )
-      } else
-        super.parsePlan(sqlText)
+      } else {
+        if (sqlText.startsWith(QUALITY_MAP_BROADCAST)) {
+          val varName = sqlText.drop(QUALITY_MAP_BROADCAST.length).trim
+          // force the load
+          sparkSession.sql(s"select map_lookup('$QUALITY_MAP_BROADCAST_ALL_CHILDREN',null,$varName)").head()
+          NoopCommand(QUALITY_MAP_BROADCAST, scala.Seq.empty)
+        } else
+          super.parsePlan(sqlText)
+      }
   }
 }

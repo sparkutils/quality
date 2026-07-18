@@ -4,8 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
-import com.sparkutils.quality.impl.YamlDecoder
-import com.sparkutils.quality.impl.types._
+import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import functions.{ignored_rule, _}
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
@@ -101,7 +100,14 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
         .selectExpr("rr.*")
         .as[GeneralExpressionResult].head()
 
+    val gres2 =
+      processed.selectExpr("rule_result(expressionResults, 10,2, 20,1, 31,3) rr")
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head()
+
     assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
+
+    assert(gres2 == gres)
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
     val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
@@ -121,7 +127,50 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     }
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
+
+    val strippedGres2 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), lit(10),lit(2), lit(20),lit(1), lit(31),lit(3)))
+        .as[String].head()
+    }
+
+    assert(strippedGres2 == strippedGres)
+
+    val strippedGres3 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), 10,2, 20,1, 31,3))
+        .as[String].head()
+    }
+
+    assert(strippedGres3 == strippedGres)
+
     res
+  }
+
+  val resultCheckerCodeGenSize = 1000
+
+  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), expected: Seq[RuleResult],
+                    seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq): Unit = evalCodeGens {
+    import quality.implicits._
+
+    val base = sparkSession.range(resultCheckerCodeGenSize)
+
+    val processed = (
+      if (inCodegen) {
+        base.repartition(2).write.mode(SaveMode.Overwrite).parquet(outputDir + "/baseResultChecker")
+        base.sparkSession.read.parquet(outputDir + "/baseResultChecker")
+      } else
+        base
+    ).select(ruleRunner(rs).as("res"))
+
+    val res = processed.selectExpr("res.*").as[RuleSuiteResult].collect().head
+    assert(res.overallResult == overalls._1)
+    val rsres = res.ruleSetResults.head._2
+    assert(rsres.overallResult == overalls._2)
+
+    seqF(rsres.ruleResults.toSeq.sortBy(_._1.id).map(_._2)) shouldBe expected
   }
 
 }
@@ -663,27 +712,27 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
 
   test("softFail") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-    )))), (Passed,Passed), _.forall(_ == SoftFailed))
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize )"))
+    )))), (Passed,Passed), Seq.fill(3)(SoftFailed))
   }
 
   test("failedOnOne") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("id > 5")),
-        Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-        Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-      )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+        Rule(Id(30, 3), ExpressionRule(s"id > 5 * $resultCheckerCodeGenSize")),
+        Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+        Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)"))
+      )))), (Failed, Failed), Seq(Failed, SoftFailed, SoftFailed))
   }
 
   test("probabilityOnThree") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
       Rule(Id(32, 3), ExpressionRule("85.0"))
-    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+    )))), (Passed, Passed), Seq(SoftFailed, SoftFailed, Probability(85)))
   }
 
   test("disabled") {
@@ -692,7 +741,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("'disabled'")),
         Rule(Id(31, 3), ExpressionRule("'disabledrule'")),
         Rule(Id(32, 3), ExpressionRule("-2"))
-      )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+      )))), (Passed, Passed), Seq(DisabledRule, DisabledRule, DisabledRule))
   }
 
   test("ignored") {
@@ -701,29 +750,16 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(30, 3), ExpressionRule("'ignored'")),
         Rule(Id(31, 3), ExpressionRule("'ignoredrule'")),
         Rule(Id(32, 3), ExpressionRule("-3"))
-      )))), (Passed, Passed), _.toSeq == Seq(IgnoredRule, IgnoredRule, IgnoredRule))
+      )))), (Passed, Passed), Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
   test("mixedIgnore") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+        Rule(Id(30, 3), ExpressionRule(s"softFail(id > 6 * $resultCheckerCodeGenSize)")),
         Rule(Id(31, 3), ExpressionRule("'Passed'")),
         Rule(Id(32, 3), ExpressionRule("'disabled'"))
-      )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
-  }
-
-  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
-    import quality.implicits._
-
-    val processed = sparkSession.sql("select 4 id").select(
-      ruleRunner(rs).as("res"))
-
-    val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
-    assert(res.overallResult == overalls._1)
-    val rsres = res.ruleSetResults.head._2
-    assert(rsres.overallResult == overalls._2)
-    assert(comparison(rsres.ruleResults.values))
+      )))), (Passed, Passed), Seq(SoftFailed, Passed, DisabledRule))
   }
 
   test("softShouldShowPassed") { evalCodeGens {

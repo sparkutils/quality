@@ -1,3 +1,6 @@
+!!! warn "Sparkless Row by Row Processors are deprecated"
+    As of 0.2.0 sparkless is deprecated and will no longer be part of the Quality library in subsequent releases.
+
 Quality Processors allow for Quality rules to be used on a jvm outside of Spark execution.  Spark is required for expression resolution and compilation so the pattern of usage is:
 
 ```scala

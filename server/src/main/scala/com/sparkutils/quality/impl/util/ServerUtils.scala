@@ -1,14 +1,23 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameter
+import com.sparkutils.quality.impl.util.Params.{prepFields, stripBrackets}
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
+import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Factory}
+import net.jpountz.xxhash.XXHashFactory
+import org.apache.spark.SparkConf
+import org.apache.spark.internal.config.IO_COMPRESSION_LZ4_BLOCKSIZE
+import org.apache.spark.io.CompressionCodec
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+import org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.{isProbablyLocalCompilationScope, isProbablyLocalScope}
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, Literal, UnaryExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
 
+import java.io.{InputStream, OutputStream}
 import scala.reflect.ClassTag
 
 sealed trait LookupType {
@@ -150,6 +159,17 @@ case class TSLocal[T](val initialValue: () => T) extends Serializable {
     }
     threadLocal.get()
   }
+  def withT[R](t: T)(thunk: => R): R = {
+    if (threadLocal eq null) {
+      get() // init
+    }
+    threadLocal.set(t)
+    try {
+      thunk
+    } finally {
+      threadLocal.remove()
+    }
+  }
 }
 
 case class TransientHolder[T](val initialise: () => T) extends Serializable {
@@ -170,154 +190,6 @@ case class TransientHolder[T](val initialise: () => T) extends Serializable {
     }
   }
 }
-
-object Arrays {
-  /**
-   * UnsafeArrayData doesn't allow calling .array, foreach when needed and for others use array
-   *
-   * @param array
-   * @param dataType
-   * @param f
-   * @return
-   */
-  def mapArray[T: ClassTag](array: ArrayData, dataType: DataType, f: Any => T, by: Int = 0): Array[T] =
-    array match {
-      case _: UnsafeArrayData =>
-        val res = Array.ofDim[T](array.numElements() + by)
-        array.foreach(dataType, (i, v) => res.update(i, f(v)))
-        res
-      case _ => {
-        val r = array.array.map(f)
-        if (by == 0)
-          r
-        else {
-          val res = Array.ofDim[T](array.numElements() + by)
-          r.copyToArray(res)
-          res
-        }
-
-      }
-    }
-
-  /**
-   * gets an array out of UnsafeArrayData or others
-   * @param array
-   * @param dataType
-   * @return
-   */
-  def toArray(array: ArrayData, dataType: DataType): Array[Any] =
-    array match {
-      case _: UnsafeArrayData =>
-        mapArray(array, dataType, identity)
-      case _ => array.array
-    }
-
-}
-
-object Maps {
-  /**
-   * Grows a map by a given number of elements
-   * @param map
-   * @param kt
-   * @param vt
-   * @return
-   */
-  def growMap(map: MapData, kt: DataType, vt: DataType, withPairs: (Any, Any) *): MapData = {
-    val ns = map.numElements() + withPairs.length
-    val nka = Arrays.mapArray(map.keyArray(), kt, identity, withPairs.length)
-    for(i <- (map.numElements() until ns).zipWithIndex) {
-      nka.update(i._1, withPairs(i._2)._1)
-    }
-    val nk = new GenericArrayData(nka)
-
-    val nva = Arrays.mapArray(map.valueArray(), vt, identity, withPairs.length)
-    for(i <- (map.numElements() until ns).zipWithIndex) {
-      nva.update(i._1, withPairs(i._2)._2)
-    }
-    val nv = new GenericArrayData(nva)
-    new ArrayBasedMapData(nk, nv)
-  }
-
-  /**
-   * Replaces a non-primitive map entry, which requires full copy
-   * @param map
-   * @param kt
-   * @param vt
-   * @param i
-   * @param withPair
-   * @return
-   */
-  def replaceEntry(map: MapData, kt: DataType, vt: DataType, i: Int, withPair: (Any, Any)): MapData =
-    (map.keyArray(), map.valueArray()) match {
-      case (k: GenericArrayData, v: GenericArrayData) =>
-        // change in place
-        k.array.update(i, withPair._1)
-        v.array.update(i, withPair._2)
-        map
-      case _ =>
-        val nka = Arrays.mapArray(map.keyArray(), kt, identity)
-        nka.update(i, withPair._1)
-        val nk = new GenericArrayData(nka)
-
-        val nva = Arrays.mapArray(map.valueArray(), vt, identity)
-        nva.update(i, withPair._2)
-
-        val nv = new GenericArrayData(nva)
-        new ArrayBasedMapData(nk, nv)
-    }
-
-  def get(map: MapData, kt: DataType, vt: DataType, equal: Any => Boolean): Option[Any] = {
-    var found = false
-    var i = -1
-    val keys = map.keyArray()
-    while(!found && i < map.numElements()) {
-      i += 1
-      if (equal(keys.get(i, kt))) {
-        found = true
-      }
-    }
-    if (found)
-      Some(map.valueArray().get(i, vt))
-    else
-      None
-  }
-}
-
-/**
- * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
- * Spark then just accesses the struct which is null.  This forces codegen only
- */
-case class ForceNullable(child: Expression) extends Expression {
-
-  val children = Seq(child)
-
-  override def nullable: Boolean = true
-
-  override def eval(input: InternalRow): Any = child.eval(input)
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val c = child.genCode(ctx)
-    val typ = JavaCode.javaType(dataType)
-    val boxed = JavaCode.boxedType(dataType)
-    ev.copy(code =
-      code"""
-            ${c.code}
-            boolean ${ev.isNull} = true;
-            $typ ${ev.value} = null;
-            if (${c.value} != null) {
-              ${ev.isNull} = false;
-              ${ev.value} = ($boxed) ${c.value};
-            }
-            """)
-  }
-
-
-  override def dataType: DataType = child.dataType
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(child = newChildren.head)
-}
-
 
 /**
  * wrap subexprs so we can correctly identify the subquery post bindreferences
@@ -346,6 +218,240 @@ object SubQueryWrapper {
     }.isDefined)
 }
 
+case class ParamType(typeDecl: String, name: String, classType: Class[_], isExtraDimensionArray: Boolean,
+                     isBoxed: Boolean, isLocal: Boolean)
+
+object ParameterInformation {
+
+  val forMerging: ParameterInformation = ParameterInformation("","",0,Seq.empty)
+
+  def isCodeGenParameter(ctx: CodegenContext)(p: ParamType): Boolean =
+    isCodeGenParameterS(ctx)(p.name)
+
+  private def exprValueMatches(expr: ExprValue, Name: String) =
+    if (expr eq null)
+      false
+    else
+      expr match {
+        case VariableValue(Name,_) => true
+        case _ => false
+      }
+
+  def isCodeGenParameterS(ctx: CodegenContext)(Name: String): Boolean =
+    (ctx.currentVars ne null) && ctx.currentVars.exists(ex =>
+      if (ex eq null)
+        false
+      else
+        exprValueMatches(ex.value, Name) || exprValueMatches(ex.isNull, Name)
+    )
+
+}
+
+/**
+ * Additional is pass through and is used to bubble up parameters to higher level callers
+ * @param paramsDef drop in for function lists
+ * @param paramsCall drop in for function calls
+ * @param arity the arity of the parameters, abstract function only goes to 22, 255 are available
+ * @param pushToTop any outer context information (spark 3.1 and higher)
+ * @param params pairs of variable name to java type used for declaration and the class type for boxing
+ * @param topLevelRunnerParams top level params typically created by the runner to push down, each sub compilation unit
+ *                             will have them as mutable state through aritySafe
+ */
+case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
+                                params: Seq[ParamType], pushToTop: String = "",
+                                outerCallParams: String = "",
+                                // split expressions pairs
+                                nonCombinedParams: Seq[ParamType] = Seq.empty,
+                                returnTyp: String = "Object",//"InternalRow"
+                                topLevelRunnerParams: Seq[(VariableValue, Boolean)] = Seq.empty,
+                                preppedTopLevel: Seq[ParamType] = Seq.empty
+                               ) {
+
+  /**
+   * Creates an "uber" seq of params and nonCombinedParams for inputadapters (e.g. row attributes) and bumps arity
+   * along with refreshing outerCallParams,
+   * all other variables are kept and should be
+   * treated as unusable.  other.additionalParams is needed to thread extra runner added state through when calling
+   * genCompilerTerms
+   * @param ctx should be the current ctx and is used only to evaluate localscope
+   * @param other
+   * @param topLevel if it's toplevel we do not use other.additionalParams as the next compilation unit creates them
+   * @return
+   */
+  def mergeParams(ctx: CodegenContext, other: ParameterInformation, topLevel: Boolean): ParameterInformation =
+    if (other eq null)
+      this
+    else {
+    //println("mergeParams other names: " + other.params.map(_.name))
+    val prepped =
+      if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
+        preppedTopLevel
+      else
+        if (topLevel)
+          Seq.empty
+        else
+          other.preppedTopLevel
+
+    // input adapters are needed to pipe the Spark row generation through
+    // local variables from subExpr code in the 'apply/processNext' may be needed for further calls
+    val nparams = (params ++
+      other.params.filter(isCodeGenParameter(ctx))
+      ).distinct
+
+    val nonLocalParams = nparams.filterNot(_.isLocal)
+
+    val top =
+      if (topLevelRunnerParams.nonEmpty)
+        topLevelRunnerParams // grouped folder / collector
+      else
+        if (topLevel)
+          Seq.empty
+        else
+          other.topLevelRunnerParams // non grouped
+
+    copy(params = nparams,
+      nonCombinedParams = (nonCombinedParams ++ other.nonCombinedParams.filter(isCodeGenParameter(ctx))).distinct,
+        arity = (
+          if (preppedTopLevel.nonEmpty) // prepped need to remove additional arrays
+            (nonLocalParams ++ preppedTopLevel).distinct.size
+          else
+            if (topLevel)
+              nonLocalParams.size
+            else
+              (nonLocalParams ++ other.preppedTopLevel).distinct.size
+          ),
+      outerCallParams = (nonLocalParams.map(_.name) ++ prepped.map(_.name)).distinct.mkString(", "),
+      topLevelRunnerParams = top,
+      preppedTopLevel = prepFields(ctx, top, true)
+    )
+  }
+
+  def useArity = if (arity > 22) 1 else aritySafe.length
+
+  /**
+   * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
+   *
+   * Arity of 0 implies no actual input information is needed, e.g. a rule is hardcode / folded to a constant
+   *
+   * @return
+   */
+  def aritySafeApplyType(prefix: String): String =
+    s"$prefix$useArity<$returnTyp${if (arity > 0) "," else ""}" +
+      (
+        if (arity <= 22)
+          aritySafe.map { p => "Object"
+/*            if (p._3.isPrimitive)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1*/
+          }.mkString(",")
+        else
+          "Object"
+        ) + ">"
+
+  var aritySafe: Seq[ParamType] = _
+
+  def aritySafeParamDef: String =
+    if (arity <= 22)
+      aritySafe.map{ p=>
+        s"Object ${p.name}_ppp" // only object will compile, janino no generics
+      }.distinct.mkString(",")
+    else
+      "Object input_ppp"
+
+  def addAritySafeParamDecl(ctx: CodegenContext): Unit = {
+    // any locally created (in apply) subexprs should not be in the arity
+    aritySafe = (params ++ preppedTopLevel).distinct
+
+    aritySafe.map { p =>
+      val (arrayExtraDecl, arrayExtraDim) =
+        if (p.isExtraDimensionArray)
+          (p.name, "[]") // s" = new ${p._3.componentType().getName}[1][]
+        else
+          (p.name, "")
+
+      val typ =
+        if (p.isBoxed && p.classType.isArray)
+          CodeGenerator.boxedType(p.classType.getComponentType.getSimpleName) + "[]"
+        else
+          CodeGenerator.typeName(p.classType)
+
+      ctx.addMutableState(typ+arrayExtraDim, p.name, forceInline = true, useFreshName = false)
+    }
+  }
+
+  def aritySafeParamConversion(ctx: CodegenContext): String =
+    if (arity <= 22)
+      aritySafe.map { p =>
+
+        val cast =
+          if (p.isBoxed && p.classType.isArray)
+            CodeGenerator.boxedType(p.classType.getComponentType.getSimpleName) + "[]"
+          else
+            if (p.classType.isPrimitive && !p.isExtraDimensionArray)
+              CodeGenerator.boxedType(p.classType.getSimpleName)
+            else
+              p.typeDecl
+
+        val (arrayExtraDim) =
+          if (p.classType.isArray)
+            ("[]")//
+          else
+            ("")
+
+        s"${p.name} = ($cast$arrayExtraDim) ${p.name}_ppp;"
+      }.mkString("\n")
+    else {
+      val pp = ctx.freshName("ppp_ar")
+      s"""
+        Object[] $pp = (Object[])input_ppp;
+         """ +
+      params.filterNot(_.isLocal).zipWithIndex.map {
+        case (p, index) =>
+          val cast =
+            if (p.classType.isPrimitive && !p.isExtraDimensionArray)
+              CodeGenerator.boxedType(p.classType.getSimpleName)
+            else
+              p.typeDecl
+          val (arrayExtraDim) =
+            if (p.classType.isArray)
+              ("[]")// [0]
+            else
+              ("")
+
+          s"${p.name} = ($cast$arrayExtraDim) $pp[$index];"
+      }.mkString("\n")
+    }
+
+  protected[quality] var paramCallObject = ""
+
+  def aritySafeParamCallPrep(outerCtx: CodegenContext, ctx: CodegenContext): String =
+    if (arity <= 22) "" else {
+      // locals do not exist and are only for this compilation unit not parents
+      val outerSafeParams = aritySafe//.filterNot(p => QualityCodeGenUtils.isProbablyLocalCompilationScope(ctx, p.name))
+      paramCallObject = outerCtx.addMutableState("Object[]", "paramCallAr", v => s"$v = new Object[${outerSafeParams.size}];")
+      outerSafeParams.zipWithIndex.map {
+        case (p, index) =>
+          s"$paramCallObject[$index] = ${p.name};"
+      }.mkString("\n")
+    }
+
+  def aritySafeParamCall: String =
+    if (arity <= 22)
+      outerCallParams
+    else
+      paramCallObject
+
+  def topLevelCall(str: String, outerParams: ParameterInformation) =
+    if (outerParams.topLevelRunnerParams.nonEmpty)
+      str + "," + outerParams.preppedTopLevel.map(_.name).mkString(",")
+    else
+      str
+
+  def outerParamsCall(outerParams: ParameterInformation): String =
+    topLevelCall(paramsCall, outerParams)
+}
+
 object Params {
 
   def stripBrackets(v: VariableValue): (String, String) = {
@@ -356,14 +462,11 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
-    // filter out any top level arrays, the input is a set, so params need the same order
-    val ordered = a.flatMap {
-      case a: VariableValue => Some(a)
-      case _ => None
-    }
+  def prepFields(ctx: CodegenContext, ordered: Seq[(VariableValue, Boolean)], runnerParams: Boolean = false,
+                 additionalParams: Seq[(VariableValue, Boolean)] = Seq.empty): Seq[ParamType] = {
+    val isAdditionalParams = additionalParams.map(p => stripBrackets(p._1)._1).toSet
 
-    (ordered.map { v =>
+    ordered.map { case (v, box) =>
       val (stripped, arrayInName) = stripBrackets(v)
 
       val (typ, array) =
@@ -374,14 +477,63 @@ object Params {
         else
           (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
 
-      s"$typ$array $stripped"
-    }.mkString(", ")
-      , ordered.map(v =>
+      ParamType(s"$typ$array", stripped, v.javaType, array.nonEmpty, box,
+        if (runnerParams || isAdditionalParams(stripped))
+          false // these *are* local but are handled outside of the stack
+        else
+          isProbablyLocalScope(ctx, stripped)
+      ) // if it's not empty we want to pass through
+    }.distinct
+  }
+
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+
+    def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
+      case a: VariableValue => Some((a, false))
+      case _ => None
+    }
+    def filterOutArraysB(use: Seq[(ExprValue,Boolean)]) = use.flatMap {
+      case (a: VariableValue, b) => Some((a, b))
+      case _ => None
+    }
+
+    val filteredA = filterOutArrays(a)
+    val filteredAdditional = filterOutArraysB(additional)
+
+    val size = filteredA.size + filteredAdditional.size
+    val use =
+      //if (size <= 22)
+        filteredA ++ filteredAdditional
+      //else
+        //filteredA // additional are then handled via class level
+
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = use
+
+    val pairs = prepFields(ctx, ordered, additionalParams = additional)
+
+    val combined =
+      //if (size <= 22)
+        pairs
+      //else
+        //pairs ++ prepFields(filteredAdditional)
+
+    def paramsCall(seq: Seq[(VariableValue, Boolean)]) =
+      seq.map { case (v, primitive) =>
         if (v.javaType.isArray && callsKeepArrays)
           v.variableName
         else
           stripBrackets(v)._1
-      ).mkString(", "))
+      }.distinct.mkString(", ")
+
+    ParameterInformation(pairs.map {
+      case ParamType(typ, stripped, _, _, _, _) =>
+
+        s"$typ $stripped"
+      }.distinct.mkString(", ")
+      , paramsCall(ordered), combined.size, combined,
+      outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.variableName))),
+      nonCombinedParams = pairs)
   }
 }
 
@@ -406,30 +558,12 @@ case class InputWrapper(left: Expression, right: Expression) extends BinaryExpre
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     right.genCode(ctx)
 }
-/*
-object TypeUtils {
 
-  private def mapType(l: MapType, r: MapType) =
-    equivalent(l.keyType, r.keyType) && equivalent(l.valueType, r.valueType)
+class Counter() {
+  var counter = 0
 
-  /**
-   * Compares struct fields without using nullability
-   * @param left
-   * @param right
-   * @return
-   */
-  @tailrec
-  def equivalent(left: DataType, right: DataType): Boolean =
-    (left, right) match {
-      case (l: StructType, r: StructType) if l.fields.length == r.fields.length =>
-        l.copy(fields = l.fields.map(f => f.copy(nullable = true))) ==
-          r.copy(fields = r.fields.map(f => f.copy(nullable = true)))
-      case (_: StructType, _: StructType) =>
-        false
-      case (l: ArrayType, r: ArrayType) =>
-        equivalent(l.elementType, r.elementType)
-      case (l: MapType, r: MapType) =>
-        mapType(l, r)
-      case _ => left == right
-    }
-} */
+  def next(): Int = {
+    counter += 1
+    counter
+  }
+}

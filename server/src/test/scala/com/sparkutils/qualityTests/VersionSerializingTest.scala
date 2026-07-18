@@ -5,7 +5,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
-import eu.timepit.refined.internal.Adjacent.integralAdjacent
+//import eu.timepit.refined.internal.Adjacent.integralAdjacent
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
 import simpleVersioning._

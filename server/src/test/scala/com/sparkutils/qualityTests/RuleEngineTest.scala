@@ -2,11 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
-import com.sparkutils.quality.impl.OverallResult
+import com.sparkutils.quality.impl.{OverallResult, RuleSuiteHelpers, Runners}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions._
 import org.scalatest.Matchers
 
@@ -59,9 +59,15 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
 
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     val ruleSuite = rulesRaw(expressionRules)
-    (dataFrame: DataFrame) =>
-      classicFunctions.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
+    if (ShimUtils.isClassic(SparkSession.active))
+      (dataFrame: DataFrame) =>
+        Runners.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).get
+    else
+      (_: DataFrame) =>
+        ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))),
+          lit(""), lit(debugMode)
+        )
   }
 
   def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
@@ -90,9 +96,9 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
-        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042, 1),
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1001, Id(1042, 1),
           OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))"))),
-        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043, 1),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1002, Id(1043, 1),
           OutputExpression("array(subcode('fromWithField', 6000), account_row('to', 'other_account1'))")))
       ), compileEvals = false
     )
@@ -119,15 +125,50 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
       // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
       assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
       assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
+      // #128 - the other rule should be Unevaluated
+      val rr0 = res(0).ruleSuiteResults.ruleSetResults(Id(50,1)).ruleResults
+      val rr0r = Seq(rr0(Id(100,1)), rr0(Id(200,1)))
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
+        if (inCodegen) {
+          rr0r shouldBe Seq(UnevaluatedRule, UnevaluatedRule)
+        } else {
+          rr0r shouldBe Seq(Failed, Failed)
+        }
+      }
+
       // TestOn("fx", "4206", 90),
       //    TestOn("fxotc", "4201", 40),
       assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
       assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
       assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
       assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      // #128 - the other rule should be Unevaluated
+      def rr34(i: Int) = {
+        val rr1 = res(i).ruleSuiteResults.ruleSetResults(Id(50, 1)).ruleResults
+        val rr1r = Seq(rr1(Id(0, 1)), rr1(Id(200, 1)))
+        if (inCodegen) {
+          rr1r shouldBe Seq(Failed, UnevaluatedRule)
+        } else {
+          rr1r shouldBe Seq(Failed, Failed)
+        }
+      }
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
+        rr34(3)
+        rr34(4)
+      }
 
       // did the field replace work
       assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+      // #128 - the other rule should be Unevaluated
+      val rr2 = res(5).ruleSuiteResults.ruleSetResults(Id(50,1)).ruleResults
+      val rr2r = Seq(rr2(Id(0,1)), rr2(Id(100,1)))
+      v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
+        if (inCodegen) {
+          rr2r shouldBe Seq(Failed, Failed)
+        } else {
+          rr2r shouldBe Seq(Failed, Failed)
+        }
+      }
     }
   }
 
@@ -135,7 +176,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
-      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1041,1),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1001, Id(1041,1),
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
@@ -256,7 +297,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       df.write.mode("overwrite").parquet(outputDir + "/i_s_hav_it") // force relation as LocalRelation is driver only so no serialisation attempted
@@ -291,7 +333,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -327,6 +370,7 @@ class RuleEngineTest extends RuleEngineTestBase {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
       import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -364,7 +408,8 @@ class RuleEngineTest extends RuleEngineTestBase {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -401,7 +446,8 @@ class RuleEngineTest extends RuleEngineTestBase {
 
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
+
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -444,4 +490,28 @@ class RuleEngineTest extends RuleEngineTestBase {
     doTestDebug()
   }
 
+  test("simple engine should work with connect") {
+    // engine doesn't have the issue folder does
+    val s = sparkSession
+    import s.implicits._
+
+    val data = Seq(
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1)
+    ).toDF("c", "d")
+
+    val r = data.withColumn("*", ruleEngineRunner( rulesRaw(Seq(
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"named_struct('c', if(d = 2, 'a', 'b'), 'd', d)"))),
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"named_struct('c', if(d = 2, 'a', 'b'), 'd', d)"))),
+    ))))
+    r.collect()
+
+  }
 }

@@ -1,13 +1,13 @@
-Starting with 0.2.0 and Spark 4 Quality leverages the new unified connect and classic APIs to enable connect friendly usage when used with the [SparkSessionExtension](../getting_started/#using-the-sql-functions-on-spark-thrift-hive-servers).
+Starting with 0.2.0 and Spark 4 Quality leverages the new unified connect and classic APIs to enable connect friendly usage when used with the [SparkSessionExtension](../#using-the-sql-functions-on-spark-thrift-hive-servers).
 
 This allows applications to use the quality_api with the stable Spark Connect interface and upgrade their server implementation of Quality without impacting others on the Shared Cluster (other than a restart of course). 
 In order to enable this, from 0.2.0 onwards, Quality's moves to a split jar and implementation model:
 
-* Core Scala types are present in quality_core, each - now source stable for years - are marked with @SerialVersionUID(1L)
+* Core Scala types are present in quality_core, each - now source stable for years - are marked with \@SerialVersionUID(1L)
 * quality_api provides the Connect friendly api, using these core types, with most complex logic taking place on the server
 * The quality server jar itself provides the implementation found in the Quality extension and serializes the core jvm types
 
-Breaking binary compatibility of the core types is now identifiable via their @SerialVersionUID(1L) changes.  Changes to the core types will include increasing the version id.
+Breaking binary compatibility of the core types is now identifiable via their \@SerialVersionUID(1L) changes.  Changes to the core types will include increasing the version id.
 
 Given the stable Connect interface, and a suitable runtime, this _should_ allow for client applications to build against versions of Spark Connect for their Scala version only but enjoy running on multiple backends.
 
@@ -142,11 +142,13 @@ QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion 
 CREATE QUALITY FUNCTION simplename _WITH_IMPL_ simpleExpression _END_OF_USER_FUNCTION_ 
     singleParamName _WITH_IMPL_ p1 -> simpleExpression _END_OF_USER_FUNCTION_
     multiParamsName _WITH_IMPL_ (p1, p2) -> simpleExpression _END_OF_USER_FUNCTION_
+-- maps
+QUALITY MAP BROADCAST mapVariable -- optional, but recommended, broadcast of map data to speed up planning, map_lookup then must use mapVariable as a string not the variable name
 ```
 
 The loading and serialising functions register ruleSuites as Spark SQL Variables (via [DECLARE VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html)/[SET VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-aux-set-var.html)) with all actual ruleSuite handling taking place on the server. 
 
-The other non-loading functionality is represented as Spark Connect compatible sql function calls that require the [SparkSessionExtension](../getting_started/#using-the-sql-functions-on-spark-thrift-hive-servers).
+The other non-loading functionality is represented as Spark Connect compatible sql function calls that require the [SparkSessionExtension](../#using-the-sql-functions-on-spark-thrift-hive-servers).
 
 This includes the runners themselves, which also get dsl equivalents:
 

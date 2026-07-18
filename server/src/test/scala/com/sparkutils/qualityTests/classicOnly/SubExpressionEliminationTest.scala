@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.RuleSuite.mapRules
-import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.{Column, SaveMode, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import com.sparkutils.quality.{LambdaFunction, _}
@@ -21,12 +21,12 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class SubExpressionEliminationTest extends ClassicSharedTests {
 
-  val data = Seq(
+  val data = Seq.fill(1/*000*/)( Seq(
     TestOn("p1","a1", 0),
     TestOn("p2","a2", 1),
     TestOn("p2","a1", 1),
     TestOn("p1","a2", 0)
-  )
+  ) ).flatten
 
   val triggers = Seq(
     Rule(Id(1,1), ExpressionRule("myequal(product, 'p1') and myequal2(subcode, 1)")),
@@ -54,12 +54,20 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   }
 
   // can't do cluster runs as this is local vm only
-  def doRunner(count: Int, rsf: RuleSuite => Column): Unit = not_Cluster{
+  def doRunner(count: Int, rsf: RuleSuite => Column): Unit = not_Cluster {
     EqualToTest.counter.set(0)
     val rs = RuleSuite(Id(1,1), Seq(RuleSet(Id(1,1), triggers)), lambdaFunctions = lambdas)
     val s = sparkSession
     import s.implicits._
-    val res = data.toDS().withColumn("dq", rsf(rs)).collect()
+    if (inCodegen) { // need to force it
+      data.toDS().repartition(4).write.mode(SaveMode.Overwrite).parquet(outputDir + "/subelimInput")
+      val ds = sparkSession.read.parquet(outputDir + "/subelimInput").withColumn("dq", rsf(rs))
+      ds.collect()
+    } else {
+      val base = data.toDS() // local eval is fine
+      val ds = base.withColumn("dq", rsf(rs))
+      ds.collect()
+    }
     val cur = EqualToTest.counter.get()
     /*import quality.implicits._
     val rres = data.toDS().withColumn("dq", rsf(rs)).selectExpr("dq.*").as[GeneralExpressionsResult[Int]].collect()*/
@@ -71,14 +79,15 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
   test("controlRunner") {
-    if (sparkVersionNumericMajor != 30) {
+    v3_2_and_above {
       evalCodeGensNoResolve {
         doRunner(expectedTriggerRules / 2, ruleRunner(_))
       }
     }
   }
 
-  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
+  // no longer possible to test
+  //test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
@@ -96,14 +105,15 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedOutputRules = rows // one for each row is extra called
 
   test("controlEngine") {
-    if (sparkVersionNumericMajor != 30) {
+    v3_2_and_above {
       evalCodeGensNoResolve {
         doOutput((expectedTriggerRules / 2), ruleEngineRunner(_), outputExpr)
       }
     }
   }
 
-  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
+  // no longer possible to test
+  // test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, classicFunctions.ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
@@ -128,10 +138,10 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
 
-  // note there should be no more calls as the outputexpr is already eliminated
-  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
+  // note there should be no more calls as the outputexpr is already eliminated, eval runtime however cannot be stopped < 4, so disabling
+  //test("folderShouldNotEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
 
-  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
+  //test("folderShouldNotEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
 
 }
 

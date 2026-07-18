@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLo
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapLookupsForAgnostic
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, EmptyMap, InputWrapper, MapUtils, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, RuleSuite, VersionedId, impl}
 import org.apache.commons.rng.simple.RandomSource
@@ -71,14 +71,17 @@ object RuleRegistrationFunctions {
     val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
       "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
       "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
-      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
+      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","ignored_rule","default_rule",
+      "unevaluated_rule","pack_Ints","unpack",
       "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
       "map_Lookup","map_Contains","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
       "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl", "drop_field",
-      "to_yaml", "from_yaml"
+      "to_yaml", "from_yaml", "group_audit", "unify_result", "group_results", "rule_suite_from",
+      "collect_runner", "rule_folder_runner", "rule_engine_runner", "expression_runner", "typed_expression_runner",
+      "dq_rule_runner", "qualityfunn", "qualityrefexpression"
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
@@ -203,7 +206,11 @@ object RuleRegistrationFunctions {
     register("from_yaml", exps => YamlDecoderExpr(exps.head, parse(exps.last)), Set(2))
 
     register("strip_result_ddl", exps => StripResultTypes(exps.head), Set(1))
-    register("rule_result", exps => RuleResultExpression(Seq(exps(0), exps(1), exps(2), exps(3))), Set(4))
+    register("rule_result", {
+      case s if s.length == 4 => RuleResultExpression(s)
+      case exps if exps.length == 7 =>
+        RuleResultExpression(Seq(exps.head, Pack(exps(1), exps(2)), Pack(exps(3), exps(4)), Pack(exps(5), exps(6))))
+    }, Set(4, 7))
 
     register("comparable_Maps", exps => ComparableMapConverter(exps(0), mapCompare), Set(1))
     register("reverse_Comparable_Maps", exps => ComparableMapReverser(exps.head), Set(1))
@@ -219,6 +226,7 @@ object RuleRegistrationFunctions {
     register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DisabledRuleExpr, Set(0))
     register("ignored_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr, Set(0))
     register("default_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DefaultRuleExpr, Set(0))
+    register("unevaluated_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.UnevaluatedExpr, Set(0))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 
@@ -260,6 +268,7 @@ object RuleRegistrationFunctions {
         // placeholders that are 1:1
         val res = fun.function
         res
+      case e => qualityException(s"Quality _lambda_ can only be used with Quality User Functions, but was called with $e")
     }, Set(1))
 
     register(LambdaFunctions.CallFun, {
@@ -609,17 +618,29 @@ object RuleRegistrationFunctions {
       case Seq(OfRuleSuite(rs), varPer, varG) =>
         expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, false, None,
           variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3)))
-    }, Set(1, 3))
+      case Seq(OfRuleSuite(rs), varPer, varG, m) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, false, None,
+          variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3), extraConfig = getMap(m, 4)))
+      case Seq(OfRuleSuite(rs), m) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, false, None, extraConfig = getMap(m, 2)))
+    }, Set(1, 2, 3, 4, 5))
 
     register("typed_expression_runner", {
       case Seq(OfRuleSuite(rs), ddl) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1)))
       case Seq(OfRuleSuite(rs), ddl, name) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2)))
+      case Seq(OfRuleSuite(rs), ddl, name, m) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
+          extraConfig = getMap(m,4)))
       case Seq(OfRuleSuite(rs), ddl, name, varPer, varG) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
           variablesPerFunc = getInteger(varPer, 3), variableFuncGroup = getInteger(varG, 4)))
-    }, Set(2, 3, 5))
+      case Seq(OfRuleSuite(rs), ddl, name, varPer, varG, m) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
+          variablesPerFunc = getInteger(varPer, 3), variableFuncGroup = getInteger(varG, 4),
+          extraConfig = getMap(m, 5)))
+    }, Set(2, 3, 4, 5, 6))
 
     register("expression_runner", {
       case Seq(OfRuleSuite(rs)) =>
@@ -628,57 +649,111 @@ object RuleRegistrationFunctions {
         expression(ExpressionRunner(rs, name = getString(name, 1)))
       case Seq(OfRuleSuite(rs), name, options) =>
         expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2)))
+      case Seq(OfRuleSuite(rs), name, options, m) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
+          extraConfig = getMap(m, 3)))
       case Seq(OfRuleSuite(rs), name, options, varp, varg) =>
         expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
           variablesPerFunc = getInteger(varp, 3), variableFuncGroup = getInteger(varg, 4)))
-    }, Set(1, 2, 3, 5))
+      case Seq(OfRuleSuite(rs), name, options, varp, varg, m) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
+          variablesPerFunc = getInteger(varp, 3), variableFuncGroup = getInteger(varg, 4),
+          extraConfig = getMap(m, 5)))
+    }, Set(1, 2, 3, 4, 5, 6))
 
     register("rule_engine_runner", {
       case Seq(OfRuleOutputSuite(rs)) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, None))
+      case Seq(OfRuleOutputSuite(rs), m) if m.dataType.isInstanceOf[MapType] =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, None, extraConfig = getMap(m, 1)))
       case Seq(OfRuleOutputSuite(rs), dt) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1))))
+      case Seq(OfRuleOutputSuite(rs), dt, m) if m.dataType.isInstanceOf[MapType] =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
+          extraConfig = getMap(m, 2)))
       case Seq(OfRuleOutputSuite(rs), dt, debug) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           debugMode = getBoolean(debug, 2)))
+      case Seq(OfRuleOutputSuite(rs), dt, debug, m) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
+          debugMode = getBoolean(debug, 2), extraConfig = getMap(m, 3)))
       case Seq(OfRuleOutputSuite(rs), dt, debug, varp, varg) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           debugMode = getBoolean(debug, 2), variablesPerFunc = getInteger(varp, 3),
           variableFuncGroup = getInteger(varg, 4)
         ))
-    }, Set(1, 2, 3, 5))
+      case Seq(OfRuleOutputSuite(rs), dt, debug, varp, varg, m) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
+          debugMode = getBoolean(debug, 2), variablesPerFunc = getInteger(varp, 3),
+          variableFuncGroup = getInteger(varg, 4), extraConfig = getMap(m, 5)
+        ))
+    }, Set(1, 2, 3, 4, 5, 6))
 
     register("rule_folder_runner", {
       case Seq(OfRuleOutputSuite(rs), starter) =>
         expression(com.sparkutils.quality.classicFunctions.ruleFolderRunnerClassic(rs, column(starter)))
+      case Seq(OfRuleOutputSuite(rs), starter, m) if m.dataType.isInstanceOf[MapType] =>
+        expression(ruleFolderRunnerClassic(rs, column(starter), extraConfig = getMap(m, 2)))
       case Seq(OfRuleOutputSuite(rs), starter, dt) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
           useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
+      case Seq(OfRuleOutputSuite(rs), starter, dt, m) if m.dataType.isInstanceOf[MapType] =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
+          useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType]),
+          extraConfig = getMap(m, 3)))
       case Seq(OfRuleOutputSuite(rs), starter, dt, debug) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
           debugMode = getBoolean(debug, 3), useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
+      case Seq(OfRuleOutputSuite(rs), starter, dt, debug, m) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
+          debugMode = getBoolean(debug, 3), useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType]),
+          extraConfig = getMap(m, 4)
+        ))
       case Seq(OfRuleOutputSuite(rs), starter, dt, debug, varp, varg) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
           debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
           variableFuncGroup = getInteger(varg, 5),
           useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])
         ))
-    }, Set(2, 3, 4, 6))
+      case Seq(OfRuleOutputSuite(rs), starter, dt, debug, varp, varg, m) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
+          debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
+          variableFuncGroup = getInteger(varg, 5),
+          useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType]),
+          extraConfig = getMap(m, 6)
+        ))
+    }, Set(2, 3, 4, 5, 6, 7))
 
     register("collect_runner", {
       case Seq(OfRuleOutputSuite(rs)) =>
         expression(collectRunnerClassic(rs, None))
+      case Seq(OfRuleOutputSuite(rs), m) if m.dataType.isInstanceOf[MapType] =>
+        expression(collectRunnerClassic(rs, None, extraConfig = getMap(m, 1)))
       case Seq(OfRuleOutputSuite(rs), dt) =>
         expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1))))
       case Seq(OfRuleOutputSuite(rs), dt, flatten) =>
         expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)), flatten = getBoolean(flatten, 2)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, m) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)), flatten = getBoolean(flatten, 2),
+          extraConfig = getMap(m, 3)))
       case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls) =>
         expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
           flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, m) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          extraConfig = getMap(m, 4)
+        ))
       case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg) =>
         expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
           flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
           variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5)
+        ))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg, m) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5),
+          extraConfig = getMap(m, 6)
         ))
       case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg,
         useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize) =>
@@ -688,7 +763,16 @@ object RuleRegistrationFunctions {
           useInPlaceArray = getBoolean(useInPlaceArray, 6), unrollInPlaceArray = getBoolean(unrollInPlaceArray, 7),
           unrollOutputArraySize = getInteger(unrollOutputArraySize, 8)
         ))
-    }, Set(1, 2, 3, 4, 6, 9))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg,
+        useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize, m) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5),
+          useInPlaceArray = getBoolean(useInPlaceArray, 6), unrollInPlaceArray = getBoolean(unrollInPlaceArray, 7),
+          unrollOutputArraySize = getInteger(unrollOutputArraySize, 8),
+          extraConfig = getMap(m, 9)
+        ))
+    }, Set(1, 2, 3, 4, 5, 6, 7, 9, 10))
 
     def rsExp(o: Option[(VersionedId, RuleSuite)]) =
       o.map( o => Literal.create(o._2, ObjectType(classOf[RuleSuite]))).getOrElse(
@@ -712,19 +796,10 @@ object RuleRegistrationFunctions {
       case Seq(e) => UnifyResult(e)
     }, Set(1))
 
+    register("group_audit", GroupAudit.apply, minimum = 1) // arrays of results would be one
+
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }
-
-}
-
-/**
- * Safe to use with connect
- */
-object ReWriteConstants {
-
-  val INC_REWRITE_GENEXP_ERR_MSG: String = "inc('DDL', generic expression) is not supported in NO_REWRITE mode, use inc(generic expression) without NO_REWRITE mode enabled"
-
-  val RULE_SUITE_GROUPS_MISSING_ERR_MSG: String = "rule_suite_from called but no matching RuleSuite was found"
 
 }

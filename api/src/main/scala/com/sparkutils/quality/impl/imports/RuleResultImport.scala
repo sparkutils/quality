@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.imports
 
+import com.sparkutils.quality.functions.pack_ints
 import com.sparkutils.shim.LambdaFunctions
 import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
@@ -19,6 +20,42 @@ trait RuleResultImport {
    */
   def rule_result(ruleSuiteResults: Column, ruleSuiteId: Column, ruleSetId: Column, ruleId: Column): Column =
     ShimUtils.callFunction("rule_result", ruleSuiteResults, ruleSuiteId, ruleSetId, ruleId)
+
+  /**
+   * Retrieves the rule result for a given id, the result type is dependent on ruleSuiteResults's type.
+   * Integer is returned for DQ checks and either String or (ruleResult: String, resultDDL: String) for ExpressionResults.
+   *
+   * @param ruleSuiteResults
+   * @param ruleSuiteId
+   * @param ruleSetId
+   * @param ruleId
+   * @return
+   */
+  def rule_result(ruleSuiteResults: Column, ruleSuiteId: Column, ruleSuiteVersion: Column,
+                  ruleSetId: Column, ruleSetVersion: Column,
+                  ruleId: Column, ruleVersion: Column): Column =
+    ShimUtils.callFunction("rule_result", ruleSuiteResults,
+      pack_ints(ruleSuiteId, ruleSuiteVersion),
+      pack_ints(ruleSetId, ruleSetVersion),
+      pack_ints(ruleId, ruleVersion))
+
+  /**
+   * Retrieves the rule result for a given id, the result type is dependent on ruleSuiteResults's type.
+   * Integer is returned for DQ checks and either String or (ruleResult: String, resultDDL: String) for ExpressionResults.
+   *
+   * @param ruleSuiteResults
+   * @param ruleSuiteId
+   * @param ruleSetId
+   * @param ruleId
+   * @return
+   */
+  def rule_result(ruleSuiteResults: Column, ruleSuiteId: Int, ruleSuiteVersion: Int,
+                  ruleSetId: Int, ruleSetVersion: Int,
+                  ruleId: Int, ruleVersion: Int): Column =
+    ShimUtils.callFunction("rule_result", ruleSuiteResults,
+      pack_ints(ruleSuiteId, ruleSuiteVersion),
+      pack_ints(ruleSetId, ruleSetVersion),
+      pack_ints(ruleId, ruleVersion))
 
   /**
    * Groups runnerResults which represent the result column from an array of rule runners, expressionRunner excluded, or
@@ -50,4 +87,11 @@ trait RuleResultImport {
   def unify_result(runnerResults: Column): Column =
     ShimUtils.callFunction("unify_result", runnerResults)
 
+  /**
+   * Processes the audit trail information from runners and RuleSuiteGroupResults fields
+   * @param column any number of runner, RuleSuiteGroupResults or array thereof
+   * @return the audit trail of all the expressions combined under a RuleSuiteGroupResults column
+   */
+  def group_audit(a: Column, b: Column *): Column =
+    ShimUtils.callFunction("group_audit", Seq(a) ++ b:_*)
 }

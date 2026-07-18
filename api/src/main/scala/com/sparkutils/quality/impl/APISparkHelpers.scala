@@ -40,6 +40,7 @@ trait IntEncodersImplicits extends Serializable {
       case DefaultRuleInt => DefaultRule
       case FailedInt => Failed
       case PassedInt => Passed
+      case UnevaluatedRuleInt => UnevaluatedRule
       case a: Int => Probability(a.toDouble / PassedInt)
     })
 

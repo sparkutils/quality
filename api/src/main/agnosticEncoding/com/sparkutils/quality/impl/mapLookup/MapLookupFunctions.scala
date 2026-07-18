@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.VariableHelper
+import com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, GeneratedUniqueName}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
@@ -61,7 +62,12 @@ object MapLookupFunctions extends GeneratedUniqueName {
       StructField(s._1, s._3)
     }).toDDL
     // Defaults can't have subqueries
+    // #127 call broadcast to trigger the server side logic to create the broadcast var, the lit version is then used
+    // by default
     VariableHelper.createVar(name, s"struct<$ddl>", struct)
+    MapBroadcastShim.broadcast(name).getOrElse{
+      SparkSession.active.sql(s"$QUALITY_MAP_BROADCAST $name")
+    }
     name
   }
 

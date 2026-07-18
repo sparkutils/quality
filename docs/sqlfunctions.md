@@ -7,6 +7,8 @@ functions:
       You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values.
 
       rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
+    alternatives:
+      - "rule_result(ruleSuiteResultColumn, ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion) uses unpacked id and versions"
     tags:
       - rule
   to_yaml:
@@ -312,7 +314,9 @@ functions:
       
       On Spark 4 / DBR 17.3 and later this function uses Spark Variables and takes the form:
       >  map_lookup('mapid', expr, mapLookupsVar)
-      Where mapLookupsVar is the result of loadMaps   
+      Where mapLookupsVar is the result of loadMaps
+    alternatives:
+      - "map_lookup('mapid', expr, 'mapLookupsVar') - allows faster if, as is default with the scala api, the QUALITY MAP BROADCAST mapLookupsVar is called"
     tags:
       - map
       - variable
@@ -583,11 +587,6 @@ functions:
       ```sql
       rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
       ```
-
-      ??? warning "It is not recommended to use with 2.4"
-          The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
-
-          Quality provides a backport of Spark 3 functionality to enable this and, in addition to the last Quality 2.4 release, this is not an intended Spark 2.4 pattern, although it works in local testing it has not been tested against clusters. 
     tags:
       - rule
   rule_suite_from:
@@ -618,6 +617,13 @@ functions:
         ```
         
         using the processing version without an engine result will fail the analysis phase.
+    tags:
+      - rule
+  group_audit:
+    description: |
+      group_audit( array_of_runner_results, rule_runners, ... ) processes audit information from any audit providing expression including, as with group_results, an array of results or group results.
+      
+      Unlike group_results the parameters can have mixed formats and only the RuleSuiteResult (or RulesSuiteGroupResults) is kept. 
     tags:
       - rule
   unify_result:

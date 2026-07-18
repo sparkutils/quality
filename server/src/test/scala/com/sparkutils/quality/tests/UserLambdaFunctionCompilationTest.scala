@@ -198,7 +198,7 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
         case _ => false
       })
 
-      val threeUsages = ds.head
+      val threeUsages = ds.head()
       assert(threeUsages == Seq(2, 1, 2, 1, 2))
 
     } finally {
@@ -247,7 +247,7 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
       case _ => false
     })
 
-    val threeUsages = ds.head
+    val threeUsages = ds.head()
     assert(threeUsages == Seq(2,1,2,1,2))
   } } }
 

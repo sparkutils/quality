@@ -1,17 +1,16 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.util.TSLocal
 import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
-import com.sparkutils.testing.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
-import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, BooleanType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable
@@ -65,12 +64,60 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 }
 
-trait RefCodeGen {
+trait CacheApproach {
+  def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode
+}
+
+case class MapBasedCacheApproach() extends CacheApproach {
+  @transient
+  var map = mutable.Map[CodegenContext, ExprCode]()
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (map == null) {
+      map = mutable.Map[CodegenContext, ExprCode]()
+    }
+    val cached = map.get(ctx)
+    if (cached.isEmpty) {
+      val toCache = genCode(ctx)
+      map.put(ctx, toCache)
+      toCache
+    } else {
+      cached.get
+    }
+  }
+}
+
+case class OptionCacheApproach() extends CacheApproach {
+  @transient
+  var opt: Option[ExprCode] = None
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (opt == null) {
+      opt = None
+    }
+    if (opt.isEmpty) {
+      val toCache = genCode(ctx)
+      opt = Some(toCache)
+      toCache
+    } else {
+      opt.get
+    }
+  }
+}
+
+object RefCodeGen {
+  private val cacheApproach = TSLocal[() => CacheApproach]( () => () => MapBasedCacheApproach() )
+  def withCacheApproach[R](t: () => CacheApproach)(thunk: => R): R = {
+    cacheApproach.withT( t )(thunk)
+  }
+}
+
+trait RefCodeGen extends LambdaVariablePattern {
   def dataType: DataType
 
   // never return a different object from this gen code
   @transient
-  var _generated: mutable.Map[CodegenContext, ExprCode] = _
+  var _generated: CacheApproach = null
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     if (ExpressionCompiler.inExpressionCompiler) {
@@ -89,22 +136,20 @@ trait RefCodeGen {
       """)
     } else {
       if (_generated == null){
-        _generated = mutable.Map.empty
+        _generated = RefCodeGen.cacheApproach.get().apply()
       }
-      val cached = _generated.get(ctx)
-      if (cached.isEmpty) {
+
+      _generated.getOrBuild(ctx) { ctx =>
         val javaType = CodeGenerator.javaType(dataType)
         val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
         val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
 
         val toCache = ev.copy(code = code"",
-          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
-          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
+          isNull = VariableValue(theNull, CodeGenerator.javaClass(BooleanType)),
+          value = VariableValue(theVar, CodeGenerator.javaClass(dataType))
         )
-        _generated.put(ctx, toCache)
         toCache
-      } else
-        cached.get
+      }
     }
 }
 
@@ -244,6 +289,69 @@ trait Binder extends HigherOrderFunctionLike {
 
   }
 
+}
+
+/**
+ * Swapped out for FunN during SeparateCompilation to ensure pre 4 OSS and up to DBR 18 do not create
+ * subexpressions for usedAsLambda FunNs (e.g. collector processing or any folder output expression).
+ *
+ * Importantly, we _do_ want children to be subexpr eliminated where possible, hence throwaway code.
+ * @param funN
+ */
+case class FunNLambda(funN: FunN) extends Expression {
+
+  override def children: Seq[Expression] = funN.children
+
+  override def nullable: Boolean = funN.nullable
+
+  override def dataType: DataType = funN.dataType
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(funN.withNewChildren(newChildren).asInstanceOf[FunN])
+
+  override def eval(input: InternalRow): Any = ???
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    ev.copy(isNull = TrueLiteral,
+      code =
+        code"""
+          // FunNLambda subExpr
+          ${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+        """)
+
+}
+
+object FunNLambda {
+
+  def allAsLambdaChildrenAreAlsoLambdas(funNL: FunNLambda): FunNLambda =
+    funNL.copy(funNL.funN.transform{
+      case f: FunN => FunNLambda(f)
+    }.asInstanceOf[FunNLambda].funN)
+
+  def swap(expr: Expression): Expression = {
+    val nexpr =
+      expr match {
+        case f: FunN if f.usedAsLambda => FunNLambda(f)
+        case _ =>
+          expr.transform{
+            case f: FunN if f.usedAsLambda => FunNLambda(f)
+          }
+      }
+
+    nexpr match {
+      case f: FunNLambda => allAsLambdaChildrenAreAlsoLambdas(f)
+      case _ => nexpr
+    }
+  }
+
+  def swapBack(expr: Expression): Expression =
+    expr match {
+      case f: FunNLambda => f.funN
+      case _ =>
+        expr.transform{
+          case f: FunNLambda => f.funN
+        }
+    }
 }
 
 /**

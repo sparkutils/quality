@@ -3,10 +3,10 @@ package com.sparkutils.quality.impl.aggregates
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.aggregates.StatsRowOps.processResult
 import com.sparkutils.quality.impl.aggregates.StatsTypes.{mergeStats, rType, rgType, rsType, setType, updateStats}
-import com.sparkutils.quality.{DefaultRuleInt, DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, Probability, RuleSuiteGroupStatistics, SoftFailedInt}
+import com.sparkutils.quality.{DefaultRuleInt, DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, Probability,
+  RuleSuiteGroupStatistics, SoftFailedInt, UnevaluatedRuleInt}
 import com.sparkutils.quality.impl.util.Compare
-import com.sparkutils.quality.impl.util.Maps.{growMap, replaceEntry}
-
+import com.sparkutils.quality.impl.util.MapUtils.{getKeyIndex, growMap, replaceEntry}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, Literal}
@@ -33,6 +33,8 @@ object StatsTypes {
     case DisabledRuleInt => row.update(4, row.getLong(4) + 1L)
     case IgnoredRuleInt => row.update(5, row.getLong(5) + 1L)
     case DefaultRuleInt => row.update(6, row.getLong(6) + 1L)
+    case UnevaluatedRuleInt =>
+      row.update(9, row.getLong(9) + 1L)
     case a: Int =>
       // TODO thread a non default pass
       if (Probability(a.toDouble / PassedInt).percentage >= defaultProbablePass)
@@ -42,7 +44,7 @@ object StatsTypes {
   }
 
   def mergeStats(from: InternalRow, into: InternalRow): Unit =
-    for(i <- 1 to 8) {
+    for(i <- 1 to 9) {
       into.update(i, into.getLong(i) + from.getLong(i))
     }
 
@@ -65,11 +67,11 @@ object StatsRowOps {
 
   val suiteMapF = (suite: InternalRow, m: MapData) => {
     InternalRow(suite.getLong(0), suite.getLong(1),suite.getLong(2),suite.getLong(3),suite.getLong(4),
-      suite.getLong(5),suite.getLong(6),suite.getLong(7),suite.getLong(8), suite.getLong(9), m)
+      suite.getLong(5),suite.getLong(6),suite.getLong(7),suite.getLong(8),suite.getLong(9),suite.getLong(10),m)
   }
   val setMapF = (set: InternalRow, m: MapData) => {
     InternalRow(set.getLong(0), set.getLong(1),set.getLong(2),set.getLong(3),set.getLong(4),
-      set.getLong(5),set.getLong(6),set.getLong(7),set.getLong(8), m)
+      set.getLong(5),set.getLong(6),set.getLong(7),set.getLong(8),set.getLong(9),m)
   }
   val noOpMapF = (set: InternalRow, m: MapData) => set
 
@@ -81,19 +83,19 @@ object StatsRowOps {
       inputRowResult = _.asInstanceOf[InternalRow].getInt(1), statsDefaultNestedType = defaultSuiteStats,
       statsNestedType = rsType, statsBuildWhenNewMap = (curGroup, m) => InternalRow(m, curGroup.getLong(1)),
       nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(2), nextInputRowSize = 2,
-      nextStatMap = _.getMap(10), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
+      nextStatMap = _.getMap(11), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
       processStats = (r: Int, row: InternalRow) => {
         updateStats(r, row)
-        row.update(9, row.getLong(9) + 1L)
+        row.update(10, row.getLong(10) + 1L)
       }),
-    StatsRowOps(level = "suite_to_set", statsMapOffset = 10,
+    StatsRowOps(level = "suite_to_set", statsMapOffset = 11,
       inputRowResult = _.asInstanceOf[InternalRow].getInt(0), statsDefaultNestedType = defaultSetStats,
       statsNestedType = setType, statsBuildWhenNewMap =  noOpMapF,
       nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(1), nextInputRowSize = -1,
-      nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
+      nextStatMap = _.getMap(10), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
       processStats = updateStats),
     // most of the bit below are ignored for a rule set level result
-    StatsRowOps(level = "set_to_rule", statsMapOffset = 9,
+    StatsRowOps(level = "set_to_rule", statsMapOffset = 10,
       inputRowResult = _.asInstanceOf[Int], statsDefaultNestedType = defaultRuleStats,
       statsNestedType = rType, statsBuildWhenNewMap = noOpMapF,
       nextInputLevels = _ => emptyMap, nextInputRowSize = -1,
@@ -107,7 +109,7 @@ object StatsRowOps {
       statsDefaultNestedType = defaultGroupStats, // never used as it's always present
       statsNestedType = rgType,
       statsBuildWhenNewMap = (_, m) => m.valueArray().getStruct(0, 2), // the actual data
-      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(0), nextInputRowSize = 11,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(0), nextInputRowSize = 12,
       nextStatMap = _.getMap(0), nextStatType = rsType,
       nextStatsBuildWhenNewMap = (cur: InternalRow, m: MapData) => {
         InternalRow(m, cur.getLong(1))
@@ -119,24 +121,24 @@ object StatsRowOps {
     StatsRowOps(level = "group_to_suite", statsMapOffset = 0,
       inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultSuiteStats,
       statsNestedType = rsType, statsBuildWhenNewMap = noOpMapF,
-      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(10), nextInputRowSize = 10,
-      nextStatMap = _.getMap(10), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(11), nextInputRowSize = 11,
+      nextStatMap = _.getMap(11), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
       processStats = (from: InternalRow, into: InternalRow) => {
         mergeStats(from, into)
         // RuleSuite rowcount
-        into.setLong(9, into.getLong(9) + from.getLong(9))
+        into.setLong(10, into.getLong(10) + from.getLong(10))
       }),
-    StatsRowOps(level = "suite_to_set", statsMapOffset = 10,
+    StatsRowOps(level = "suite_to_set", statsMapOffset = 11,
       inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultSetStats,
       statsNestedType = setType, statsBuildWhenNewMap =  noOpMapF,
-      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(9), nextInputRowSize = 9,
-      nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(10), nextInputRowSize = 10,
+      nextStatMap = _.getMap(10), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
       processStats = mergeStats),
     // most of the bit below are ignored for a rule set level result
-    StatsRowOps(level = "set_to_rule", statsMapOffset = 9,
+    StatsRowOps(level = "set_to_rule", statsMapOffset = 10,
       inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultRuleStats,
       statsNestedType = rType, statsBuildWhenNewMap = noOpMapF,
-      nextInputLevels = _ => emptyMap, nextInputRowSize = 9,
+      nextInputLevels = _ => emptyMap, nextInputRowSize = 10,
       nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row,
       processStats = mergeStats)
   )
@@ -180,14 +182,7 @@ object StatsRowOps {
 
       val m = cur.getMap(statsMapOffset)
 
-      var rs_i = -1
-      var i = 0
-      while (rs_i == -1 && i < m.numElements()) {
-        if (m.keyArray().getLong(i) == id) {
-          rs_i = i
-        }
-        i += 1
-      }
+      val rs_i = getKeyIndex(m, (ka, i) => ka.getLong(i) == id)
       var createdNewMap = false
       val rs =
         if (rs_i > -1)
@@ -257,14 +252,7 @@ object StatsRowOps {
       import head._
       // either we need to re-integrate it or it was brand new
       val m = curGroup.getMap(statsMapOffset)
-      var rs_i = -1
-      var i = 0
-      while (rs_i == -1 && i < m.numElements()) {
-        if (m.keyArray().getLong(i) == id) {
-          rs_i = i
-        }
-        i += 1
-      }
+      var rs_i = getKeyIndex(m, (ka, i) => ka.getLong(i) == id)
       val nm =
         if (rs_i > -1) {
           // it needs to be replaced if the arrays are not generic

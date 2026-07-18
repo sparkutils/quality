@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.internal.Logging
@@ -11,39 +11,57 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder, encoderFor}
 import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, ImplicitCastInputTypes, InterpretedMutableProjection, Literal, NonSQLExpression, Projection, UnsafeProjection, UnsafeRow, UpdateFields, UserDefinedExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, EmptyBlock, ExprCode, ExprValue, GenerateMutableProjection, JavaCode, ShimExprUtils, SubExprEliminationState, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, EqualNullSafe, Expression, ExpressionEquals, ExpressionSet, HigherOrderFunction, ImplicitCastInputTypes, InterpretedMutableProjection, Literal, NonSQLExpression, Projection, UnsafeProjection, UnsafeRow, UpdateFields, UserDefinedExpression}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 // import org.apache.spark.sql.execution.aggregate.ScalaAggregator
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, LambdaFunctions}
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.Utils
+
+import scala.collection.mutable
 
 /**
  * Set of utilities to reach in to private functions
  */
 object ClassicQualitySparkUtils {
+
+  /**
+   * Only evaluates against subexpressions
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
+   */
+  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
+    val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
+
+    val p = formatParams(ctx, a.toSeq, additional)
+
+    p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
+  }
+
   /**
    * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
    *
    * @param i
    * @param ctx
-   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[(VariableValue, Boolean)] = Seq.empty): ParameterInformation = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams( ctx, a.toSeq )
+    val p = formatParams(ctx, a.toSeq, additional)
 
-    (p._1, p._2, b.map(_.code.code).mkString("\n"))
+    p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
-    plan.transformExpressionsDownWithPruning {
+    plan.transformAllExpressionsWithPruning {
       // if it's an actual lambda (e.g. folder) we should not expand it for now
       case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
         case f: FunN =>

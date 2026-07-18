@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{OverallResult, RuleEngineRunner}
-import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.extension.{FunNRewrite, ZeroCodeGen}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
@@ -60,7 +60,10 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
                 OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
           )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
 
-          val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
+          val rs = expression(rer) match {
+            case r: RuleEngineRunner => r.ruleSuite
+            case ZeroCodeGen(_, r: RuleEngineRunner,_,_) => r.ruleSuite
+          }
           val ds = toDS(rs)
 
           val so = toOutputExpressionDS(rs)
@@ -145,7 +148,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
       RunOnPassProcessor(1000, Id(1040,1),OutputExpression("array(TEMP_O_1, 'a', 'EX_3')")))
     val rule4 = Rule(Id(101, 2), ExpressionRule("I2 = 'A' AND I3 IN ('a', 'b') AND I4 IS NOT NULL"),
       RunOnPassProcessor(1000, Id(1040,1),OutputExpression("array(I4, 'b', 'EX_4')")))
-    val ruleSuite2 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule3,rule4))))
+    val ruleSuite2 = RuleSuite(Id(42, 1034), Seq(RuleSet(Id(33, 345), Seq(rule3,rule4))))
     val schema2=DataType.fromDDL("ARRAY<STRING>")
     val rer2 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite2,Some(schema2))//, compileEvals = true, forceTriggerEval = true)
 
@@ -163,7 +166,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
     val rule7 = Rule(Id(102, 2), ExpressionRule("TEMP_O_2 ='UNKNOWN'"), RunOnPassProcessor(1000, Id(1040,1),
       OutputExpression("array('R', 'EX_8')")))
 
-    val ruleSuite3 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule5,rule6,rule7))))
+    val ruleSuite3 = RuleSuite(Id(62, 1034), Seq(RuleSet(Id(33, 345), Seq(rule5,rule6,rule7))))
     val schema3=DataType.fromDDL("ARRAY<STRING>")
     val rer3 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite3,Some(schema3))//, compileEvals = true, forceTriggerEval = true)
 

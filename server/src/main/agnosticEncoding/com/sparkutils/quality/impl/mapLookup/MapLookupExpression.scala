@@ -9,7 +9,7 @@ import org.apache.spark.sql.types.{DataType, MapType}
  * @param mapId the name of the map entry / dataframe the lookupmap belongs to
  * @param child the expression to lookup
  * @param arrayMap the lookup broadcast maps
- */
+
 @ExpressionDescription(
   usage = "_FUNC_(content to lookup, bloomFilterName) - Returns either the lookup value or Null when not present",
   examples = """
@@ -30,4 +30,4 @@ case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Expre
   override def mapData(t: Expression): MapData = t.eval().asInstanceOf[MapData]
 
   override val dataType: DataType = arrayMap.dataType.asInstanceOf[MapType].valueType
-}
+}*/

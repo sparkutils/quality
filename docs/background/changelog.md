@@ -1,7 +1,16 @@
-### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
+### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th July, 2026</small>
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0. 
+
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
+
+The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
+large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
+
+In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and for large test sets, typically around 30%.  Using the
+linear BigRules test (20k rules) has an in Quality row processing time of 3.68ms down from 5.03ms per row, a 37% improvement (via specialised Spark MapData and GenericArrayData types).
+
+Sparkless is deprecated as of this release and will be removed in subsequent releases.
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
@@ -13,7 +22,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > is used to run the same test cases against both Classic and Connect ensuring the API is stable.  This also extends 
 > to user functions (LambdaFunctions), on Connect they are sent to the server via a custom command.
 > 
-> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
+> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard 
 > interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
 > the testing runs will also run in the normal Classic mode and, via the scala.api.mode=connect config parameter, 
 > against the provided Spark Connect server.
@@ -21,15 +30,22 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
 > relate to extension points such as monadic add.
 > 
-> Map and Bloom related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
+> Map related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
 > struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
-> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
+> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL 
+> interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for
+> use with any Spark queries.
 > 
 > If code was using QualitySparkUtils the import is now ClassicQualitySparkUtils.
 > 
-> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders. 
+> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders.
+> 
+> [generic](../site/{{api_version()}}/scaladocs/com/sparkutils/quality/generic/index.html) is introduced, providing
+> a generic RuleSuite parameter to runner functions.  This allows these functions to be re-used whether a RuleSuite,
+> Spark Variable name, compatible Spark Column or a RuleSuiteGroup name and Id combination via [GroupRuleId](../../site/{{api_version()}}/scaladocs/com/sparkutils/quality/GroupRuleId.html)
+> (typed stand in for the rule_suite_from function). 
 
-#96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
+#96 - quality_api jar is introduced, leveraging Spark Connect - allows a client server model and further client language support
 
 #100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
 
@@ -40,6 +56,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > compileEvals and forceTriggerEval now default to false for all runner types and are removed for the connect api, as are resolveWith.  This has been found to be the best balance for most rules with 
 > large performance gains as of 0.1.3.1 for long-running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
 > code generation itself dominates your applications time but note that nesting and chaining calls between runners is not supported - use .cache / write interim results if this is needed.
+> 
 > ruleEngineRunner's schema parameter when using all parameters is now Option\[DataType\], wrap in Some if you are using custom parameters for false etc.not relying on the old defaults.
 > Deriving the type for ruleEngineRunner may work but you must use the type if control over nullability is required (for example expressions differ in nullability).
 
@@ -54,7 +71,44 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 #104 - RuleSuiteGroups allow nesting runners within both trigger and output expressions, a number of helper functions are provided to help you manage audit state
 
 > group_results can collect RuleSuiteResults over an array of nested runners (excluding expressionRunner) into RuleSuiteGroupResults, or indeed over RuleSuiteGroupResults and has an optional processing lambda over any results to save projections (e.g. using f -> flatten(f))
+> 
 > unify_result converts all engine runner results (folder, engine and collector) into the RuleFolderResult type (ruleSuiteResults: RuleSuiteResults, result: T) allowing combinations of engine results, however nested. Debug outputs etc. are disguarded.
+
+#109 - Simplified access functions for rule results, rule_result returns a rule without needing to flatten or nested filter, has_X wraps the result and tests for passed, failed etc.
+
+#123 - Simplified use of View and Map loading, default case classes are provided as well as simplified loadConfig functions using default columns classes.  Previously private impl classes have been made public to allow further re-use.
+
+#124 - Introduced group_audit function, allowing multiple Quality auditable columns to be combined into a RuleSuiteGroupResults column
+
+#131 - Compilation of runners is now split from Spark's typical single java file.  This reduces compilation times in general for nested or chained runners and removes limits on the number of rules suites that can be run in one action.  
+
+#129 - Compilation of large RuleSuites (the test case has 20k rules) can now be managed by optional TriggerGrouping:
+
+> In addition to workarounds added to shim for bad Databricks compilation approaches (no 64kb code size handling as per OSS),
+> Quality now allows customisable grouping of Triggers via an also newly optional extraConfig parameter:
+> ```scala
+>  extraConfig = Map(
+>    groupProcessorKey /* "quality.runnerGroupProcessor" */ -> classOf[TopLevelBooleanGrouper].getName
+>  ))
+> ```
+> These parameters can be provided directly when calling a specific runner or via System properties and Spark conf
+> which apply across all runners.
+> 
+> The experimental TopLevelBooleanGrouper, in addition to whole stage compilation improvements and #131, allows reduction of evaluation
+> cost by 20x in the "BigRules" test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
+
+#137 - Performance improvements for #129 for String based lookups and overall performance improvements in processing
+
+> When using TopLevelBooleanGrouper any remaining tests that are "field = 'value'" EqualTo relationships with the same field
+> are converted to nested binary branching String switches for optimised lookups.
+
+#142 - Significantly faster special case handling for boolean and int / long trigger results in codegen, rewrite SoftFail to Int case
+
+> DQ ruleRunner and the rule engine, collect and folder trigger usage has specific per trigger result processing based on type.
+> When boolean, int or long are provided custom checks are implemented, otherwise it defaults to a more comprehensive Scala "Any" pattern match derivation.
+> In addition, DQ runner benefits from only storing results that deviate from the default Passed, this leads to 4% speed bump in the Quality performance tests. 
+
+#143 - Support for Spark 4.2
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

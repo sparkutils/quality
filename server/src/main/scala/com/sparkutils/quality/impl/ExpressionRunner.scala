@@ -2,17 +2,19 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, packTheId, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
-import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
+import com.sparkutils.quality.impl.util.{Arrays, GenerateResult, PassThroughCompileEvals, SeparateCompilation}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
-
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -27,8 +29,10 @@ object ExpressionRunner {
    * @param ddlType optional DDL string, when present yaml output is disabled and the output expressions must all have the same type
    * @param name the default column name "expressionResults"
    */
-  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-            variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, compileEvals: Boolean = false): Column = {
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty,
+            ddlType: String = "", variablesPerFunc: Int = 40, variableFuncGroup: Int = 20,
+            forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+            extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
     val collectExpressions =
@@ -51,16 +55,16 @@ object ExpressionRunner {
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 
-    ShimUtils.column(
+    ShimUtils.column(ZeroCodeGenWrap.wrap(
       if (forceRunnerEval)
         new ExpressionRunnerEval(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
-          compileEvals = compileEvals)
+          compileEvals = compileEvals, extraConfig = extraConfig)
       else
-        new ExpressionRunner(cleaned, exprs,
+        new ExpressionRunnerCompiled(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
-          compileEvals = compileEvals)
-    ).as(name)
+          compileEvals = compileEvals, extraConfig = extraConfig)
+    )).as(name)
   }
 }
 
@@ -90,48 +94,23 @@ private[quality] object ExpressionRunnerUtils {
     }
   }
 
-  // ruleSuite is not used, its for compat with nonOutputRuleGen
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
-    val ruleSetRes = Array.ofDim[ArrayBasedMapData](ruleSuiteArrays.ruleSetIds.length)
-
-    var offset = 0
-
-    for( rsi <- ruleSuiteArrays.ruleSetIds.indices) {
-
-      val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
-
-      val ruleSetResults = results.slice(offset, offset + rulesetSize)
-      offset += rulesetSize
-
-      ruleSetRes(rsi) =
-        ArrayBasedMapData( ruleSuiteArrays.ruleSets(rsi), ruleSetResults )
-
-    }
-
-    InternalRow( ruleSuiteArrays.packedId,
-      ArrayBasedMapData( ruleSuiteArrays.ruleSetIds, ruleSetRes)
-    )
-  }
-
 }
 
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-trait ExpressionRunnerBase[T] extends NonSQLExpression {
+trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation with TriggerOnly  {
 
-  val ruleSuite: RuleSuite
   val ddlType: DataType
   val compileEvals: Boolean
-  val variablesPerFunc: Int
-  val variableFuncGroup: Int
 
   implicit val classTagT: ClassTag[T]
 
   lazy val realChildren = getRealChildren(children)
 
-  override def toString: String = s"ExpressionRunner(${realChildren.mkString(", ")})"
+  override def toString: String = s"ExpressionRunner(${ruleSuite.id})" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   override def nullable: Boolean = false
 
@@ -144,41 +123,96 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
     ExpressionRunnerUtils.expressionsResultToRow[Any](res)
   }
 
-  protected def doGenCodeI(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val i = ctx.INPUT_ROW
-
-    ctx.references += this
-
-    val termF = genRuleSuiteTerm[T](ctx)
-    // bind the rules
-    val ruleSuitTerm = termF._1
-    val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
-
-    val ruleRes = "java.lang.Object"
-    val strType = classOf[UTF8String].getName
-    val ddlArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("ddlArr"),
-      v =>
-        if (ddlType == impl.types.expressionResultTypeYaml)
-          s"""
-            $v = new $strType[${realChildren.size}];\n
-            \n
-            $utilsName.fillDDLs($v, ${termF._2("realChildren", classOf[Seq[Expression]].getName)});
-          """
-        else
-          s"""
-            $v = null;
-          """
+  /**
+   * Used by codegen
+   */
+  override def createDefaultRuleResult(): InternalRow =
+    InternalRow(packTheId(ruleSuite.id),
+      ArrayBasedMapData(
+        ruleSuite.ruleSets.map{
+          ruleSet =>
+            packTheId(ruleSet.id) ->
+              ArrayBasedMapData(
+                ruleSet.rules.map( r => packTheId(r.id) -> null).toMap
+              )
+        }.toMap
+      )
     )
 
-    def yamlOrType(code: ExprValue, idx: Int): String =
-      if (ddlType == impl.types.expressionResultTypeYaml)
-        s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
-      else
-        s"$code"
+  /**
+   * used by codegen
+   */
+  override def applyNonEmptySuffix: String = "Expression"
+  /**
+   * used by codegen
+   */
+  override def applyInterimType: String = "Object"
 
-    nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-      yamlOrType(_,_)
-    )
+  /**
+   * used by codegen
+
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
+    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
+*/
+  /**
+   * used by codegen
+   */
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
+    val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
+    // update result directly
+    val sv = sar.valueArray.asInstanceOf[GenericArrayData]
+    sv.getMap(level1).valueArray().asInstanceOf[GenericArrayData].update(level2, ruleResult)
+  }
+
+  protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
+
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
+      (ctx, ruleRunnerExpressionIdx, _) =>
+
+        // must be called before the rule gen runs
+        val params = genParams(ctx, this)
+
+        val termF = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)
+        // bind the rules
+        val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
+
+        val ruleRes = "java.lang.Object"
+        val strType = classOf[UTF8String].getName
+        val ddlArrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("ddlArr"),
+          v =>
+            if (ddlType == impl.types.expressionResultTypeYaml)
+              s"""
+                $v = new $strType[${realChildren.size}];\n
+                \n
+                $utilsName.fillDDLs($v, ${termF._2("realChildren", classOf[Seq[Expression]].getName)});
+              """
+            else
+              s"""
+                $v = null;
+              """
+        )
+
+        def yamlOrType(code: ExprValue, isNull: ExprValue, idx: Int): String =
+          if (ddlType == impl.types.expressionResultTypeYaml)
+            s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
+          else {
+            // #82 DBR Janino autobox issue
+            val edt = code.javaType
+            val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+            s"($theCast) ( $code )"
+          }
+
+        val (res, triggerRes) =
+          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType, ruleRunnerExpressionIdx)
+
+      GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty)
+    }
+    setClazzSource(clazz)
+    fres
   }
 
   override def dataType: DataType =
@@ -191,28 +225,32 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
  */
 case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                             compileEvals: Boolean, variablesPerFunc: Int,
-                            variableFuncGroup: Int)
+                            variableFuncGroup: Int, extraConfig: Map[String, String], alreadyZero: Boolean = false)
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
 
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
+case class ExpressionRunnerCompiled(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                                 compileEvals: Boolean, variablesPerFunc: Int,
-                                variableFuncGroup: Int)
-  extends ExpressionRunnerBase[ExpressionRunner] {
+                                variableFuncGroup: Int, extraConfig: Map[String, String], alreadyZero: Boolean = false)
+  extends ExpressionRunnerBase[ExpressionRunnerCompiled] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
-  override implicit val classTagT: ClassTag[ExpressionRunner] = ClassTag(classOf[ExpressionRunner])
+  override implicit val classTagT: ClassTag[ExpressionRunnerCompiled] = ClassTag(classOf[ExpressionRunnerCompiled])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 case class StripResultTypes(child: Expression) extends UnaryExpression with CodegenFallback with InputTypeChecks {

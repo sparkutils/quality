@@ -2,14 +2,16 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{InputWrapper, NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ShimUtils.{column, expression}
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.sql.functions.{lit, typedLit}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -37,14 +39,14 @@ trait ClassicRuleFolderRunnerImports {
   def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
-                       forceTriggerEval: Boolean = false): Column =
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column =
     if (ResolveUtil.checkResolveMakesSenseOrClassic(resolveWith))
       ruleFolderRunnerClassic(ruleSuite, startingStruct, compileEvals, debugMode, resolveWith, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, useType, forceTriggerEval)
+        variableFuncGroup, forceRunnerEval, useType, forceTriggerEval, extraConfig)
     else
       ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
         startingStruct, lit(useType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup)
+        lit(variableFuncGroup), typedLit(extraConfig)
       )
 
   /**
@@ -55,7 +57,7 @@ trait ClassicRuleFolderRunnerImports {
    *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param startingStruct This struct is passed to the first matching rule, ideally you would use the spark dsl struct function to refer to existing columns
-   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
+   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations.
    * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
    * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this.
    * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
@@ -68,7 +70,7 @@ trait ClassicRuleFolderRunnerImports {
   def ruleFolderRunnerClassic(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
-                       forceTriggerEval: Boolean = false): Column = {
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     // needed to resolve variables -- this changes between invocation and stops the type checks.  In the test case it's subcode that is on one type nullable and the other not
@@ -88,10 +90,26 @@ trait ClassicRuleFolderRunnerImports {
 
     val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e, usedAsLambda = true)
 
-    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite, liftLambda)
+    val (oexpressions, indexes, triggerCount) = flattenExpressions(ruleSuite, liftLambda)
+
+    val starter = expression(startingStruct)
+
+    val attributes = starter.collect{
+      case a: Attribute => a // UnresolvedAttribute for classic and Attribute for connect, so it needs converting to Unresolved
+    }
+    val firstTriggerAttributes = oexpressions.head.collect {
+      case a: Attribute => a
+    }
+
+    // Connect stops attribute resolution for some reason when the very first trigger rule is the string "true"
+    // supplying a binder to the outer scope works, starter itself doesn't and a resolved doesn't either.
+    val expressions =
+      if (firstTriggerAttributes.isEmpty)
+        Seq( InputWrapper( UnresolvedAttribute(attributes.head.name), oexpressions.head ) ) ++ oexpressions.tail
+      else
+        oexpressions
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
-    val starter = expression(startingStruct)
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
@@ -104,12 +122,12 @@ trait ClassicRuleFolderRunnerImports {
         new RuleFolderRunnerEval(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount, extraConfig)
       else
         new RuleFolderRunner(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
     column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -120,7 +138,7 @@ trait ClassicRuleFolderRunnerImports {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse runner
+      } getOrElse ZeroCodeGenWrap.wrap(runner)
     )
   }
 }

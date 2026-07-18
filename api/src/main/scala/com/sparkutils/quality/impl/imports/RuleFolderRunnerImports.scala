@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import com.sparkutils.quality.impl.{CallFunctionImpls, RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
@@ -23,12 +23,11 @@ trait RuleFolderRunnerImports {
    */
   def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, useType: Option[StructType] = None): Column =
+                       variableFuncGroup: Int = 20, useType: Option[StructType] = None,
+                       extraConfig: Map[String, String] = Map.empty): Column =
     Runners.ruleFolderRunner(ruleSuite, startingStruct, compileEvals = false, debugMode, None,
-      variablesPerFunc, variableFuncGroup, useType = useType).getOrElse(
-      ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        startingStruct, lit(useType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup)
-      )
+      variablesPerFunc, variableFuncGroup, useType = useType, extraConfig = extraConfig).getOrElse(
+      CallFunctionImpls.folder( lit(RuleSuiteHelpers.serialize(ruleSuite)), startingStruct,
+        debugMode, variablesPerFunc, variableFuncGroup, useType, extraConfig )
     )
 }

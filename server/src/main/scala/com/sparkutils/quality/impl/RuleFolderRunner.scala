@@ -2,13 +2,18 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.Triggers.defaultGrouper
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
+import org.apache.spark.sql.catalyst.util.truncatedString
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.{FunN, MapBasedCacheApproach, OptionCacheApproach, RefCodeGen, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
 import java.util.concurrent.atomic.AtomicReference
@@ -44,7 +49,11 @@ private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImp
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleFolderRunnerBase[T] extends NonSQLExpression {
+trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasOutput {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"rule_folder_runner($ruleSuiteCall, ${startingStruct.sql})"
+
+  override def canAudit: Boolean = super.canAudit && startingStruct.resolved
 
   val ruleSuite: RuleSuite
   val resultDataType: () => DataType
@@ -56,6 +65,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   val dataRef: AtomicReference[DataType]
   val forceTriggerEval: Boolean
   val triggerCount: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -78,7 +88,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = s"RuleFolderRunner(${realChildren.mkString(", ")})"
+  override def toString: String = s"RuleFolderRunner(${ruleSuite.id})" + truncatedString(
+    children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
@@ -96,83 +107,112 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
+    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(
+      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+      topLevelCompilationUnit = true) {
+      (ctx, ruleRunnerExpressionIdx, _) =>
+        val cacheApproach =
+          if (extraConfig.getOrElse(groupProcessorKey, defaultGrouper) != defaultGrouper)
+            // assumed desirable for all
+            () => OptionCacheApproach()
+          else
+            () => MapBasedCacheApproach()
 
-    // need to setup the folder variable to pass around, create it with "left"
-    // thread it through
-    val folderV = ctx.addMutableState( "InternalRow",
-      ctx.freshName("folderV") )
+        // pin a cache approach
+        val lazyRefsGenCode = RefCodeGen.withCacheApproach(cacheApproach) {
+          realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        }
 
-    def hasDefault(when: => String, els: String = ""): String =
-      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-        when
-      else
-        els
+        val extras =
+          lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {
+            case vv: VariableValue => (vv, false) // isNull is ok as only boolean is assigned
+          }.distinct
 
-    val sizeAdjustment =
-      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-        -1 // don't generate the default, there isn't a trigger
-      else
-        0
+        // need to setup the folder variable to pass around, create it with "left"
+        // thread it through
+        val folderV = ctx.addMutableState( "InternalRow",
+          ctx.freshName("folderV") )
 
-    // order by salience
-    val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-    val reordered = // fill the index list, still only uniques
-      (0 until triggerCount).map{i =>
-        // lookup the output expressions
-        expressionOffsets(i)
-      } zip salience sortBy(_._2) map(_._1)
+        def hasDefault(when: => String, els: String = ""): String =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            when
+          else
+            els
 
-    val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        val sizeAdjustment =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            -1 // don't generate the default, there isn't a trigger
+          else
+            0
 
-    val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
-        // capture the current
-        extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
-        extraSetup = (_, i: Int) =>
-          s"""
+        // order by salience
+        val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
+        val outputs = (0 until triggerCount)
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
+
+        val compilerTerms =
+          RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
+            PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
+            debugMode, forceTriggerEval,
+            // capture the current
+            extraResult = (outArrTerm: String, _) => s"$folderV = $outArrTerm;",
+            extraSetup = (_, i: Int) =>
+              s"""
           // set the current row for the fold for flattened rule $i
           ${lazyRefsGenCode(i).value} = $folderV;
           ${lazyRefsGenCode(i).isNull} = $folderV == null;
           """,
-        orderOffset = (idx: Int) => reordered(idx),
-        // we shouldn't check salience as we are already ordered by it
-        salienceCheck = false,
-        sizeAdjustment = sizeAdjustment
-      )
+            orderOffset = (idx: Int) => reordered(idx),
+            // we shouldn't check salience as we are already ordered by it
+            salienceCheck = false,
+            sizeAdjustment = sizeAdjustment, salience = salience(_), runnerParams = extras
+          )
 
-    import compilerTerms._
+        import compilerTerms._
+        import parameterInformation._
 
-    // generate the starting struct
-    val starterEval = startingStruct.genCode(ctx)
+        // generate the starting struct
+        val starterEval = startingStruct.genCode(ctx)
 
-    val rsres = ctx.freshName("ruleSuiteRes")
-    val default = ctx.freshName("defaultRes")
+        val default = ctx.freshName("defaultRes")
 
-    val pre = s"""
+        val pre = code"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
-          $pushToTop
           $hasAPassTerm = false;
+
+          ${
+            val init =
+              lazyRefsGenCode.map{e =>
+                s"""
+                  ${e.value.code} = null;
+                  ${e.isNull.code} = false;
+                """
+              }.mkString("\n")
+            init
+          }
 
           // starting
           ${starterEval.code}
           // setting the folder
           $folderV = ${starterEval.isNull} ? null : (InternalRow)${starterEval.value}; \n
 
-          ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
+          // copy row
+          $resultRowCopy
+          // group specific subexprs
+          ${grouped.subExpressions}
+          // group calls
+          ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
 
-          InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
           InternalRow $default = null;
 
          ${hasDefault {
-            s"""
+          s"""
             if (!$hasAPassTerm) {
             ${
-              val defP = realChildren.last.genCode(ctx)
-              s"""
+            val defP = realChildren.last.genCode(ctx)
+            s"""
                   ${lazyRefsGenCode.last.value} = $folderV;
                   ${lazyRefsGenCode.last.isNull} = $folderV == null;
                   ${defP.code}
@@ -180,44 +220,53 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
                   // System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
                   $default = ${defP.value};
 
-                  $rsres.update(1, ${DefaultRuleInt});
+                  $resultRow.update(1, ${DefaultRuleInt});
                 """
-            }
+          }
             }
             """ }
-          }
+        }
       """
-    val post = s"""
 
-          boolean ${ev.isNull} = false;
+        val resName = ctx.freshName("result")
+        val resNull = ctx.freshName("isNull")
+
+        val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
+        val post = s"""
+
+          boolean ${exp.isNull} = false;
       """
-    val res =
-      if (debugMode)
-        ev.copy(code = code"""
+
+        val res =
+          if (debugMode)
+            exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($rsres,
+          InternalRow ${exp.value} =
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($resultRow,
              (($currentOutputIndex < 0) && ($default == null)) ? null :
               com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, $default));
 
           $post
           """
-        )
-      else
-        ev.copy(code = code"""
+            )
+          else
+            exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($rsres,
+          InternalRow ${exp.value} =
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($resultRow,
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm, $default);
 
           $post
           """
-        )
+            )
+        GenerateResult(compilerTerms, res, grouped.extraClasses)
+    }
 
-    res
-
+    setClazzSource(clazz)
+    fres
   }
 
   def processNewChildren(newChildren: Seq[Expression]): Seq[Expression] = {
@@ -248,7 +297,8 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false,
+                            alreadyZero: Boolean = false
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -257,6 +307,8 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
   override implicit val classTagT: ClassTag[RuleFolderRunnerEval] = ClassTag(classOf[RuleFolderRunnerEval])
 
   override val tClass: Class[RuleFolderRunnerEval] = classOf[RuleFolderRunnerEval]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 
@@ -268,14 +320,23 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false,
+                            alreadyZero: Boolean = false
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(children = processNewChildren(newChildren))
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
+    val r = copy(children = processNewChildren(newChildren), audited = true)
+    if (!audited) {
+      r.performGroupingAuditDump()
+    }
+    r
+  }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
   override implicit val classTagT: ClassTag[RuleFolderRunner] = ClassTag(classOf[RuleFolderRunner])
   override val tClass: Class[RuleFolderRunner] = classOf[RuleFolderRunner]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
+
 }

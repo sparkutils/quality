@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import com.sparkutils.quality.impl.{CallFunctionImpls, RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
@@ -22,13 +22,12 @@ trait RuleEngineRunnerImports {
    */
   def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column =
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false,
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column =
     Runners.ruleEngineRunner(ruleSuite, resultDataType, compileEvals = false, debugMode, None, variablesPerFunc,
-      variableFuncGroup, forceRunnerEval, forceTriggerEval).getOrElse(
-      ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        lit(resultDataType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup)
-      )
+      variableFuncGroup, forceRunnerEval, forceTriggerEval, extraConfig = extraConfig).getOrElse(
+      CallFunctionImpls.engine( lit(RuleSuiteHelpers.serialize(ruleSuite)), resultDataType,
+        debugMode, variablesPerFunc, variableFuncGroup, extraConfig )
     )
 
   /**

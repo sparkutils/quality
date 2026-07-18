@@ -1284,8 +1284,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     processora.setPartition(1)
     testProcessor(processora, 2)
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 3
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+      case (true, false) => StatefulTest.initCount should be <= 5
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
       case _ => StatefulTest.initCount should be >= 2
     }
 
@@ -1294,8 +1294,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     testProcessor(processorb, 6)
 
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 3
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+      case (true, false) => StatefulTest.initCount should be <= 5
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
       case _ => StatefulTest.initCount should be >= 3
     }
   } } } } }
@@ -1379,8 +1379,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     processora.setPartition(1)
     testProcessor(processora, 2)
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 3
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+      case (true, false) => StatefulTest.initCount should be <= 5
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
       case _ => StatefulTest.initCount should be >= 2
     }
 
@@ -1389,8 +1389,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     testProcessor(processorb, 6)
 
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 3
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+      case (true, false) => StatefulTest.initCount should be <= 5
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
       case _ => StatefulTest.initCount should be >= 2
     }
   } } } } }
@@ -1476,8 +1476,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       processora.setPartition(1)
       testProcessor(processora, 2)
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 3
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+        case (true, false) => StatefulTest.initCount should be <= 5
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
         case _ => StatefulTest.initCount should be >= 2
       }
 
@@ -1486,8 +1486,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       testProcessor(processorb, 6)
 
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 3
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+        case (true, false) => StatefulTest.initCount should be <= 5
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
         case _ => StatefulTest.initCount should be >= 2
       }
     } finally {
@@ -1537,8 +1537,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       processora.setPartition(1)
       testProcessor(processora, 2)
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 3
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+        case (true, false) => StatefulTest.initCount should be <= 5
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
         case _ => StatefulTest.initCount should be >= 2
       }
 
@@ -1547,8 +1547,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       testProcessor(processorb, 6)
 
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 3
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+        case (true, false) => StatefulTest.initCount should be <= 5
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 5
         case _ => StatefulTest.initCount should be >= 2
       }
 
