@@ -24,10 +24,13 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
     realChild.genCode(ctx)
   }
 
-  override lazy val canonicalized: Expression = {
-    val r = realChild.canonicalized
-    copy(child = child.canonicalized, realChild = r)
-  }
+  override lazy val canonicalized: Expression =
+    if (on32)
+      realChild.canonicalized
+    else {
+      val r = realChild.canonicalized
+      copy(child = child.canonicalized, realChild = r)
+    }
 
   override def dataType: DataType = realChild.dataType
 

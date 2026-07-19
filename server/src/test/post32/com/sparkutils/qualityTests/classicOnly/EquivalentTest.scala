@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.impl.ExpressionRule
 import com.sparkutils.quality.impl.extension.ZeroCodeGen
-import com.sparkutils.quality.{Id, Rule, RuleSet, RuleSuite, ruleRunner}
+import com.sparkutils.quality._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, CaseWhen, EqualTo, EquivalentExpressions, Literal}
