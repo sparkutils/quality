@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
+import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.catalyst.util.ArrayData
@@ -24,16 +25,23 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     assert((0 until 5).forall(i => nar2(i) == i))
   }
 
+  def v4_1_and_below(thunk: => Unit) =
+    if (SparkVersions.sparkVersion == "4.2") {}
+    else thunk
+
   test("testPrintExpr") {
-    classicOnly {
-      funNRewrites {
-        doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+    v4_1_and_below {
+      classicOnly {
+        funNRewrites {
+          doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+        }
       }
     }
   }
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   test("testPrintCode") {
+    v4_1_and_below {
     classicOnly {
       not_Cluster {
         v3_2_and_above {
@@ -64,6 +72,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
           }
         }
       }
+    }
     }
   }
 
