@@ -79,14 +79,14 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     })
 
     import Holder.res
-    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head())
+    sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head() shouldBe 2
 
     def assertAdd() = if (addTest ne null) {
-      assert(res.contains(addTest))
+      res should include(addTest)
     }
 
     if (default ne null)
-      assert(res.indexOf(default) == 0)
+      res should startWith(default)
     else
       assert(res.isEmpty)
     assertAdd()
@@ -94,7 +94,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head())
 
     if (customTest ne null)
-      assert(res.indexOf(customTest) == 0)
+      res should startWith(customTest)
     else
       assert(res.isEmpty)
 
