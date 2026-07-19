@@ -14,6 +14,8 @@ import org.apache.spark.sql.types.DataType
  */
 case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false) extends UnaryExpression with Logging {
 
+  override lazy val deterministic: Boolean = realChild.deterministic
+
   override def nullable: Boolean = realChild.nullable
 
   override def eval(input: InternalRow): Any = realChild.eval(input)
@@ -22,7 +24,10 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
     realChild.genCode(ctx)
   }
 
-  override lazy val canonicalized: Expression = realChild.canonicalized
+  override lazy val canonicalized: Expression = {
+    val r = realChild.canonicalized
+    copy(child = child.canonicalized, realChild = r)
+  }
 
   override def dataType: DataType = realChild.dataType
 

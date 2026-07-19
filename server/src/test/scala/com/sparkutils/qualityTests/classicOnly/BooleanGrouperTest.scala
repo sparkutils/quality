@@ -51,7 +51,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
         )
     ).flatten)
 
-    d.select(expr("*"),runner(rules).getField("result").as("r")).select( expr(s"""
+    d.select(expr("*"), runner(rules).getField("result").as("r")).select( expr(s"""
       case
        when ((a + b) % 20) < 5 then ((a + b + c + d) = r.y) and (r.z = a)
        when ((a + b) % 20) < 15 then ((a + b + c) = r.y) and (r.z = a)
