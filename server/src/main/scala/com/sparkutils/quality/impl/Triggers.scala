@@ -272,18 +272,16 @@ trait GroupBasedGrouper extends TriggerGrouper {
       // don't enter if the current salience is lower
       val allGroupExprs = groups.map(_.groupFilter)
 
-      def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
-        val (funName, clazzes, widerAdditionalParams) =
-          produceGroups(ctx, runner, additionalParams, prefix, exprEnd,
-            groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups,
-            returnIfGroupSalienceCheckFalse)
-
-        TriggerResult(Seq(funName).iterator, "", clazzes.flatten, widerAdditionalParams)
-      }
-
       val (body, clazzes, widerAdditionalParams) =
         produceGroupTriggers(ctx, runner, additionalParams,
-          groupSalienceCheck, group, produceTriggerResult, allGroupExprs,
+          groupSalienceCheck, group, produceGroupsResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+            exprEnd: () => Block, groupSalienceCheck: String => Block,
+            group: Group, simpleGrouper: DefaultTriggerGrouper,
+            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+            groupDepth: Int, outerParams: ParameterInformation,
+            returnIfGroupSalienceCheckFalse: Boolean,
+            shouldReturn: String, groups: Seq[Group])
+          , allGroupExprs,
           returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
 
       (
@@ -292,14 +290,6 @@ trait GroupBasedGrouper extends TriggerGrouper {
           body
         ).code, clazzes, widerAdditionalParams)
     } { triggers =>
-
-      def produceTriggerResult(ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
-        SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params)).getOrElse {
-          simpleGrouper(ctx, runner, grpResult, additionalParams,
-            triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, groupSalienceCheck,
-            returnIfGroupSalienceCheckFalse)
-        }
-      }
 
       val allGroupExprs = {
         triggers.flatMap {
@@ -310,12 +300,56 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
       val (body, clazzes, widerAdditionalParams) =
         produceGroupTriggers(ctx, runner, additionalParams,
-          groupSalienceCheck, group, produceTriggerResult, allGroupExprs,
+          groupSalienceCheck, group,
+          produceTriggersResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+            exprEnd: () => Block, groupSalienceCheck: String => Block,
+            group: Group, simpleGrouper: DefaultTriggerGrouper,
+            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+            groupDepth: Int, outerParams: ParameterInformation,
+            returnIfGroupSalienceCheckFalse: Boolean,
+            shouldReturn: String, triggers: Seq[Trigger]), allGroupExprs,
           returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
 
       (body.code, clazzes, widerAdditionalParams)
     }
   }
+
+  /**
+   * Override for custom group handling, otherwise delegates to produceGroups
+   */
+  def produceGroupsResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                          exprEnd: () => Block, groupSalienceCheck: String => Block,
+                          group: Group, simpleGrouper: DefaultTriggerGrouper,
+                          map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                          groupDepth: Int, outerParams: ParameterInformation,
+                          returnIfGroupSalienceCheckFalse: Boolean,
+                          shouldReturn: String, groups: Seq[Group])
+                         (ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
+    val (funName, clazzes, widerAdditionalParams) =
+      produceGroups(ctx, runner, additionalParams, prefix, exprEnd,
+        groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups,
+        returnIfGroupSalienceCheckFalse)
+
+    TriggerResult(Seq(funName).iterator, "", clazzes.flatten, widerAdditionalParams)
+  }
+
+  /**
+   * Override to customise a groups Trigger processing.  By default, attempts to call [[SwitchGroups.groups]] followed by
+   * [[SwitchGroups.produceGroup]] or falls through to the simpleGrouper when a switch is not possible.
+   */
+  def produceTriggersResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                            exprEnd: () => Block, groupSalienceCheck: String => Block,
+                            group: Group, simpleGrouper: DefaultTriggerGrouper,
+                            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                            groupDepth: Int, outerParams: ParameterInformation,
+                            returnIfGroupSalienceCheckFalse: Boolean,
+                            shouldReturn: String, triggers: Seq[Trigger])
+                           (ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult =
+    SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params)).getOrElse {
+      simpleGrouper(ctx, runner, grpResult, additionalParams,
+        triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, groupSalienceCheck,
+        returnIfGroupSalienceCheckFalse)
+    }
 
   protected def returnIfSalience(groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean,
                                  shouldReturn: String, context: String, group: LowestSalience, block: Block): Block = {
