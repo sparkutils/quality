@@ -122,7 +122,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     ruleSuite: RuleSuite = null,
     extraConfig: Map[String, String] = Map.empty,
     variablesPerFunc: Int = 40,
-    variableFuncGroup: Int = 20) extends LeafExpression with Runner with Unevaluable {
+    variableFuncGroup: Int = 20) extends LeafExpression with Runner /*with Unevaluable*/ {
 
     override def withZeroCode(): Runner = ???
 
@@ -133,6 +133,12 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     override def nullable: Boolean = ???
 
     override def dataType: DataType = ???
+
+    override protected def initializeInternal(partitionIndex: Int): Unit = ???
+
+    override protected def evalInternal(input: InternalRow): Any = ???
+
+    override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
   }
 
   protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)], params: ParameterInformation,

@@ -1,10 +1,11 @@
 package com.sparkutils.quality.impl.extension
 
+import com.sparkutils.shim.expressions.NondeterministicLike
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Nondeterministic, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.types.DataType
 
 /**
@@ -12,13 +13,19 @@ import org.apache.spark.sql.types.DataType
  * compilation time and size.  Added as part of #129 as Databricks could not generate a 20k rulesuite, despite #131's
  * separate compilation, the common subexpressions were already too much for databricks.
  */
-case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false) extends UnaryExpression with Logging {
+case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false)
+  extends UnaryExpression with Logging with NondeterministicLike {
 
-  override lazy val deterministic: Boolean = realChild.deterministic
+  override protected def initializeInternal(partitionIndex: Int): Unit = realChild match {
+    case n : Nondeterministic => n.initialize(partitionIndex)
+    case _ => ()
+  }
+// will always be false from #145
+//  override lazy val deterministic: Boolean = realChild.deterministic
 
   override def nullable: Boolean = realChild.nullable
 
-  override def eval(input: InternalRow): Any = realChild.eval(input)
+  override def evalInternal(input: InternalRow): Any = realChild.eval(input)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     realChild.genCode(ctx)
