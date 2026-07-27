@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.SplitCompilation
 import com.sparkutils.quality.impl.extension.ZeroCodeGen
 import com.sparkutils.quality.impl.util.{ParameterInformation, SeparateCompilation}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals, ExpressionProxy}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, EmptyBlock, ExprCode, ExprValue, JavaCode, SubExprEliminationState, VariableValue}
 
 import scala.collection.mutable
@@ -19,6 +19,8 @@ object ClassicQualitySparkUtilsExt {
           expression.genCode(ctx)
           // do not go further
           Seq(s)
+        case p: ExpressionProxy =>
+          firstZeroWith(p.child)
         case _ => expression.children.flatMap(firstZeroWith)
       }
     expr.flatMap(firstZeroWith)

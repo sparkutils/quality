@@ -18,7 +18,9 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
 
   override protected def initializeInternal(partitionIndex: Int): Unit = realChild match {
     case n : Nondeterministic => n.initialize(partitionIndex)
+    // $COVERAGE-OFF$
     case _ => ()
+    // $COVERAGE-ON$
   }
 // will always be false from #145
 //  override lazy val deterministic: Boolean = realChild.deterministic
