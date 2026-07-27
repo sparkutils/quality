@@ -72,7 +72,7 @@ RuleEngineRunner also applies an early exit approach:
 - if a rule passes within a group of triggers it can early exit
 - if a rule has passed within a group of groups, the salience of the following groups is evaluated for possible early exit
 
-These approaches, with the TopLevelBooleanGrouper, led to the performance for the 20k "BigRule" per row test case to rise from 3.68ms per row to sub 0.03ms per row.
+These approaches, with the TopLevelBooleanGrouper, led to the performance for the 20k "BigRule" per row test case to increase from 3ms per row down to sub 0.03ms per row.
 
 ### Config Options
 

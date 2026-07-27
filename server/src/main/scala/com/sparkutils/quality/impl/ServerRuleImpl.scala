@@ -689,7 +689,13 @@ object RuleSuiteFunctions {
     val res = sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =>
       // only accept row - should probably throw something specific when it's not
       // get the lambda's variable to set the current struct
-      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = rule.expr
+      val arg: RefExpressionLazyType =
+        rule.expr match {
+          case FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) => arg
+          case e: ExpressionProxy =>
+            val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = e.child
+            arg
+        }
 
       arg.value = row
       row =  rule.eval(

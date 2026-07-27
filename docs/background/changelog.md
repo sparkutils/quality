@@ -110,6 +110,8 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 
 #143 - Support for Spark 4.2
 
+#145 - Moved Runners to Nondeterministic, ensuring only one compiled runner instance per projection field is present
+
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
 This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.
