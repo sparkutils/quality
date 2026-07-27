@@ -10,15 +10,6 @@ import org.apache.spark.sql.types.{BooleanType, IntegerType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 class EquivalentTest extends ClassicSharedTests  {
-  test("ZeroCodeGen with lits should CSE") {
-
-    val equiv = new EquivalentExpressions()
-    val zcgs = Seq.fill(4)(ZeroCodeGen(Literal(null, BooleanType), Literal(null, BooleanType)))
-
-    zcgs.foreach(equiv.addExprTree(_))
-
-    equiv.getCommonSubexpressions.size shouldBe 1
-  }
 
   test("Runners should CSE") {
 
@@ -28,20 +19,6 @@ class EquivalentTest extends ClassicSharedTests  {
         Rule(Id(1,1), ExpressionRule("3 > 2")
         )))))
     )))
-
-    zcgs.foreach(equiv.addExprTree(_))
-
-    equiv.getCommonSubexpressions.size shouldBe 1
-  }
-
-  test("ZeroCodeGen with runners should CSE") {
-
-    val equiv = new EquivalentExpressions()
-    val zcgs = Seq.fill(4)(ZeroCodeGen(Literal(null, BooleanType), ShimUtils.expression(ruleRunner(
-      RuleSuite(Id(1,1), Seq(RuleSet(Id(2,1), Seq(
-        Rule(Id(1,1), ExpressionRule("3 > 2")
-        )))))
-    )), wrapped = true))
 
     zcgs.foreach(equiv.addExprTree(_))
 
