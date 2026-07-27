@@ -473,7 +473,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
-  override def eval(input: InternalRow): Any = {
+  override def evalInternal(input: InternalRow): Any = {
     val (res, rule, processedRes) = RuleSuiteFunctions.evalWithProcessors(reincorporated, input, debugMode)
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res),
       if (rule eq null) null else

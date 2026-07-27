@@ -118,7 +118,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals)
 
   // keep it simple for this one. - can return an internal row or whatever..
-  override def eval(input: InternalRow): Any = {
+  override def evalInternal(input: InternalRow): Any = {
     val res = RuleSuiteFunctions.evalExpressions(reincorporated, input, ddlType)
     ExpressionRunnerUtils.expressionsResultToRow[Any](res)
   }
