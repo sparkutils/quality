@@ -15,7 +15,7 @@ import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -750,6 +750,12 @@ object RuleSuiteFunctions {
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
 
+    def getType(expr: Expression) =
+      expr match {
+        case e if e.children.nonEmpty => e.children.head.dataType.sql
+        case e => e.dataType.sql
+      }
+
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
@@ -762,8 +768,10 @@ object RuleSuiteFunctions {
               val resultType = r.expression match {
                 case expr: HasExpr =>
                   expr.expr match {
-                    case e if e.children.nonEmpty => e.children.head.dataType.sql
-                    case e => e.dataType.sql
+                    case p: ExpressionProxy =>
+                      // cse proxy will return the yaml type, we need the underlying
+                      getType(p.child)
+                    case e => getType(e)
                   }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
