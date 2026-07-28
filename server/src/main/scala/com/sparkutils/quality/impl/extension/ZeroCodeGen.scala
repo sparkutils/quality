@@ -14,20 +14,14 @@ import org.apache.spark.sql.types.DataType
  * separate compilation, the common subexpressions were already too much for databricks.
  */
 case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false)
-  extends UnaryExpression with Logging with NondeterministicLike {
+  extends UnaryExpression with Logging {
 
-  override protected def initializeInternal(partitionIndex: Int): Unit = realChild match {
-    case n : Nondeterministic => n.initialize(partitionIndex)
-    // $COVERAGE-OFF$
-    case _ => ()
-    // $COVERAGE-ON$
-  }
-// will always be false from #145
-//  override lazy val deterministic: Boolean = realChild.deterministic
+  // will always be false from #145
+  override lazy val deterministic: Boolean = realChild.deterministic
 
   override def nullable: Boolean = realChild.nullable
 
-  override def evalInternal(input: InternalRow): Any = realChild.eval(input)
+  override def eval(input: InternalRow): Any = realChild.eval(input)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     realChild.genCode(ctx)
