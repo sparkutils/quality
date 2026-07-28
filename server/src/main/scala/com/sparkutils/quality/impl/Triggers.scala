@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
 import com.sparkutils.quality.{QualityException, getConfig, groupProcessorKey}
 import com.sparkutils.shim.codegen.SubExprCodeGen
-import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNested}
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow}
@@ -203,7 +203,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     val ((funNames, extraClasses, widerAdditionalParams), subExpressionCode) =
       QualityCodeGenUtils.produceCode(ctx, groupExprs){
         (children, subExprCode, _) =>
-          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
+          val childParams = genParams(ctx, Holder(children), Seq.empty).mergeParams(ctx, params, false)
           (builder(childParams), subExprCode)
       }
 
@@ -386,7 +386,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     // remove the params usage, everything is in the object variables, this is top level only
     val preCalcParams = (ctx: CodegenContext) =>
-      genParamsForNested(ctx, allGroupExprs ++ group.groupFilters, additionalParams)
+      genParams(ctx, Holder(allGroupExprs ++ group.groupFilters), additionalParams)
         .copy(paramsDef = "", paramsCall = "").mergeParams(ctx, outerParams, false)
 
     val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),

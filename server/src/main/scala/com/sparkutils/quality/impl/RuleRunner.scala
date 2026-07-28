@@ -272,7 +272,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals)
 
   // keep it simple for this one. - can return an internal row or whatever..
-  override def evalInternal(input: InternalRow): Any = {
+  override def eval(input: InternalRow): Any = {
     val res = RuleSuiteFunctions.eval(reincorporated, input)
     ruleResultToRow(res)
   }

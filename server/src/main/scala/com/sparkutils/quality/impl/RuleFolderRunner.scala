@@ -95,7 +95,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
-  override def evalInternal(input: InternalRow): Any = {
+  override def eval(input: InternalRow): Any = {
     val starter = startingStruct.eval(input).asInstanceOf[InternalRow] // TODO - throw a decent error message at ruleFolder call
     val (res, processedRes) = //(null, null)
       RuleSuiteFunctions.foldWithProcessors(reincorporated, input, starter, debugMode)

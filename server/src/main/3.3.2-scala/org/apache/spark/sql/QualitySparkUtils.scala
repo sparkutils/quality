@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
@@ -27,21 +27,6 @@ import scala.collection.mutable
  * Set of utilities to reach in to private functions
  */
 object ClassicQualitySparkUtils {
-
-  /**
-   * Only evaluates against subexpressions
-   *
-   * @param i
-   * @param ctx
-   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
-   */
-  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
-    val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
-
-    val p = formatParams(ctx, a.toSeq, additional)
-
-    p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
-  }
 
   /**
    * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach

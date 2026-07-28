@@ -56,9 +56,11 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
 /**
  * Shared trait for all runners
  */
-trait Runner extends Expression with NondeterministicLike {
+trait Runner extends Expression {
 
-  override protected def initializeInternal(partitionIndex: Int): Unit = {}
+  // #145 - Spark 3 doesn't allow Nondeterministic to be pattern matched due to classloading, it's not really needed though
+  final override lazy val deterministic: Boolean = false
+
   /**
    * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGenWrap]]
    * optimisation is enabled

@@ -1,8 +1,8 @@
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>1st August, 2026</small>
 
-This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4, 3 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
 
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
+Spark runtimes 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
 The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
 large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
@@ -10,7 +10,7 @@ large rule suites, the imaginatively named BigRules test case showing an improve
 In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and for large test sets, typically around 30%.  Using the
 linear BigRules test (20k rules) has an in Quality row processing time of 3.68ms down from 5.03ms per row, a 37% improvement (via specialised Spark MapData and GenericArrayData types).
 
-Sparkless is deprecated as of this release, no longer supports Spark < 3.4 (#145 exposed issues with Nondeterministic interpreted CSE) and will be removed in subsequent releases.
+Sparkless is deprecated as of this release and will be removed in subsequent releases.
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 

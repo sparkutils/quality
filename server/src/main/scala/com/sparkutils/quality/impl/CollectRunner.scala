@@ -228,7 +228,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets, triggerCount)
 
-  override def evalInternal(input: InternalRow): Any = {
+  override def eval(input: InternalRow): Any = {
     val (res, processedRes) = //(null, null)
       RuleSuiteFunctions.collect(reincorporated, input, flatten && canFlatten, includeNulls,
         elementType, starterSize)
