@@ -1,30 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.impl.SplitCompilation
-import com.sparkutils.quality.impl.extension.ZeroCodeGen
-import com.sparkutils.quality.impl.util.{ParameterInformation, SeparateCompilation}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals, ExpressionProxy}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, EmptyBlock, ExprCode, ExprValue, JavaCode, SubExprEliminationState, VariableValue}
 
 import scala.collection.mutable
 
 object ClassicQualitySparkUtilsExt {
-
-  def collectFirstZeroCodeGenSplitCompilations(ctx: CodegenContext, expr: Seq[Expression]): Seq[SplitCompilation] = {
-    def firstZeroWith(expression: Expression): Seq[SplitCompilation] =
-      expression match {
-        case ZeroCodeGen(_, s: SplitCompilation, _, _) =>
-          // ensure it has been compiled
-          expression.genCode(ctx)
-          // do not go further
-          Seq(s)
-        case p: ExpressionProxy =>
-          firstZeroWith(p.child)
-        case _ => expression.children.flatMap(firstZeroWith)
-      }
-    expr.flatMap(firstZeroWith)
-  }
 
   // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues
   def getLocalInputVariableValues(
@@ -37,19 +19,6 @@ object ClassicQualitySparkUtilsExt {
 
     if (ctx.INPUT_ROW != null) {
       argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
-    }
-
-    val splits = collectFirstZeroCodeGenSplitCompilations(ctx, expr)
-    val totalParams =
-      splits.foldLeft(ParameterInformation.forMerging) {
-        (cur, s) =>
-          val p = s.usedParameters_
-          cur.mergeParams(ctx, p, false)
-      }
-
-    totalParams.params.foreach{
-      p =>
-        argSet += JavaCode.variable(p.name, p.classType)
     }
 
     // Collects local variables from a given `expr` tree
