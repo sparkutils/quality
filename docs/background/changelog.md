@@ -8,7 +8,7 @@ The optimisations added under #129 and #131 have also seen performance improveme
 large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
 
 In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and for large test sets, typically around 30%.  Using the
-linear BigRules test (20k rules) has an in Quality row processing time of 3.68ms down from 5.03ms per row, a 37% improvement (via specialised Spark MapData and GenericArrayData types).
+linear BigRules test (20k rules) has an in Quality row processing time of 2.6ms down from 5.03ms per row, an almost 2x improvement (via specialised Spark MapData and GenericArrayData types).
 
 Sparkless is deprecated as of this release and will be removed in subsequent releases.
 

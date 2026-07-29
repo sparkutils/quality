@@ -324,9 +324,11 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
-  ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes sub 2.5m on 32g i9-9900 corsair with 12gb heap, sub 3 ms / row
+  // pre 0.2.0 would require a 12gb heap and patience with >5m runs, run on 0.2.0 takes sub 2.5m on 32g i9-9900 corsair with 12gb heap, sub 3 ms / row
+  // not_Cluster as the serialisation of the plan to executors requires at least a 64gb node type
+  test("1:1 rules only") { not_Cluster {
     do1to1RulesOnly(sparkSession)
-  }
+  } }
 
   test("dumpAudit should work") { not3_0_or_3_1 {
     doDumpAuditShouldWork(sparkSession)
