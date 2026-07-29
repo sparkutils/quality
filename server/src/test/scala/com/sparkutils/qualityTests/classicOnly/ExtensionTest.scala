@@ -695,7 +695,9 @@ class ExtensionDeltaTest extends ExtensionTestBase {
   val shouldRun = true
 
   // test doesn't run in parquet due to some weird hive issue.
-  test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster {
+  test("testAsymmetricFilterEqSQL") {
+    if (sparkVersionNumericMajor < 42)
+    when_not_disabled { not_Cluster {
     wrapWithExtensionT(sparkSession => {
       val ds = uuidPairsWithContext("a")(sparkSession)
       val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")

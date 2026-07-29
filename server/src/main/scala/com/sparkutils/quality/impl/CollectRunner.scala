@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.shim.expressions.Names
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, ShimUtils}
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
@@ -54,7 +54,6 @@ case class InPlaceArray(children: Seq[Expression]) extends Expression {
       case (child, i) =>
 
         val eval = child.genCode(ctx)
-        // TODO will autoboxing work on databricks? it's had an old janino version for a long time - tests need
         s"""
           // InPlaceArray for elem $i
           ${eval.code}
@@ -223,7 +222,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   }
 
   override def nullable: Boolean = false
-  override def toString: String = classTagT.runtimeClass.getName + truncatedString(
+  override def toString: String = classTagT.runtimeClass.getName + s"(${ruleSuite.id})" + truncatedString(
     children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
@@ -236,16 +235,21 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res), processedRes)
   }
 
+  def resultElementType = if (flatten && canFlatten) elementType else actualType
+
   def dataType: DataType = StructType( Seq(
       StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
       StructField(name = "result", dataType =
-        if (flatten && canFlatten) ArrayType(elementType, includeNulls) else ArrayType(actualType, includeNulls),
+        ArrayType(resultElementType, includeNulls),
         nullable = true)
-    ))
+    ) )
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, children, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(children.take(triggerCount)), outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         def hasDefault(when: => String, els: String = ""): String =
@@ -254,12 +258,15 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
           else
             els
 
-
         // tester to prove compilation on throughput tests
         // print("I AM GENERATING CODE!!!!")
 
         // needs resetting every row
-        val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
+        val bufferType = classOf[ArrayBuffer[_]]
+        val bufferTerm = ctx.addMutableState(bufferType.getName, ctx.freshName("results"))
+
+        // if TriggerGrouping is used this should not be in primitive type as we will store nulls.
+        val extras = Seq((VariableValue(bufferTerm, bufferType), ShimUtils.isPrimitive(resultElementType)))
 
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -419,7 +426,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
                 -1 // don't generate the default, there isn't a trigger
               else
                 0,
-            salience = salienceFromOffsets(_)
+            salience = salienceFromOffsets(_), runnerParams = extras
           )
 
         import compilerTerms._
@@ -437,7 +444,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
               // group specific subexprs
               ${grouped.subExpressions}
               // group calls
-              ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
 
               ${
                 hasDefault(
@@ -500,7 +507,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
             """
           )
 
-        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
+        GenerateResult(compilerTerms, res, grouped.extraClasses)
     }
     setClazzSource(clazz)
     fres

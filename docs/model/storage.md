@@ -45,6 +45,7 @@ In order to optimise storage and marshalling the VersionId parts are packed into
 * Disabled => DisabledInt // -2
 * Ignored => IgnoredInt // -3
 * DefaultRule => DefaultRuleInt // -4
+* Unevaluated => UnevaluatedRuleInt // -5
 * Passed => PassedInt // 100000
 * Probability(percentage) => (percentage * PassedInt).toInt
 

@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.Triggers.defaultGrouper
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
@@ -12,7 +13,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, Codege
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
+import org.apache.spark.sql.qualityFunctions.{FunN, MapBasedCacheApproach, OptionCacheApproach, RefCodeGen, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
 import java.util.concurrent.atomic.AtomicReference
@@ -87,7 +88,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = "RuleFolderRunner" + truncatedString(
+  override def toString: String = s"RuleFolderRunner(${ruleSuite.id})" + truncatedString(
     children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
@@ -107,9 +108,26 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
     ))
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(
+      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren.take(triggerCount)), outerCtx, ev, ruleSuite.id,
+      topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
+        val cacheApproach =
+          if (extraConfig.getOrElse(groupProcessorKey, defaultGrouper) != defaultGrouper)
+            // assumed desirable for all
+            () => OptionCacheApproach()
+          else
+            () => MapBasedCacheApproach()
+
+        // pin a cache approach
+        val lazyRefsGenCode = RefCodeGen.withCacheApproach(cacheApproach) {
+          realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        }
+
+        val extras =
+          lazyRefsGenCode.flatMap(r => Set(r.value, r.isNull)).collect {
+            case vv: VariableValue => (vv, false) // isNull is ok as only boolean is assigned
+          }.distinct
 
         // need to setup the folder variable to pass around, create it with "left"
         // thread it through
@@ -130,15 +148,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
         // order by salience
         val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-        val reordered = // fill the index list, still only uniques
-          (0 until triggerCount).map{i =>
-            // lookup the output expressions
-            expressionOffsets(i)
-          } zip salience sortBy(_._2) map(_._1)
-
-        val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
-
-        val salienceFromOffsets = flattenSalience(ruleSuite)
+        val outputs = (0 until triggerCount)
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
@@ -155,7 +166,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
             orderOffset = (idx: Int) => reordered(idx),
             // we shouldn't check salience as we are already ordered by it
             salienceCheck = false,
-            sizeAdjustment = sizeAdjustment, salience = salienceFromOffsets(_)
+            sizeAdjustment = sizeAdjustment, salience = salience(_), runnerParams = extras
           )
 
         import compilerTerms._
@@ -171,6 +182,17 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
 
+          ${
+            val init =
+              lazyRefsGenCode.map{e =>
+                s"""
+                  ${e.value.code} = null;
+                  ${e.isNull.code} = false;
+                """
+              }.mkString("\n")
+            init
+          }
+
           // starting
           ${starterEval.code}
           // setting the folder
@@ -181,7 +203,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           // group specific subexprs
           ${grouped.subExpressions}
           // group calls
-          ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+          ${grouped.groupCalls.map { f => s"$f(${grouped.usedParameters.paramsCall});" }.mkString("\n")}
 
           InternalRow $default = null;
 
@@ -240,7 +262,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $post
           """
             )
-        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
+        GenerateResult(compilerTerms, res, grouped.extraClasses)
     }
 
     setClazzSource(clazz)

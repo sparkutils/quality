@@ -51,6 +51,9 @@ trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests 
 
 trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { self: TestSuite =>
 
+  def v3_5_and_above(thunk: => Unit): Unit =
+    if (sparkVersionNumericMajor >= 35) thunk
+
   override def beforeAll(): Unit = {
     // no-op to force it to be created
     forceLoad

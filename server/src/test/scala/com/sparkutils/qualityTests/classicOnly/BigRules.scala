@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality._
+import com.sparkutils.quality.{groupProcessorPercentFilter, _}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
 import com.sparkutils.quality.impl.TopLevelBooleanGrouper
@@ -220,8 +220,8 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
-        useEmptyRuleSetResults -> "true",
-        groupProcessorPercentFilter -> "0.012"
+        useEmptyRuleSetResults -> "true"//,
+        //groupProcessorPercentFilter -> "0.012"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -242,7 +242,11 @@ var start = System.nanoTime()
 
     var start = System.nanoTime()
     val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
-    val r = d.select(expr("*"), ruleEngineRunner(rules(s, genRules1to1(s, outputDir).as[(String, String, Int)])).
+    val r = d.select(expr("*"), ruleEngineRunner(rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
+      extraConfig = Map(
+        showSplitCompilationTime -> "true",
+        "statsEvery" -> "1000"
+      )).
       as("runner")).select(expr("*"), expr("runner.result.*"))
     var end = System.nanoTime()
     val typ ="1:1"
@@ -276,13 +280,16 @@ var start = System.nanoTime()
       extraConfig = Map(
         groupProcessorKey -> classOf[TopLevelBooleanGrouper].getName,
         groupProcessorDumpAuditKey -> "true",
-        groupProcessorAuditLocation -> outputDir
+        groupProcessorAuditLocation -> outputDir,
+        groupProcessorAuditMinBucket -> "1400",
+        groupProcessorAuditMaxBucket -> "1500"
       ))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size should be > 180
+    group.ruleSuites.size should be > 50
 
-    group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
+    // the 16k population is a single group converted to switch
+    group.ruleSuites.count(_._2.ruleSets.head.rules.size < 200) shouldBe (group.ruleSuites.size - 1)
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists{ r =>
@@ -309,17 +316,20 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doTriggerGetValueShouldWork(sparkSession)
   }
 
-  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 2g 1.5m. 0.04 ms / row (i9-9900), grouping takes 3s
     doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
   } }
 
-  test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 1.5m. 0.04 ms / row (i9-9900), grouping takes 3s
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
-  ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 5.22 ms / row
+  // pre 0.2.0 would require a 12gb heap and patience with > 5m runs, run on 0.2.0 takes sub 2m on 32g i9-9900 corsair with 12gb heap, sub 3 ms / row
+  // running the same test on 0.1.3.1 is 2.5m minimum with > 6ms / row
+  // not_Cluster as the serialisation of the plan to executors requires at least a 64gb node type.
+  test("1:1 rules only") { not_Cluster {
     do1to1RulesOnly(sparkSession)
-  }
+  } }
 
   test("dumpAudit should work") { not3_0_or_3_1 {
     doDumpAuditShouldWork(sparkSession)

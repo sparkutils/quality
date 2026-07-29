@@ -1,11 +1,17 @@
-### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th March, 2026</small>
+### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>1st August, 2026</small>
 
-This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4, 3 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
 
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
+Spark runtimes 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
 The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
-large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data down to 1m50s.
+large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
+
+In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and
+for large test sets, providing a minimum of an around 30% performance boost.
+Using the linear BigRules test (20k rules), Quality now has a per row processing
+time of 2.6ms down from a 0.1.3.1 time of 6.17ms on Spark 4.  This, close to over 2x, improvement 
+on Spark 4 is also aided by specialised Spark MapData and GenericArrayData types.
 
 Sparkless is deprecated as of this release and will be removed in subsequent releases.
 
@@ -92,37 +98,22 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 > which apply across all runners.
 > 
 > The experimental TopLevelBooleanGrouper, in addition to whole stage compilation improvements and #131, allows reduction of evaluation
-> cost by 20x in the test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
-> These buckets can be configured by the:
-> ```scala
-> groupProcessorBucketSizeKey /* "quality.runnerGroupProcessor.bucketSize" */: Int = 130, 
-> groupProcessorPercentFilter /* "quality.runnerGroupProcessor.percentFilter" */: Double = 0.01
-> ```
-> 
-> parameters, which aim to manage a target bucket size of 130, and is used as a guide in the bucketing approach.
-> The filter removes expressions from groups that appear in less than only present in 0.01% of the overall expressions.
-> 
-> An optional extraConfig parameter of:
-> ```scala
-> groupProcessorDumpAuditKey /* "quality.runnerGroupProcessor.dumpAudit" */ : Boolean = false,
-> groupProcessorAuditLocation /* "quality.runnerGroupProcessor.auditLocation" */ : String = "./" 
-> ```
-> will generate a RuleSuiteGroup file using the specified location (this is required on Databricks).
-> This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
-> using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable and executable form for easy
-> verification of bucketing correctness.
-> 
-> This initial experimental version brings the BigRules test case runtime from 2m on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to under
-> 27s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.09ms per row (down from >5ms) on a 20k rule RuleSuite
-> (across max 9 comparisons per rule, 380m expressions in total).
-> If the results from a non-grouped runner differ with grouping please raise an issue.
-> 
-> TopLevelBooleanGrouper cannot work on 3.0 or 3.1 and, although functional on 3.2 / 3.21, is only recommended on 3.3 and
-> above as 3.2's performance is slower overall due in part to still requiring sub expressions to be evaluated multiple extra times for the entire tree.
-> 3.3 and above only uses subexpressions within the runner itself as needed by the groups.
-> 
-> NB: Testing on a cluster (e.g. Databricks or Fabric) will require 64gb, the expression trees are too large to deserialize
-> on the executors with less RAM. 
+> cost by 20x in the "BigRules" test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
+
+#137 - Performance improvements for #129 for String based lookups and overall performance improvements in processing
+
+> When using TopLevelBooleanGrouper any remaining tests that are "field = 'value'" EqualTo relationships with the same field
+> are converted to nested binary branching String switches for optimised lookups.
+
+#142 - Significantly faster special case handling for boolean and int / long trigger results in codegen, rewrite SoftFail to Int case
+
+> DQ ruleRunner and the rule engine, collect and folder trigger usage has specific per trigger result processing based on type.
+> When boolean, int or long are provided custom checks are implemented, otherwise it defaults to a more comprehensive Scala "Any" pattern match derivation.
+> In addition, DQ runner benefits from only storing results that deviate from the default Passed, this leads to 4% speed bump in the Quality performance tests. 
+
+#143 - Support for Spark 4.2
+
+#145 - Moved Runners to Nondeterministic, ensuring only one compiled runner instance per projection field is present
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
@@ -137,11 +138,11 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
   protected[quality] def generateFunctionGroups(
-               ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
-               expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
-               prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-               exprFunEnd: () => Block = () => code"",
-               groupSalienceCheck: String => Block = _ => code""): TriggerResult = {
+    ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String,
+    additionalParams: Seq[(VariableValue, Boolean)],
+    expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
+    prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
+    groupSalienceCheck: String => Block = _ => code"", returnIfGroupSalienceCheckFalse: Boolean = false): TriggerResult = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
@@ -149,7 +150,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res =
       impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
-        prefix, exprEnd, exprFunEnd, groupSalienceCheck)
+        prefix, exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse)
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)
@@ -178,7 +179,8 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   }
 
   def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
-                       realChildren: Seq[Expression], resultF: (ExprValue, Int) => String,
+                       realChildren: Seq[Expression],
+                       resultF: (ExprValue, ExprValue, Int) => String,
                        ruleRunnerExpressionIdx: Int
                       ): (ExprCode, TriggerResult) = {
     val paramInfo = genParams(ctx, runner)
@@ -191,12 +193,13 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val generate =
-        (ctx: CodegenContext, p: ParameterInformation, e: Expression) => {
+        (ctx: CodegenContext, p: ParameterInformation, e: Expression, b: Boolean) => {
           val eval = e.genCode(ctx)
 
+          val res = resultF(eval.value, eval.isNull, idx)
           code"""${eval.code}\n
 
-            ${inPlaceOffsets.offsets(idx).apply(resultF(eval.value, idx))}
+            ${inPlaceOffsets.offsets(idx).apply(res)}
              """
         }
       (Trigger(child, idx, 0), generate)
@@ -206,7 +209,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resNull = ctx.freshName("isNull")
 
     val groups = RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-      Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)
+      Seq((VariableValue(resultRow, classOf[InternalRow]), false)), allExpr)
 
     val funNames: Iterator[String] = groups.groupCalls
 
@@ -262,7 +265,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
   lazy val realChildren = getRealChildren(children)
 
   override def nullable: Boolean = false
-  override def toString: String = "RuleRunner" + truncatedString(
+  override def toString: String = s"RuleRunner(${ruleSuite.id})" + truncatedString(
     realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
@@ -285,7 +288,10 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
    */
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs
@@ -296,16 +302,23 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
 
         val (res, triggerRes) =
           nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
-            (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
+            (code: ExprValue, isNull: ExprValue, idx: Int) =>
+              anyToRuleResultIntGen(code, isNull),
             ruleRunnerExpressionIdx
           )
 
-      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
-        triggerRes.ignoreTopLevelSubExpressions)
+      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)
     }
     setClazzSource(clazz)
     fres
   }
+
+  /**
+   * used by codegen, as the default is Passed only NonPassed need be actioned
+   */
+  override def nonDefaultResultTest(result: String): Block =
+    code"($result) != $defaultRuleResult"
+
 }
 
 case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,

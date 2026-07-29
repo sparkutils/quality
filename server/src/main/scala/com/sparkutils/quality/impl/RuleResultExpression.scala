@@ -29,7 +29,6 @@ object RuleResultExpression {
 
 }
 
-//TODO move to Quanternary after 2.4 is dropped
 case class RuleResultExpression(children: Seq[Expression]) extends
   Expression with InputTypeChecks {
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =

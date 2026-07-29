@@ -51,6 +51,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
   def rules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
     irules(expressionRules)
 
+  def options: Map[String, String] = Map.empty
+
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     registerLambdaFunctions(Seq(
       LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
@@ -73,7 +75,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
     if (ShimUtils.isClassic(SparkSession.active))
       (dataFrame: DataFrame) =>
         Runners.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
-          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).get
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals,
+          extraConfig = options).get
     else
       (_: DataFrame) =>
         ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))),
@@ -143,7 +146,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
       withColumn("together",
         com.sparkutils.quality.ruleFolderRunner(ruleSuite,
           startingStruct = struct(lit("").as("transfer_type"),
-          $"product", $"account", $"subcode"), useType = None,
+          $"product", $"account", $"subcode"), useType = None, extraConfig = options,
           debugMode = false,
           variablesPerFunc = 40, variableFuncGroup = 20 /*, useType = Some(
           StructType(Seq(StructField("transfer_type", StringType),
@@ -250,17 +253,17 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
   def doTestSimpleProductionRules(): Unit = evalCodeGensNoResolve {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        OutputExpression("thecurrent1 -> updateField(updateField(thecurrent1, 'subcode', 1234), 'transfer_type', 'from')"))),
         //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
 
         (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+          OutputExpression("thecurrent2 -> updateField(thecurrent2, 'transfer_type', 'to')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+          OutputExpression("thecurrent3 -> updateField(thecurrent3, 'transfer_type', 'from')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+          OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))"))),
         (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
-            OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+            OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))")))
       ), compileEvals = true, debugMode = true
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
@@ -463,7 +466,7 @@ class RuleFolderTest extends RuleFolderTestBase {
         RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
       (ExpressionRule("true"),
         RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
-    )), startingStruct = struct(col("c"), col("d"))) )
+    )), startingStruct = struct(col("c"), col("d")), extraConfig = options) )
     r.collect()
 
   }

@@ -28,6 +28,8 @@ object CollectRunnerTestUtils {
 
 trait CollectRunnerTestBase extends SharedPureConnectTests {
 
+  def options: Map[String, String] = Map.empty
+
   val testData=Seq(
     TestOn("edt", "4201", 40),
     TestOn("otc", "5201", 40),
@@ -67,7 +69,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
         dataType,
         flatten = flatten, includeNulls = includeNulls,
         useInPlaceArray = inPlace.value, unrollInPlaceArray = inPlaceUnroll.value,
-        unrollOutputArraySize = inPlaceUnrollSize.value)
+        unrollOutputArraySize = inPlaceUnrollSize.value, extraConfig = options)
   }
 
   def testBase[T: TypedEncoder: ClassTag, O: Ordering](

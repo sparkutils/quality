@@ -14,8 +14,8 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -201,7 +201,7 @@ object RuleLogicUtils {
     any match {
       case b: Boolean => if (b) PassedInt else FailedInt
       case 0 | 0.0 | 0L => FailedInt
-      case 1 | 1.0 | 1L => PassedInt
+      case TRUE_INT | 1.0 | 1L => PassedInt
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
@@ -215,6 +215,32 @@ object RuleLogicUtils {
       case _ => FailedInt // anything else is a fail
     }
 
+  private val TRUE_INT = 1
+
+  // used during compilation code gen
+  def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
+    // auto boxing on Databricks doesn't work due to old Janino see #82
+    val edt = code.javaType
+    val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+    val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
+
+    val res =
+      if (code.javaType.isPrimitive)
+        code.javaType match {
+          case java.lang.Boolean.TYPE =>
+            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+          case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
+            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+          case _ =>
+            default
+        }
+      else
+        default
+
+    res
+  }
 }
 
 /**
@@ -402,8 +428,6 @@ trait OutputExprLogic extends quality.OutputExpression with HasExpr {
    */
   def reset(): OutputExprLogic = this
 }
-
-// TODO convert api into ExprLogics !!!!
 
 object UpdateFolderExpression {
   val currentResult = "currentResult"
@@ -665,7 +689,16 @@ object RuleSuiteFunctions {
     val res = sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =>
       // only accept row - should probably throw something specific when it's not
       // get the lambda's variable to set the current struct
-      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = rule.expr
+      val arg: RefExpressionLazyType =
+        rule.expr match {
+          case FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) => arg
+          // only possible on OSS pre #145, but given DBR doesn't behave the same way it's here for safety but not expected to be called
+          // $COVERAGE-OFF$
+          case e: ExpressionProxy =>
+            val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = e.child
+            arg
+          // $COVERAGE-ON$
+        }
 
       arg.value = row
       row =  rule.eval(
@@ -726,6 +759,12 @@ object RuleSuiteFunctions {
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
 
+    def getType(expr: Expression) =
+      expr match {
+        case e if e.children.nonEmpty => e.children.head.dataType.sql
+        case e => e.dataType.sql
+      }
+
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
@@ -738,8 +777,10 @@ object RuleSuiteFunctions {
               val resultType = r.expression match {
                 case expr: HasExpr =>
                   expr.expr match {
-                    case e if e.children.nonEmpty => e.children.head.dataType.sql
-                    case e => e.dataType.sql
+                    case p: ExpressionProxy =>
+                      // cse proxy will return the yaml type, we need the underlying
+                      getType(p.child)
+                    case e => getType(e)
                   }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)

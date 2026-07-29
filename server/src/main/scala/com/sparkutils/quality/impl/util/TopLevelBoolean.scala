@@ -1,19 +1,21 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{groupProcessorBucketSizeKey, groupProcessorPercentFilter}
+import com.sparkutils.quality.{groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
-import org.apache.spark.sql.types.BooleanType
+import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
 
 object TopLevelBoolean {
 
+  def defaultPercentFilter = 0.010
+
   def params(runner: Runner): (Int, Double) = {
     val targetBucket = runner.extraConfig.int(groupProcessorBucketSizeKey, 130)
-    val targetFilter = runner.extraConfig.double(groupProcessorPercentFilter, 0.010)
+    val targetFilter = runner.extraConfig.double(groupProcessorPercentFilter, defaultPercentFilter)
     (targetBucket, targetFilter)
   }
 
@@ -28,7 +30,7 @@ object TopLevelBoolean {
   }
 
   def apply(expressions: Seq[Trigger], triggerPercentFilter: Double): (mutable.HashMap[Expression, (Set[Expression], ArrayBuffer[Trigger])], Expression => Option[(Int, Expression)]) = {
-    val osubs = SubExprsFrom.apply(expressions.map(_.expression))
+    val osubs = SubExprs.apply(expressions.map(_.expression))
 
     val filterOut = {
       val t = ((expressions.size.toDouble / 100.toDouble) * triggerPercentFilter).toInt
@@ -59,6 +61,7 @@ object TopLevelBoolean {
       hmap.map{
         case (k, v) =>
           (k match {
+            case _ if k.isEmpty => Literal(true)
             case _ if k.size == 1 => k.head
             case _ => k.reduce(And(_,_))
           }, (k, v))
@@ -112,6 +115,15 @@ object TopLevelBoolean {
       Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
   }
+
+  // everything goes into the same bucket for switching on strings / ints
+  case class SwitchDiff(operand: Expression) extends Differentiator {
+
+    def bucketer(bucket: Int, bucketSize: Int) = Literal(true)
+
+    override def bucket(trigger: Expression, bucketSize: Int): Int = 0
+  }
+
   // code can't reach this yet
   // $COVERAGE-OFF$
 
@@ -133,7 +145,11 @@ object TopLevelBoolean {
       case e => false
     } && s.nonEmpty =>
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
-      EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
+
+      if (operands.size == 1 && (operands.head.dataType == StringType || operands.head.dataType == IntegerType))
+        SwitchDiff(operands.head) // TODO - duplicates, need to keep all to verify uniqueness and fallback!
+      else
+        EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
       System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
       NoIdeaDiff(expressions.toSeq)
@@ -142,25 +158,30 @@ object TopLevelBoolean {
   // too memory intensive for CI
   // $COVERAGE-OFF$
 
-  def bestFit(expressions: Seq[Trigger]): (Seq[Group], Int) = {
-    var min = 100
-    var max = 200
+  case class BestFit(groups: Seq[Group], optimalBucketSize: Int, maxDeepestEvaluationSize: Int,
+                     optimisedDeepestEvaluationSize: Int, rangeMin: Int, rangeMax: Int, percent: Double)
 
-    var step = 10
+  def bestFit(expressions: Seq[Trigger], runner: Runner): BestFit = {
+    val startingMin = runner.extraConfig.int(groupProcessorAuditMinBucket, 100)
+    val startingMax = runner.extraConfig.int(groupProcessorAuditMaxBucket, 200)
+    var min = startingMin
+    var max = startingMax
+
+    val triggerPercentFilter = runner.extraConfig.double(groupProcessorPercentFilter, defaultPercentFilter)
+
+    var step = runner.extraConfig.int(groupProcessorAuditBucketStep, 10)
 
     var found = false
     var res: Seq[Group] = Seq.empty
     var resCount = Integer.MAX_VALUE
     var bucketSize = 0
 
-    val trigger = 0.12
-
     while(!found) {
       //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
-      val b = bucket(triggers = expressions, targetParams = (min, trigger))
-      val bCount = b.maxBy(_.size).size + b.size
-      val t = bucket(triggers = expressions, targetParams = (max, trigger))
-      val tCount = t.maxBy(_.size).size + t.size
+      val b = bucket(triggers = expressions, targetParams = (min, triggerPercentFilter))
+      val bCount = b.maxBy(_.optimisedSize).optimisedSize + b.size
+      val t = bucket(triggers = expressions, targetParams = (max, triggerPercentFilter))
+      val tCount = t.maxBy(_.optimisedSize).optimisedSize + t.size
       res =
         if (tCount <= bCount)
           if (tCount <= resCount) {
@@ -198,7 +219,11 @@ object TopLevelBoolean {
 
     //println(s"'optimal' bucket size was $bucketSize")
 
-    (res, bucketSize)
+    val optimal = bucket(triggers = expressions, targetParams = (bucketSize, triggerPercentFilter))
+    BestFit(res, bucketSize,
+      optimal.maxBy(_.size).size + optimal.size,
+      optimal.maxBy(_.optimisedSize).optimisedSize + optimal.size,
+      startingMin, startingMax, triggerPercentFilter)
   }
   // $COVERAGE-ON$
 
@@ -216,7 +241,7 @@ object TopLevelBoolean {
       val newPopSeqs = pop.filterNot(p => seen(p.expression))
       seen.++=(newPopSeqs.map(_.expression))
       newPopSeqs.toSeq.map( t =>
-        t.copy(expression = removeTopLevels(groupParts, t.expression)))
+        t.copy(expression = removeTopLevels(groupParts, t.expression))).sortBy(_.salience)
     }
 
     val topHitter =
@@ -256,31 +281,43 @@ object TopLevelBoolean {
                         differentiator.bucket(t.expression, numberOfBuckets) -> t
                     }.groupBy(_._1)
 
-                  Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
-                    bucketed.foldLeft(Seq.empty[Group]){
-                      case (cur, (bucket, trips)) =>
-                        val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
+                  if (bucketed.size == 1 && differentiator.bucketer(0,numberOfBuckets) == Literal(true)) {
+                    // if it's "true" lift it back up
+                    val corrected = addSeen(bucketed.head._2.map(_._2), groupParts)
+                    val lowest = corrected.minBy(_.salience).salience
+                    Seq(Group(sub, lowest, Triggers(corrected, lowest)))
+                  } else
+                    Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
+                      bucketed.foldLeft(Seq.empty[Group]){
+                        case (cur, (bucket, trips)) =>
+                          val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
-                        val corrected = addSeen(trips.map(_._2), groupParts)
-                        cur :+ Group(bucketedExp, corrected.minBy(_.salience).salience, Triggers(corrected))
-                    }
-                  )))
+                          val corrected = addSeen(trips.map(_._2), groupParts)
+                          val lowest = corrected.minBy(_.salience).salience
+                          cur :+ Group(bucketedExp, lowest, Triggers(corrected, lowest))
+                      }.sortBy(_.lowestSalience)
+                    )))
               }
             cur ++ newSeqs
           } else if (triggers.size > 4) { // TODO random number
             // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
             val newTriggers = addSeen(triggers, groupParts)
-            cur :+ Group(sub, newTriggers.minBy(_.salience).salience, Triggers(newTriggers))
+            val lowest = newTriggers.minBy(_.salience).salience
+            cur :+ Group(sub, lowest, Triggers(newTriggers, lowest))
           } else
             cur
       }
 
     val rest = expressions.filterNot(p => seen(p.expression))
-    if (rest.isEmpty)
-      topHitter
-    else
-      (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, Triggers(rest))).filter(_.size > 0)
+    (
+      if (rest.isEmpty)
+        topHitter
+      else {
+        val lowest = rest.minBy(_.salience).salience
+        (topHitter :+ Group(Literal(true), lowest, Triggers(rest, lowest))).filter(_.size > 0)
+      }
+      ).sortBy(_.lowestSalience)
   }
 
   def differentiateFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {

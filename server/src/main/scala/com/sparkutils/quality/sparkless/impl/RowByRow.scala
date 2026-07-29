@@ -3,7 +3,7 @@ package com.sparkutils.quality.sparkless.impl
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.classicFunctions.enableOptimizations
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
-import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.extension.{FunNRewrite, ZeroCodeGen}
 import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import com.sparkutils.testing.Testing
@@ -84,7 +84,7 @@ object Processors {
 
   /**
    * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies.
-   * Similarly if a hof isn't FunN and doesn't have a rewrite for it we cannot let it through as LambdaVariables are
+   * Similarly, if a hof isn't FunN and doesn't have a rewrite for it we cannot let it through as LambdaVariables are
    * always stateful.
    * @param exprs These expressions must be fully resolved, bound and optimised
    * @param compile when false any stateful expression returns true, by default compilation for stateful CodegenFallback is true
@@ -95,11 +95,13 @@ object Processors {
       shouldForceCopy
     else
       exprs.exists(_.collect {
+        case z: ZeroCodeGen if isCopyNeeded(Seq(z.realChild), compile) => z
         case e: CodegenFallback if ShimUtils.isStateful(e) =>
           e
         case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
       }.nonEmpty ) || ( !compile &&
         exprs.exists(_.collect {
+          case z: ZeroCodeGen if isCopyNeeded(Seq(z.realChild), compile) => z
           case e: Expression if ShimUtils.isStateful(e)  =>
             e
           case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
@@ -166,7 +168,7 @@ object Processors {
           }
         }.distinct.toSet
 
-      val projector = // TODO bring this back to life
+      val projector = // #134 - will be removed
         //if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
           //GenerateDecoderOpEncoderVarProjection.create[I, O](exprsToUse, allOrdinals)
         //else

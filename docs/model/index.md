@@ -101,6 +101,7 @@ RuleResult <|-- Failed:Singleton
 RuleResult <|-- SoftFailed:Singleton
 RuleResult <|-- DisabledRule:Singleton
 RuleResult <|-- IgnoredRule:Singleton
+RuleResult <|-- UnevaluatedRule:Singleton
 RuleResult <|-- DefaultRule:Singleton
 RuleResult <|-- Probability
 RuleResult <|-- RuleResultWithProcessor
@@ -199,5 +200,6 @@ class RuleSuiteGroupResult {
 * Probability results with over 80 percent are deemed to have Passed, you may override this with the RuleSuite.withProbablePass function after creating the RuleSuite.
 * IgnoredRule results also do not cause the RuleSet or RuleSuite to fail but signal a rule has been ignored upstream, typically to aid in reporting of applicable rules
 * DefaultRule is used by Collector to indicate no trigger Rules Passed and defaultProcessor was run.  (If no DefaultProcessor was used Failed is returned)
+* UnevaluatedRule is used by RuleEngines to signify that a rule was not evaluated, either due to salience (RuleEngineRunner only) or TriggerGrouping (the trigger rule cannot pass for a row).  This value is typically not returned when Spark uses eval / interpreted mode.
 
 RuleResultWithProcessor is only used when using the ruleEngineRunner and is not returned in the column, rather the result of the expression is - shown above as call to "data".

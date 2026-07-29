@@ -47,6 +47,21 @@ trait RuleProcessingConstants {
   val groupProcessorAuditName = "quality.runnerGroupProcessor.auditName"
 
   /**
+   * Specifies max value for the audit "best fit", defaults to 200
+   */
+  val groupProcessorAuditMaxBucket = "quality.runnerGroupProcessor.auditMaxBucket"
+
+  /**
+   * Specifies min value for the audit "best fit", defaults to 100
+   */
+  val groupProcessorAuditMinBucket = "quality.runnerGroupProcessor.auditMinBucket"
+
+  /**
+   * Specifies step value for the audit "best fit", defaults to 10
+   */
+  val groupProcessorAuditBucketStep = "quality.runnerGroupProcessor.auditBucketStep"
+
+  /**
    * Dumps compilation time for ruleRunners with SplitCompilation
    */
   val showSplitCompilationTime = "quality.showSplitCompilationTime"

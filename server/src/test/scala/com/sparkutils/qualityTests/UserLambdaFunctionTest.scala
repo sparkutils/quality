@@ -5,8 +5,8 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
-
 import com.sparkutils.testing.TestUtils.debug
+import org.scalatest.Matchers.{convertToAnyShouldWrapper, include}
 
 trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
   def doNullInParam(): Unit = {
@@ -273,10 +273,10 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     val gt = LambdaFunction("gt", "(a, b) -> a > b", Id(2, 2))
     val ismod = LambdaFunction("ismod", "(a, b, c) -> a % b == c", Id(2, 2))
     val notnull = LambdaFunction("notnull", "x -> x IS NOT NULL", Id(2, 2))
-    val isnull = LambdaFunction("isnull", "x -> x IS NULL", Id(2, 2))
+    val myisnull = LambdaFunction("myisnull", "x -> x IS NULL", Id(2, 2))
     val drop2nd = LambdaFunction("drop2nd", "(f, x, y) -> callFun(f, x)", Id(2, 2))
     val dropNConcat = LambdaFunction("dropNConcat", "(k, v1, v2) -> concat(v1, v2)", Id(2, 2))
-    registerLambdaFunctions(Seq(plus, times, sort1, sort2, gt, ismod, notnull, isnull, drop2nd, dropNConcat))
+    registerLambdaFunctions(Seq(plus, times, sort1, sort2, gt, ismod, notnull, myisnull, drop2nd, dropNConcat))
 
     val s = sparkSession
     import s.implicits._
@@ -323,9 +323,14 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 10))) as res").as[Boolean].head())
 
     assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
-    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(myisnull(_('int')))) as res").as[Boolean].head())
 
-    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(myisnull(_('int')))) as res").as[Boolean].head())
+
+    val caught = intercept[Exception] {
+      assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+    }
+    caught.getMessage should include("Quality _lambda_ can only be used with Quality User Functions")
 
     //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
     //       false

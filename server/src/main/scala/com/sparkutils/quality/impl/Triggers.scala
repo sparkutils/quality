@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.util.SeparateCompilation.Holder
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
 import com.sparkutils.quality.{QualityException, getConfig, groupProcessorKey}
@@ -10,39 +11,55 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNes
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow}
+import org.apache.spark.sql.qualityFunctions.FunNLambda
 
 import scala.runtime.{AbstractFunction10, AbstractFunction9}
 
-sealed trait GroupOr {
-  def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T
+trait LowestSalience {
+  def lowestSalience: Int
+}
+
+sealed trait GroupOr extends LowestSalience {
+  def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T
   def size: Int
+  // size if any optimisations such as SwitchGroups is possible
+  def optimisedSize: Int = size
   def groupFilters: Seq[Expression] = Seq.empty
 }
 
-case class Triggers(triggers: Seq[Trigger]) extends GroupOr {
-  override def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T = triggersF(triggers)
+case class Triggers(triggers: Seq[Trigger], lowestSalience: Int) extends GroupOr {
+  override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = triggersF(triggers)
 
   override def size: Int = triggers.size
+
+  override def optimisedSize: Int = SwitchGroups.groups(triggers).map(_ => SwitchGroups.assumedSize).getOrElse(size)
 }
 
 case class Groups(groups: Seq[Group]) extends GroupOr {
-  override def fold[T](groupsF: Seq[Group] => T)(triggersF: Seq[Trigger] => T): T = groupsF(groups)
+  override def fold[T](groupsF: Groups => T)(triggersF: Seq[Trigger] => T): T = groupsF(this)
 
   override def size: Int = groups.map(_.size).sum
 
+  override def optimisedSize: Int = groups.map(_.optimisedSize).sum
+
   override def groupFilters: Seq[Expression] = groups.flatMap(_.groupFilters)
+
+  def lowestSalience: Int = groups.map(_.lowestSalience).min
 }
 
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
-case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) {
-  def size = payload.size
+case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) extends LowestSalience {
+  def size = payload.size + 1
+
+  def optimisedSize = payload.optimisedSize + 1
 
   def groupFilters: Seq[Expression] = payload.groupFilters :+ groupFilter
 }
 
 case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
-                         extraClasses: Seq[(Int, CodeAndComment)], ignoreTopLevelSubExpressions: Boolean)
+                         extraClasses: Seq[(Int, CodeAndComment)],
+                         usedParameters: ParameterInformation)
 
 /**
  * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
@@ -50,13 +67,14 @@ case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
  *
  * The return type is the list of function names to call and any extra common subexpressions needed to group
  */
-trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, Seq[VariableValue],
-  Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)], ParameterInformation,
-  String, () => Block, () => Block, String => Block, TriggerResult] {
+trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, Seq[(VariableValue, Boolean)],
+  Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)], ParameterInformation,
+  String, () => Block, String => Block, Boolean, TriggerResult] {
 
-  def apply(ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
-            expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)], params: ParameterInformation,
-            prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block): TriggerResult
+  def apply(ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
+            expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
+            params: ParameterInformation, prefix: String, exprEnd: () => Block,
+            groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean): TriggerResult
 
   /**
    * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
@@ -71,14 +89,24 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, 
    */
   def dumpAudit(runner: HasOutput): Unit
 
+  /**
+   * Returns the children to use for runner usage.  DefaultTriggerGrouper returns the original as is,
+   * custom groupers can choose what is returned
+   * @param original
+   * @return
+   */
+  def useChildrenForRunner(original: Seq[Expression]): Seq[Expression]
+
 }
 
 case class DefaultTriggerGrouper() extends TriggerGrouper {
 
-  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
-                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
-                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
-                      groupSalienceCheck: String => Block):
+  override def useChildrenForRunner(original: Seq[Expression]): Seq[Expression] = original
+
+  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
+                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
+                      params: ParameterInformation, prefix: String, exprEnd: () => Block,
+                      groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean):
     TriggerResult = {
 
     val allExpr = expressions.grouped(runner.variablesPerFunc).grouped(runner.variableFuncGroup)
@@ -92,37 +120,31 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
               exprFunc <- exprGroup
             } yield {
               val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
-              val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
+              val argPairs = params.nonCombinedParams.map(t => t.typeDecl -> t.name)
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map( p =>
-                  p._2.apply(ctx, params, p._1.expression).code + s"${exprEnd()}\n")
+                  p._2.apply(ctx, params, p._1.expression, false).code + s"${exprEnd()}\n")
                   , runner.variableFuncGroup, exprFuncName, argPairs,
                   foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
-              /*ctx.addNewFunction(exprFuncName,
-                code"""
-                 private void $exprFuncName(${params.paramsDef}) {
-                   $body
-                 }
-                """.code)*/
               body
             }
 
           code"""
            private void $groupName(${params.paramsDef}) {
              ${
-                //funNames.map { f => s"$f(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")
-                funNames.mkString(s"${exprFunEnd()}\n")
+                funNames.mkString(s"\n") // ${exprEnd()}
               }
            }
            """.code
 
         })
       }
-    TriggerResult(funNames, "", Seq.empty[(Int, CodeAndComment)], false)
+    TriggerResult(funNames, "", Seq.empty[(Int, CodeAndComment)], params)
   }
-
+  // $COVERAGE-OFF$
   def dumpAudit(runner: HasOutput): Unit = {}
+  // $COVERAGE-ON$
 }
 
 /**
@@ -134,10 +156,10 @@ trait GroupBasedGrouper extends TriggerGrouper {
   private lazy val idHolder = new Counter()
 
   protected def performGrouping(ctx: CodegenContext, runner: Runner, resultRow: String,
-                                additionalParams: Seq[VariableValue],
-                                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
+                                additionalParams: Seq[(VariableValue, Boolean)],
+                                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
                                 params: ParameterInformation, prefix: String, exprEnd: () => Block,
-                                exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+                                groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean,
                                 groups: Seq[Group]): TriggerResult = {
     val map = expressions.map(p => p._1.index -> p._2).toMap
 
@@ -145,9 +167,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     //System.out.println(s"the groups had ${groups.size} entries")
 
-    val groupExprs = groups.flatMap(_.groupFilters)
+    val groupExprs = groups.map(_.groupFilter)
 
-    def builder = {
+    def builder(params: ParameterInformation) = {
 
       val grouped = groups.grouped(runner.variablesPerFunc).grouped(runner.variableFuncGroup).toSeq
 
@@ -159,118 +181,218 @@ trait GroupBasedGrouper extends TriggerGrouper {
             for {
               exprFunc <- exprGroup
             } yield {
-              produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-                groupSalienceCheck, 0, simpleGrouper, map, params, exprFunc)
+              produceGroups(ctx, runner, additionalParams, prefix, exprEnd,
+                groupSalienceCheck, 0, simpleGrouper, map, params, exprFunc, returnIfGroupSalienceCheckFalse)
             }
 
           (ctx.addNewFunction(groupName,
 
             code"""
              private void $groupName(${params.paramsDef}) {
-               ${exprFunEnd()}
-               ${subGroups.map { f => s"${f._1}(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")}
+               ${subGroups.map { f => s"${f._1}(${params.paramsCall});" }.mkString(s"\n")}
              }
              """.code
 
-          ), subGroups.flatMap(_._2))
+          ), subGroups.flatMap(_._2), params)
         }
       funPairs
-    }.foldLeft((Seq.empty[String], Seq.empty[(Int, CodeAndComment)])) {
-      case ((ns, cs), (n, c)) => (ns :+ n, cs ++ c.flatten)
+    }.foldLeft((Seq.empty[String], Seq.empty[(Int, CodeAndComment)], null: ParameterInformation)) {
+      case ((ns, cs, es), (n, c, e)) => (ns :+ n, cs ++ c.flatten, e) // actual params not needed at this level
     }
 
-    if (ctx.currentVars eq null) {
-      // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
-
-      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
-
-      val (funNames, extraClasses) = builder
-      TriggerResult(funNames.iterator, subExpressionCode, extraClasses, true)
-    } else {
-      // will generate again, the sub exprs will be present on the projection unless ZeroCodeGen is enabled
-      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, groupExprs ++
-        ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1))
-      )
-      val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
-
-      val (funNames, extraClasses) =
-        QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          builder
-        }
-      TriggerResult(funNames.iterator, SeparateCompilation.splitGlobalSubExprs(ctx, subExpressionCode), extraClasses, true)
-    }
-  }
-
-  protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                              exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
-                              groupDepth: Int, simpleGrouper: DefaultTriggerGrouper,
-                              map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                              params: ParameterInformation, exprFunc: Seq[Group]
-                             ): (String, Seq[Seq[(Int, CodeAndComment)]]) = {
-    val exprFuncName = ctx.freshName(prefix + "GEFuncGroup" + groupDepth)
-
-    val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
-    val groupCalls =
-      exprFunc.map {
-        group =>
-
-          producePayload(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-            groupSalienceCheck, group, simpleGrouper, map, groupDepth, params)
+    val ((funNames, extraClasses, widerAdditionalParams), subExpressionCode) =
+      QualityCodeGenUtils.produceCode(ctx, groupExprs){
+        (children, subExprCode, _) =>
+          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
+          (builder(childParams), subExprCode)
       }
 
+    TriggerResult(funNames.iterator, subExpressionCode, extraClasses, widerAdditionalParams)
+  }
+
+  protected def produceGroups(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                              exprEnd: () => Block, groupSalienceCheck: String => Block,
+                              groupDepth: Int, simpleGrouper: DefaultTriggerGrouper,
+                              map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                              params: ParameterInformation, groups: Seq[Group], returnIfGroupSalienceCheckFalse: Boolean
+                             ): (String, Seq[Seq[(Int, CodeAndComment)]], ParameterInformation) = {
+    val exprFuncName = ctx.freshName(prefix + "GEFuncGroup" + groupDepth)
+
+    val shouldReturn = ctx.addMutableState("boolean", "shouldReturn", v => s"$v = false;")
+    val argPairs = params.nonCombinedParams.map(t => t.typeDecl -> t.name)
+
+    val groupCalls =
+      groups.map {
+        group =>
+
+          producePayload(ctx, runner, additionalParams, prefix, exprEnd,
+            groupSalienceCheck, group, simpleGrouper, map, groupDepth, params,
+            returnIfGroupSalienceCheckFalse, shouldReturn)
+      }
+
+    val earlyExit =
+      s""";\n
+       if ($shouldReturn) {
+          return;
+       }
+       """
+
+    val foldFunctions: Seq[String] => String =
+      if (returnIfGroupSalienceCheckFalse)
+        _.mkString("", earlyExit, ";")
+      else
+        // $COVERAGE-OFF$  // provided so it functionally works, but it's not clear why someone would use it
+        _.mkString("", ";\n", ";")
+        // $COVERAGE-ON$
+
     val body =
-      QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"${exprEnd()}\n"),
-        runner.variablesPerFunc, exprFuncName, argPairs,
-        foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
+      QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"\n"),
+        runner.variablesPerFunc, exprFuncName, argPairs, foldFunctions = foldFunctions
       )
 
     (ctx.addNewFunction(exprFuncName,
       code"""
        private void $exprFuncName(${params.paramsDef}) {
+         $shouldReturn = false;
          $body
        }
       """.code
-    ), groupCalls.map(_._2))
+    ), groupCalls.map(_._2), groupCalls.map(_._3).foldLeft(ParameterInformation.forMerging)(_.mergeParams(ctx, _, false)))
   }
 
-  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                              exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+  protected def producePayload(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                              exprEnd: () => Block, groupSalienceCheck: String => Block,
                               group: Group, simpleGrouper: DefaultTriggerGrouper,
-                              map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                              groupDepth: Int, params: ParameterInformation): (String, Seq[(Int, CodeAndComment)]) = {
-    group.payload.fold { groups =>
-      val (funName, clazzes) =
-        produceGroups(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-          groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups)
-      (s"$funName(${params.paramsCall});", clazzes.flatten)
+                              map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                              groupDepth: Int, outerParams: ParameterInformation,
+                              returnIfGroupSalienceCheckFalse: Boolean,
+                              shouldReturn: String): (String, Seq[(Int, CodeAndComment)], ParameterInformation) = {
+    group.payload.fold { groupsHolder =>
+      val groups = groupsHolder.groups
+      // don't enter if the current salience is lower
+      val allGroupExprs = groups.map(_.groupFilter)
+
+      val (body, clazzes, widerAdditionalParams) =
+        produceGroupTriggers(ctx, runner, additionalParams,
+          groupSalienceCheck, group, produceGroupsResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+            exprEnd: () => Block, groupSalienceCheck: String => Block,
+            group: Group, simpleGrouper: DefaultTriggerGrouper,
+            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+            groupDepth: Int, outerParams: ParameterInformation,
+            returnIfGroupSalienceCheckFalse: Boolean,
+            shouldReturn: String, groups: Seq[Group])
+          , allGroupExprs,
+          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
+
+      (
+        returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
+          shouldReturn, "Groups_"+groupDepth, groupsHolder,
+          body
+        ).code, clazzes, widerAdditionalParams)
     } { triggers =>
-      val (body, clazzes) =
-        produceGroupTriggers(ctx, runner, additionalParams, prefix, exprEnd, exprFunEnd,
-          groupSalienceCheck, group, simpleGrouper, map, triggers)
-      (body.code, clazzes)
+
+      val allGroupExprs = {
+        triggers.flatMap {
+          trigger =>
+            Seq(trigger.expression) ++ trigger.outputExpression.map(Seq(_)).getOrElse(Seq.empty)
+        }
+      }
+
+      val (body, clazzes, widerAdditionalParams) =
+        produceGroupTriggers(ctx, runner, additionalParams,
+          groupSalienceCheck, group,
+          produceTriggersResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+            exprEnd: () => Block, groupSalienceCheck: String => Block,
+            group: Group, simpleGrouper: DefaultTriggerGrouper,
+            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+            groupDepth: Int, outerParams: ParameterInformation,
+            returnIfGroupSalienceCheckFalse: Boolean,
+            shouldReturn: String, triggers: Seq[Trigger]), allGroupExprs,
+          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
+
+      (body.code, clazzes, widerAdditionalParams)
     }
   }
 
-  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[VariableValue], prefix: String,
-                                     exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block,
-                                     group: Group, simpleGrouper: DefaultTriggerGrouper,
-                                     map: Map[Int, (CodegenContext, ParameterInformation, Expression) => Block],
-                                     triggers: Seq[Trigger]): (Block, Seq[(Int, CodeAndComment)]) = {
+  /**
+   * Override for custom group handling, otherwise delegates to produceGroups
+   */
+  def produceGroupsResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                          exprEnd: () => Block, groupSalienceCheck: String => Block,
+                          group: Group, simpleGrouper: DefaultTriggerGrouper,
+                          map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                          groupDepth: Int, outerParams: ParameterInformation,
+                          returnIfGroupSalienceCheckFalse: Boolean,
+                          shouldReturn: String, groups: Seq[Group])
+                         (ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult = {
+    val (funName, clazzes, widerAdditionalParams) =
+      produceGroups(ctx, runner, additionalParams, prefix, exprEnd,
+        groupSalienceCheck, groupDepth + 1, simpleGrouper, map, params, groups,
+        returnIfGroupSalienceCheckFalse)
+
+    TriggerResult(Seq(funName).iterator, "", clazzes.flatten, widerAdditionalParams)
+  }
+
+  /**
+   * Override to customise a groups Trigger processing.  By default, attempts to call [[SwitchGroups.groups]] followed by
+   * [[SwitchGroups.produceGroup]] or falls through to the simpleGrouper when a switch is not possible.
+   */
+  def produceTriggersResult(runner: Runner, additionalParams: Seq[(VariableValue, Boolean)], prefix: String,
+                            exprEnd: () => Block, groupSalienceCheck: String => Block,
+                            group: Group, simpleGrouper: DefaultTriggerGrouper,
+                            map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
+                            groupDepth: Int, outerParams: ParameterInformation,
+                            returnIfGroupSalienceCheckFalse: Boolean,
+                            shouldReturn: String, triggers: Seq[Trigger])
+                           (ctx: CodegenContext, params: ParameterInformation, grpResult: String): TriggerResult =
+    SwitchGroups.groups(triggers).map(_.produceGroup(ctx, prefix, 0, map, params)).getOrElse {
+      simpleGrouper(ctx, runner, grpResult, additionalParams,
+        triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, groupSalienceCheck,
+        returnIfGroupSalienceCheckFalse)
+    }
+
+  protected def returnIfSalience(groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean,
+                                 shouldReturn: String, context: String, group: LowestSalience, block: Block): Block = {
+    val earlyExit = // only for RuleEngineRunner
+      if (returnIfGroupSalienceCheckFalse)
+        s"""
+           else {
+              $shouldReturn = true;
+              return;
+           }
+           """
+      else
+        ""
+
+    // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
+    code"""
+      // code for $context
+      if (${groupSalienceCheck(group.lowestSalience.toString)}) {
+        $block
+      } $earlyExit
+    """
+  }
+
+  protected def produceGroupTriggers(ctx: CodegenContext, runner: Runner, additionalParams: Seq[(VariableValue, Boolean)],
+                                     groupSalienceCheck: String => Block,
+                                     group: Group,
+                                     produceTriggerResult: (CodegenContext, ParameterInformation, String) => TriggerResult,
+                                     allGroupExprs: Seq[Expression],
+                                     returnIfGroupSalienceCheckFalse: Boolean, shouldReturn: String,
+                                     outerParams: ParameterInformation
+                                    ): (Block, Seq[(Int, CodeAndComment)], ParameterInformation) = {
     val groupIndex = idHolder.next()
     val id = s"Group$groupIndex"
 
-    val allGroupExprs = triggers.flatMap {
-      trigger =>
-        Seq(trigger.expression) ++ trigger.outputExpression.map(Seq(_)).getOrElse(Seq.empty)
-    }
-
     // remove the params usage, everything is in the object variables, this is top level only
     val preCalcParams = (ctx: CodegenContext) =>
-      genParamsForNested(ctx, allGroupExprs :+ group.groupFilter, additionalParams).copy(paramsDef = "", paramsCall = "")
+      genParamsForNested(ctx, allGroupExprs ++ group.groupFilters, additionalParams)
+        .copy(paramsDef = "", paramsCall = "").mergeParams(ctx, outerParams, false)
 
     val resCode = ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
       VariableValue(ctx.freshName("groupResult"), classOf[GenericInternalRow]))
-    val (body, expr) =
+
+    val SeparateCompilation(body, expr, compilationParams) =
       SeparateCompilation.withSubExpressions(runner, allGroupExprs, ctx, resCode,
         SubCompilation(id, s"Trigger group $groupIndex"),
         // we need to pipe the row in
@@ -281,41 +403,48 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
         val grpResult = ctx.freshName("groupResult")
 
-        val sgr = simpleGrouper(ctx, runner, grpResult, additionalParams,
-          triggers.map(t => (t, map(t.index))), params, prefix, exprEnd, exprFunEnd, groupSalienceCheck)
+        val gr = produceTriggerResult(ctx, params, grpResult)
 
-        val funNames = sgr.groupCalls
+        val funNames = gr.groupCalls
         val exprRunner =
           ExprCode(VariableValue(ctx.freshName("groupResultNull"), java.lang.Boolean.TYPE),
-            VariableValue(grpResult, classOf[GenericInternalRow])
+            VariableValue(grpResult, classOf[Array[Object]])
           )
 
+        val noArrayParams = (additionalParams ++ outerParams.topLevelRunnerParams).distinct.filterNot(_._1.javaType.isArray);
+
+        val returnArray = ctx.addMutableState("Object[]","returnArray",
+          initFunc = v => s"$v = new Object[${noArrayParams.size}];")
+
         // the top level is 0 arrays are filtered out from the row as they don't need explicit returning
-        GenerateResult(SeparateClassGenerator(runner.getClass.getName, additionalParams, groupIndex + 1), exprRunner.copy(
+        GenerateResult(SeparateClassGenerator(runner.getClass.getName, gr.usedParameters, groupIndex + 1,
+          additionalParams ++ outerParams.topLevelRunnerParams),
+          exprRunner.copy(
           code =
             code"""
-                              boolean ${exprRunner.isNull} = false;
-                              ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
-                              GenericInternalRow ${exprRunner.value} = new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(
-                                new Object[]{
-                                ${additionalParams.filterNot(_.javaType.isArray).map(_.variableName).mkString(",\n")}
-                                }
-                              );
-                              """
-        ), sgr.extraClasses, sgr.ignoreTopLevelSubExpressions, groupIndex + 1)
+              boolean ${exprRunner.isNull} = false;
+              ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
+              Object[] ${exprRunner.value} = $returnArray;
+              ${noArrayParams.zipWithIndex.map{
+                case (p, index) => s"${returnArray}[$index] = ${p._1.variableName};"
+              }.mkString(";\n")}
+              """
+        ), gr.extraClasses)
       }
 
     val eval = group.groupFilter.genCode(ctx)
 
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
     (
-      code"""
-        ${exprEnd()}\n
+      returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
+        shouldReturn, s"filter ${group.groupFilter.toString}", group,
+        code"""
         ${eval.code}
-        if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
+        if ((!${eval.isNull}) && ${eval.value} ) {
           ${expr.code}
         }
-      """, body)
+        """
+      ), body, compilationParams)
   }
 }
 
@@ -328,38 +457,48 @@ trait GroupBasedGrouper extends TriggerGrouper {
  */
 case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
-  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
-                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
-                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
-                      groupSalienceCheck: String => Block):
+  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[(VariableValue, Boolean)],
+                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression, Boolean) => Block)],
+                      params: ParameterInformation, prefix: String, exprEnd: () => Block,
+                      groupSalienceCheck: String => Block, returnIfGroupSalienceCheckFalse: Boolean):
     TriggerResult = {
 
     val targetParams = TopLevelBoolean.params(runner)
 
     val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetParams)
 
-    performGrouping(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd,
-      exprFunEnd, groupSalienceCheck, groups)
+    performGrouping(ctx, runner, resultRow, additionalParams.distinct, expressions, params, prefix,
+      exprEnd, groupSalienceCheck, returnIfGroupSalienceCheckFalse, groups)
   }
 
   override def dumpAudit(runner: HasOutput): Unit = {
     TopLevelBooleanSuiteBuilder.build(runner)
-    val (_,size) = TopLevelBoolean.bestFit(triggers(runner))
-    System.out.println(s"TopLevelBooleanGrouper - optimal size between 100 and 200 for ruleSuite ${runner.ruleSuite.id} is $size")
+    val bestFit = TopLevelBoolean.bestFit(triggers(runner), runner)
+    System.out.println(s"TopLevelBooleanGrouper - optimal size between ${bestFit.rangeMin} and ${bestFit.rangeMax}" +
+      s" at percentage ${bestFit.percent} for " +
+      s"ruleSuite ${runner.ruleSuite.id} is ${bestFit.optimalBucketSize} (with max evaluation size " +
+      s"${bestFit.maxDeepestEvaluationSize} and ${bestFit.optimisedDeepestEvaluationSize} optimised depth)")
   }
 
+  // the groups themselves handled the children
+  override def useChildrenForRunner(original: Seq[Expression]): Seq[Expression] = Seq.empty
 }
 
 object Triggers {
 
+  val defaultGrouper: String = classOf[DefaultTriggerGrouper].getName
+
   def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
-    val name = extraConfig.string(groupProcessorKey, classOf[DefaultTriggerGrouper].getName)
+    val name = extraConfig.string(groupProcessorKey, defaultGrouper)
 
     val impl =
       try {
         Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]
       } catch {
+        // no need to test
+        // $COVERAGE-OFF$
         case t: Throwable => throw QualityException(s"Could not load TriggerGrouper of name $name", t)
+        // $COVERAGE-ON$
       }
     impl
   }

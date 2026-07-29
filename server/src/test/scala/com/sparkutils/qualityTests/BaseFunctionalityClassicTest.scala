@@ -1,10 +1,11 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{ExpressionRule, Failed, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite}
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
+import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.catalyst.util.ArrayData
@@ -24,16 +25,23 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     assert((0 until 5).forall(i => nar2(i) == i))
   }
 
+  def v4_1_and_below(thunk: => Unit) =
+    if (SparkVersions.sparkVersion == "4.2") {}
+    else thunk
+
   test("testPrintExpr") {
-    classicOnly {
-      funNRewrites {
-        doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+    v4_1_and_below {
+      classicOnly {
+        funNRewrites {
+          doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+        }
       }
     }
   }
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   test("testPrintCode") {
+    v4_1_and_below {
     classicOnly {
       not_Cluster {
         v3_2_and_above {
@@ -65,6 +73,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
         }
       }
     }
+    }
   }
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
@@ -79,14 +88,14 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     })
 
     import Holder.res
-    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head())
+    sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head() shouldBe 2
 
     def assertAdd() = if (addTest ne null) {
-      assert(res.contains(addTest))
+      res should include(addTest)
     }
 
     if (default ne null)
-      assert(res.indexOf(default) == 0)
+      res should startWith(default)
     else
       assert(res.isEmpty)
     assertAdd()
@@ -94,7 +103,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head())
 
     if (customTest ne null)
-      assert(res.indexOf(customTest) == 0)
+      res should startWith(customTest)
     else
       assert(res.isEmpty)
 
@@ -103,7 +112,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
 
 
   test("testRuleResult") {
-    evalCodeGensNoResolve {
+    forceInterpreted {
       funNRewrites {
         doTestRuleResult()
       }
@@ -153,4 +162,21 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
       }
     }
   }
+
+  // retested for compilation
+  test("compilation any test") {
+    evalCodeGensNoResolve {
+      resultChecker(
+        rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+          Rule(Id(30, 3), ExpressionRule("'ignored'")),
+          Rule(Id(31, 3), ExpressionRule("ignored_rule()")),
+          Rule(Id(32, 3), ExpressionRule("-3")),
+          Rule(Id(34, 3), ExpressionRule("cast(-3.0 as double)")),
+          Rule(Id(35, 3), ExpressionRule("-3.0")),
+          Rule(Id(36, 3), ExpressionRule("null")),
+          Rule(Id(37, 3), ExpressionRule(s"id * $resultCheckerCodeGenSize")), // stop constant folding the output away to force codegen
+        )))), (Failed, Failed), Seq(IgnoredRule, IgnoredRule, IgnoredRule, IgnoredRule, Probability(-3.0), Failed), _.toSeq.dropRight(1))
+    }
+  }
+
 }

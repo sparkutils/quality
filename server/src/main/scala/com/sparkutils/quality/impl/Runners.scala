@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
-import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, RuleSetMap}
+import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, ParameterInformation, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
+import com.sparkutils.shim.expressions.NondeterministicLike
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -57,6 +58,9 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
  */
 trait Runner extends Expression {
 
+  // #145 - Spark 3 doesn't allow Nondeterministic to be pattern matched due to classloading, it's not really needed though
+  final override lazy val deterministic: Boolean = false
+
   /**
    * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGenWrap]]
    * optimisation is enabled
@@ -107,7 +111,7 @@ trait Runner extends Expression {
    * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
    * used by codegen
    */
-  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
+  final def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
     val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
@@ -125,9 +129,13 @@ trait Runner extends Expression {
    * only applies overallResult to the top level result and ignores any rule or ruleset level information
    * used by codegen
    */
-  def applyEmptyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
+  final def applyEmptyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
     result.update(1, defaultOverallProcessor(ruleResult, result.getInt(1)))
   }
+
+  def applyNonEmptySuffix: String = ""
+
+  def applyInterimType: String = "int"
 
   def inPlaceArrayOffsets(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
     val className = this.getClass.getName
@@ -135,23 +143,37 @@ trait Runner extends Expression {
     ctx.addImmutableStateIfNotExists(className, runner,
       v => s"$v = (($className)references[$ruleRunnerExpressionIdx]);")
 
-    val empty =
+    val (empty, suffix) =
       if (extraConfig.boolean(useEmptyRuleSetResults, false))
-        "Empty"
+        ("Empty", "")
       else
-        ""
+        ("", applyNonEmptySuffix)
 
     InPlaceOffsets(ruleSuite.ruleSets.zipWithIndex.flatMap{
       case (ruleSet, level1) =>
         ruleSet.rules.zipWithIndex.map{
           case (_, level2) =>
             (result: String) =>
+
+              val ires = ctx.freshName("interimResult")
+
               code"""
-               $runner.apply${empty}Result($level1, $level2, $resultRow, $result);
-                """
+               $applyInterimType $ires = $result;
+               if (${nonDefaultResultTest(ires)}) {
+                 $runner.apply${empty}Result${suffix}($level1, $level2, $resultRow, $ires);
+               }
+               """
         }
     }, code"", code"", runner, this.getClass)
   }
+
+  /*
+   by default the result row has the default value, as such any entries that are default do not need to be written
+   The apply result overhead can be avoided, mostly relevant for DQ
+   used by codegen
+   */
+  def nonDefaultResultTest(result: String): Block =
+    code"true"
 
 }
 
@@ -162,7 +184,6 @@ trait TriggerOnly extends Runner {
   val defaultOverallProcessor: (Int, Int) => Int = OverallResultHelper.inplaceInt(_,_, ruleSuite.probablePass)
   val defaultRuleResult: Int = PassedInt
   val defaultOverallResult: Int = PassedInt
-
 }
 
 /**
@@ -234,7 +255,17 @@ trait SplitCompilation extends Runner {
   }
 
   def setClazzSource(seq: Seq[(Int, CodeAndComment)]): Unit = {
+    /*this match {
+      case h: HasOutput => println(" children --- >" + h.realChildren)
+    }
+    seq.foreach(p => println(p._1 + " --> " + p._2.body))*/
     generatorClassSource = seq.toMap
   }
 
+  @transient
+  var usedParameters_ : ParameterInformation = _
+
+  def setUsedParameters(parameters: ParameterInformation) = {
+    usedParameters_ = parameters
+  }
 }

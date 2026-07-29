@@ -17,18 +17,21 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} Spark 4.1 and 4.x [Connect Support](getting_started/connect/)
+Version 0.2.0 represents a major milestone with almost 8,440 net new lines of code across 31 issues,
+please check the [changelog](background/changelog.md) for more details.
+
+* :new:{.pulseABit} Spark 4.1, 4.2 and 4.x [Connect Support](getting_started/connect.md)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
 * :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results
 * :new:{.pulseABit} Improved compilation performance for large scale RuleSuites by separate compilation
-* :new:{.pulseABit} Experimental and optional support for optimised large scale rules (>20k RuleSuites) with 2x speed improvements and lower memory requirements via TriggerGrouper
+* :new:{.pulseABit} Result processing is a minimum of 30% faster and applies to all rule execution, with common boolean and int result cases faster still
+* :new:{.pulseABit} Experimental and optional support for optimised large scale rules (>20k RuleSuites) with up to 100x speed improvements and lower memory requirements via [TriggerGrouper](advanced/triggerGrouping.md)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
 !!! warn "Databricks 18 changes it's release process"
     Per [this link](https://docs.databricks.com/aws/en/release-notes/runtime/18) Databricks will no longer have minor releases.
-    It is unclear at this time (28.05.2026) how this will be supportable given the high degree of change typically found
-    within a release over time, let alone between minor releases. 
+    Please pay attention to the [Running On Databricks](getting_started/running_on_databricks.md) page for exact versions tested against. 
 
 ## Enhanced Spark Functionality
 

@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.aggregate.ScalaAggregator
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, GroupResultsWithProcess, LambdaFunctions, MapTransform, RefCodeGen}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
@@ -28,65 +28,19 @@ import scala.collection.mutable
  */
 object ClassicQualitySparkUtils {
 
-  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues
-  def getLocalInputVariableValues(
-                                   ctx: CodegenContext,
-                                   expr: Seq[Expression],
-                                   subExprs: Map[ExpressionEquals, SubExprEliminationState])
-  : (Set[VariableValue], Set[ExprCode]) = {
-    val argSet = mutable.Set[VariableValue]()
-    val exprCodesNeedEvaluate = mutable.Set[ExprCode]()
-
-    if (ctx.INPUT_ROW != null) {
-      argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
-    }
-
-    // Collects local variables from a given `expr` tree
-    val collectLocalVariable = (ev: ExprValue) => ev match {
-      case vv: VariableValue => argSet += vv
-      case _ =>
-    }
-
-    val stack = mutable.Stack[Expression]()
-    stack.pushAll(expr)
-    while (stack.nonEmpty) {
-      stack.pop() match {
-        case ref: BoundReference if ctx.currentVars != null &&
-          ctx.currentVars(ref.ordinal) != null =>
-          val exprCode = ctx.currentVars(ref.ordinal)
-          // If the referred variable is not evaluated yet.
-          if (exprCode.code != EmptyBlock) {
-            exprCodesNeedEvaluate += exprCode.copy()
-            exprCode.code = EmptyBlock
-          }
-          collectLocalVariable(exprCode.value)
-          collectLocalVariable(exprCode.isNull)
-
-        case e =>
-          subExprs.get(ExpressionEquals(e)) match {
-            case Some(state) =>
-              collectLocalVariable(state.eval.value)
-              collectLocalVariable(state.eval.isNull)
-            case None =>
-              stack.pushAll(e.children)
-          }
-      }
-    }
-
-    (argSet.toSet, exprCodesNeedEvaluate.toSet)
-  }
-
   /**
    * Only evaluates against subexpressions
    *
    * @param i
    * @param ctx
-   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
-  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[ExprValue]): ParameterInformation = {
-    val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
+  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
+    val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq, additional)
+    // val e = withRefExpr(ctx, children)
+
+    val p = formatParams(ctx, /*(a ++ e)*/a.toSeq, additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }
@@ -98,7 +52,7 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[ExprValue] = Seq.empty): ParameterInformation = {
+  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[(VariableValue, Boolean)] = Seq.empty): ParameterInformation = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq, additional)
@@ -107,7 +61,7 @@ object ClassicQualitySparkUtils {
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
-    plan.transformExpressionsDownWithPruning {
+    plan.transformAllExpressionsWithPruning {
       // if it's an actual lambda (e.g. folder) we should not expand it for now
       case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
         case f: FunN =>

@@ -11,7 +11,7 @@ import com.sparkutils.quality.impl.types._
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -109,7 +109,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   lazy val realChildren = getRealChildren(children)
 
-  override def toString: String = "ExpressionRunner" + truncatedString(
+  override def toString: String = s"ExpressionRunner(${ruleSuite.id})" + truncatedString(
     realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   override def nullable: Boolean = false
@@ -142,13 +142,22 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   /**
    * used by codegen
    */
-  override def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
-    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
-
+  override def applyNonEmptySuffix: String = "Expression"
   /**
    * used by codegen
    */
-  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
+  override def applyInterimType: String = "Object"
+
+  /**
+   * used by codegen
+
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
+    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
+*/
+  /**
+   * used by codegen
+   */
+  def applyResultExpression(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
     val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
@@ -157,7 +166,10 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+    val SeparateCompilation(clazz, fres, _) =
+      SeparateCompilation.withSubExpressions(this,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+        topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs
@@ -183,17 +195,21 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               """
         )
 
-        def yamlOrType(code: ExprValue, idx: Int): String =
+        def yamlOrType(code: ExprValue, isNull: ExprValue, idx: Int): String =
           if (ddlType == impl.types.expressionResultTypeYaml)
             s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
-          else
-            s"$code"
+          else {
+            // #82 DBR Janino autobox issue
+            val edt = code.javaType
+            val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+            s"($theCast) ( $code )"
+          }
 
         val (res, triggerRes) =
-          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType(_, _), ruleRunnerExpressionIdx)
+          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType, ruleRunnerExpressionIdx)
 
-      GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty,
-        triggerRes.ignoreTopLevelSubExpressions)
+      GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty)
     }
     setClazzSource(clazz)
     fres
