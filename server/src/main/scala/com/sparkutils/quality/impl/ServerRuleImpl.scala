@@ -692,9 +692,12 @@ object RuleSuiteFunctions {
       val arg: RefExpressionLazyType =
         rule.expr match {
           case FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) => arg
+          // only possible on OSS pre #145, but given DBR doesn't behave the same way it's here for safety but not expected to be called
+          // $COVERAGE-OFF$
           case e: ExpressionProxy =>
             val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = e.child
             arg
+          // $COVERAGE-ON$
         }
 
       arg.value = row

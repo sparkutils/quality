@@ -32,7 +32,8 @@ object ClassicQualitySparkUtilsExt {
     expr.flatMap(firstZeroWith)
   }
 
-  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues, required by DBR (Holder and OSS impl work fine on OSS, but not on DBR as it doesn't use deterministic)
+  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues, required by DBR (Holder and OSS impl work fine on OSS,
+  // but not on DBR as it doesn't use deterministic), hence all the coverage-off
   def getLocalInputVariableValues(
                                    ctx: CodegenContext,
                                    expr: Seq[Expression],
@@ -46,6 +47,7 @@ object ClassicQualitySparkUtilsExt {
     }
 
     val splits = collectFirstZeroCodeGenSplitCompilations(ctx, expr)
+    // $COVERAGE-OFF$
     val totalParams =
       splits.foldLeft(ParameterInformation.forMerging) {
         (cur, s) =>
@@ -58,6 +60,7 @@ object ClassicQualitySparkUtilsExt {
       p =>
         argSet += JavaCode.variable(p.name, p.classType)
     }
+    // $COVERAGE-ON$
 
     // Collects local variables from a given `expr` tree
     val collectLocalVariable = (ev: ExprValue) => ev match {
@@ -73,10 +76,12 @@ object ClassicQualitySparkUtilsExt {
           ctx.currentVars(ref.ordinal) != null =>
           val exprCode = ctx.currentVars(ref.ordinal)
           // If the referred variable is not evaluated yet.
+          // $COVERAGE-OFF$
           if (exprCode.code != EmptyBlock) {
             exprCodesNeedEvaluate += exprCode.copy()
             exprCode.code = EmptyBlock
           }
+          // $COVERAGE-ON$
           collectLocalVariable(exprCode.value)
           collectLocalVariable(exprCode.isNull)
 

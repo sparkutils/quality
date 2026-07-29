@@ -240,10 +240,10 @@ trait GroupBasedGrouper extends TriggerGrouper {
     val foldFunctions: Seq[String] => String =
       if (returnIfGroupSalienceCheckFalse)
         _.mkString("", earlyExit, ";")
-      // $COVERAGE-OFF$  // provided so it functionally works, but it's not clear why someone would use it
       else
+        // $COVERAGE-OFF$  // provided so it functionally works, but it's not clear why someone would use it
         _.mkString("", ";\n", ";")
-      // $COVERAGE-ON$
+        // $COVERAGE-ON$
 
     val body =
       QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1 + s"\n"),
@@ -495,7 +495,10 @@ object Triggers {
       try {
         Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]
       } catch {
+        // no need to test
+        // $COVERAGE-OFF$
         case t: Throwable => throw QualityException(s"Could not load TriggerGrouper of name $name", t)
+        // $COVERAGE-ON$
       }
     impl
   }
