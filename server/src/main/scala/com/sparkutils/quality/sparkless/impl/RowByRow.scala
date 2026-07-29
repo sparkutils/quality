@@ -168,7 +168,7 @@ object Processors {
           }
         }.distinct.toSet
 
-      val projector = // TODO bring this back to life
+      val projector = // #134 - will be removed
         //if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
           //GenerateDecoderOpEncoderVarProjection.create[I, O](exprsToUse, allOrdinals)
         //else
