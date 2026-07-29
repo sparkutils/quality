@@ -109,7 +109,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(
-      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren.take(triggerCount)), outerCtx, ev, ruleSuite.id,
       topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
         val cacheApproach =

@@ -248,7 +248,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 
     val SeparateCompilation(clazz, fres, _) =
       SeparateCompilation.withSubExpressions(this,
-        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(children), outerCtx, ev, ruleSuite.id,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(children.take(triggerCount)), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 
