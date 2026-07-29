@@ -4,7 +4,7 @@ import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.Runner
-import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
+import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNested}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
@@ -194,7 +194,7 @@ object SeparateCompilation {
     val (genResult, (subExpressionCode, childParams)) =
       QualityCodeGenUtils.produceCode(ctx, children){
         (children, subExprCode, _) =>
-          val childParams = genParams(ctx, Holder(children), Seq.empty).mergeParams(ctx, params, false)
+          val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
 
           (generate(ctx, ruleRunnerExpressionIdx, childParams), (subExprCode, childParams))
       }
