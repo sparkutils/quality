@@ -84,6 +84,6 @@ The actual expression code which is generated is of course the same, only that T
 
 ### How big can the rule suite be?
 
-With Quality 0.2.0 rule engine and TopLevelBooleanGrouper runs of exact boolean 'and' matches (e.g. truth tables) can process a 20k RuleSuite in sub 0.03ms per row, or 3.68ms per row when not using grouping (184ns per rule).
+With Quality 0.2.0 rule engine and TopLevelBooleanGrouper runs of exact boolean 'and' matches (e.g. truth tables) can process a 20k RuleSuite in sub 0.03ms per row, or approx 2.5ms per row when not using grouping (128ns per rule).
 
 Please reach out if there are interesting performance bottlenecks or even larger RuleSuite sizes and complexity.  

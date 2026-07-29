@@ -151,27 +151,29 @@ The build poms generate those variables via maven profiles, but you are advised 
 
 The full list of supported runtimes is below:
 
-| Spark Version | sparkShortVersion | qualityRuntime | scalaCompatVersion |
-|---------------|-------------------|----------------|--------------------|
-| 3.0.3         | 3.0               |                | 2.12               | 
-| 3.1.3         | 3.1               |                | 2.12               | 
-| 3.2.0         | 3.2               |                | 2.12               | 
-| 3.2.1         | 3.2               | 3.2.1.oss_     | 2.12               | 
-| 3.3.2         | 3.3               | 3.3.2.oss_     | 2.12               | 
-| 3.3.2         | 3.3               | 12.2.dbr_      | 2.12               |
-| 3.4.1         | 3.4               | 3.4.1.oss_     | 2.12               |
-| 3.4.1         | 3.4               | 13.3.dbr_      | 2.12               |
-| 3.5.0         | 3.5               | 3.5.0.oss_     | 2.12               |
-| 3.5.0         | 3.5               | 14.3.dbr_      | 2.12               |
-| 3.5.0         | 3.5               | 15.4.dbr_      | 2.12               |
-| 3.5.0         | 3.5               | 16.4.dbr_      | 2.12               |
-| 4.0.0         | 4.0               | 4.0.0.oss_     | 2.13               |
-| 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
-| 4.0.0         | 4.0               | api_4.0.0.oss_ | 2.13               |
-| 4.0.0         | 4.0               | api_17.3.dbr_  | 2.13               |
-| 4.1.0         | 4.1               | api_4.1.0.oss_ | 2.13               |
-| 4.1.0         | 4.1               | 4.1.0.oss_     | 2.13               |
-| 4.1.0         | 4.1               | 18.3.dbr_      | 2.13               |
+| Spark Version | sparkShortVersion | qualityRuntime                 | scalaCompatVersion |
+|---------------|-------------------|--------------------------------|--------------------| 
+| 3.1.3         | 3.1               |                                | 2.12               | 
+| 3.2.0         | 3.2               |                                | 2.12               | 
+| 3.2.1         | 3.2               | 3.2.1.oss_                     | 2.12               | 
+| 3.3.2         | 3.3               | 3.3.2.oss_                     | 2.12               | 
+| 3.3.2         | 3.3               | 12.2.dbr_                      | 2.12               |
+| 3.4.1         | 3.4               | 3.4.1.oss_                     | 2.12               |
+| 3.4.1         | 3.4               | 13.3.dbr_                      | 2.12               |
+| 3.5.0         | 3.5               | 3.5.0.oss_                     | 2.12               |
+| 3.5.0         | 3.5               | 14.3.dbr_                      | 2.12               |
+| 3.5.0         | 3.5               | 15.4.dbr_                      | 2.12               |
+| 3.5.0         | 3.5               | 16.4.dbr_                      | 2.12               |
+| 4.0.0         | 4.0               | 4.0.0.oss_                     | 2.13               |
+| 4.0.0         | 4.0               | 17.3.dbr_                      | 2.13               |
+| 4.0.0         | 4.0               | api_4.0.0.oss_                 | 2.13               |
+| 4.0.0         | 4.0               | api_17.3.dbr_                  | 2.13               |
+| 4.1.0         | 4.1               | api_4.1.0.oss_                 | 2.13               |
+| 4.1.0         | 4.1               | 4.1.0.oss_                     | 2.13               |
+| 4.1.0         | 4.1               | 18.3.dbr_                      | 2.13               |
+| 4.2.0         | 4.2               | api_4.2.0.oss_                 | 2.13               |
+| 4.2.0         | 4.2               | 4.2.0.oss_                     | 2.13               |
+| 4.2.0         | 4.2               | 18.3.dbr_ (for use on DBR 19)  | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
@@ -223,15 +225,16 @@ It's safe to assume better build tools like gradle / sbt do not need such hacker
 
 The known combinations requiring this approach is below:
 
-| Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
-|---------------|-------------------|-------------------|-------------------------|--------------------|
-| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12               | 
-| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.3.dbr_               | 2.12               | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12               | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_               | 2.12               |
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 16.4.dbr_               | 2.12               |
-| 4.0.0         | 4.0               | 4.0.0.oss_        | 17.3.dbr_               | 2.13               |
-| 4.1.0         | 4.1               | 4.1.0.oss_        | 18.3.dbr_               | 2.13               |
+| Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix         | scalaCompatVersion |
+|---------------|-------------------|-------------------|---------------------------------|--------------------|
+| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_                       | 2.12               | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.3.dbr_                       | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_                       | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_                       | 2.12               |
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 16.4.dbr_                       | 2.12               |
+| 4.0.0         | 4.0               | 4.0.0.oss_        | 17.3.dbr_                       | 2.13               |
+| 4.1.0         | 4.1               | 4.1.0.oss_        | 18.3.dbr_                       | 2.13               |
+| 4.2.0         | 4.2               | 4.2.0.oss_        | 18.3.dbr_  (for use on DBR 19)  | 2.13               |
 
 See [Connect](connect.md#how-to-build-applications-against-connect-with-an-extension) for quality_api based information (Spark 4 onwards).
 

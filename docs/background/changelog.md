@@ -7,8 +7,11 @@ Spark runtimes 3.1.3, 3.2.0, 3.2.1, 3.3.2 and 3.4.x are deprecated as are DBR's 
 The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
 large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data with 20k rules audit results down to 24ms.
 
-In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and for large test sets, typically around 30%.  Using the
-linear BigRules test (20k rules) has an in Quality row processing time of 2.6ms down from 5.03ms per row, an almost 2x improvement (via specialised Spark MapData and GenericArrayData types).
+In addition, all rule execution (including DQ) and results storage are optimised for the classic boolean triggers and
+for large test sets, providing a minimum of an around 30% performance boost.
+Using the linear BigRules test (20k rules), Quality now has a per row processing
+time of 2.6ms down from a 0.1.3.1 time of 6.17ms on Spark 4.  This, close to over 2x, improvement 
+on Spark 4 is also aided by specialised Spark MapData and GenericArrayData types.
 
 Sparkless is deprecated as of this release and will be removed in subsequent releases.
 
