@@ -56,68 +56,73 @@
 </span>32 <span style=''>    </span><span style='background: #AEF1AE'>expr.flatMap(firstZeroWith)</span><span style=''>
 </span>33 <span style=''>  }
 </span>34 <span style=''>
-</span>35 <span style=''>  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues, required by DBR (Holder and OSS impl work fine on OSS, but not on DBR as it doesn't use deterministic)
-</span>36 <span style=''>  def getLocalInputVariableValues(
-</span>37 <span style=''>                                   ctx: CodegenContext,
-</span>38 <span style=''>                                   expr: Seq[Expression],
-</span>39 <span style=''>                                   subExprs: Map[ExpressionEquals, SubExprEliminationState])
-</span>40 <span style=''>  : (Set[VariableValue], Set[ExprCode]) = {
-</span>41 <span style=''>    val argSet = </span><span style='background: #AEF1AE'>mutable.Set[VariableValue]()</span><span style=''>
-</span>42 <span style=''>    val exprCodesNeedEvaluate = </span><span style='background: #AEF1AE'>mutable.Set[ExprCode]()</span><span style=''>
-</span>43 <span style=''>
-</span>44 <span style=''>    if (</span><span style='background: #AEF1AE'>ctx.INPUT_ROW != null</span><span style=''>) {
-</span>45 <span style=''>      </span><span style='background: #AEF1AE'>argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])</span><span style=''>
-</span>46 <span style=''>    }
-</span>47 <span style=''>
-</span>48 <span style=''>    val splits = </span><span style='background: #AEF1AE'>collectFirstZeroCodeGenSplitCompilations(ctx, expr)</span><span style=''>
-</span>49 <span style=''>    val totalParams =
-</span>50 <span style=''>      </span><span style='background: #AEF1AE'>splits.foldLeft(ParameterInformation.forMerging) {
-</span>51 <span style=''></span><span style='background: #AEF1AE'>        (cur, s) =&gt;
-</span>52 <span style=''></span><span style='background: #AEF1AE'>          val p = </span><span style='background: #F0ADAD'>s.usedParameters_</span><span style='background: #AEF1AE'>
-</span>53 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>cur.mergeParams(ctx, p, false)</span><span style='background: #AEF1AE'>
-</span>54 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>55 <span style=''>
-</span>56 <span style=''>    // #145 - only required due to DBR
-</span>57 <span style=''>    </span><span style='background: #AEF1AE'>totalParams.params.foreach{
-</span>58 <span style=''></span><span style='background: #AEF1AE'>      p =&gt;
-</span>59 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>argSet += JavaCode.variable(p.name, p.classType)</span><span style='background: #AEF1AE'>
-</span>60 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>61 <span style=''>
-</span>62 <span style=''>    // Collects local variables from a given `expr` tree
-</span>63 <span style=''>    val collectLocalVariable = (ev: ExprValue) =&gt; ev match {
-</span>64 <span style=''>      case vv: VariableValue =&gt; </span><span style='background: #AEF1AE'>argSet += vv</span><span style=''>
-</span>65 <span style=''>      case _ </span><span style='background: #AEF1AE'>=&gt;</span><span style=''>
-</span>66 <span style=''>    }
-</span>67 <span style=''>
-</span>68 <span style=''>    val stack = </span><span style='background: #AEF1AE'>mutable.Stack[Expression]()</span><span style=''>
-</span>69 <span style=''>    </span><span style='background: #AEF1AE'>stack.pushAll(expr)</span><span style=''>
-</span>70 <span style=''>    </span><span style='background: #AEF1AE'>while (stack.nonEmpty) {
-</span>71 <span style=''></span><span style='background: #AEF1AE'>      stack.pop() match {
-</span>72 <span style=''></span><span style='background: #AEF1AE'>        case ref: BoundReference if ctx.currentVars != null &amp;&amp;
-</span>73 <span style=''></span><span style='background: #AEF1AE'>          ctx.currentVars(ref.ordinal) != null =&gt;
-</span>74 <span style=''></span><span style='background: #AEF1AE'>          val exprCode = ctx.currentVars(ref.ordinal)
-</span>75 <span style=''></span><span style='background: #AEF1AE'>          // If the referred variable is not evaluated yet.
-</span>76 <span style=''></span><span style='background: #AEF1AE'>          if (exprCode.code != EmptyBlock) </span><span style='background: #F0ADAD'>{
-</span>77 <span style=''></span><span style='background: #F0ADAD'>            exprCodesNeedEvaluate += exprCode.copy()
-</span>78 <span style=''></span><span style='background: #F0ADAD'>            exprCode.code = EmptyBlock
-</span>79 <span style=''></span><span style='background: #F0ADAD'>          }</span><span style='background: #AEF1AE'>
-</span>80 <span style=''></span><span style='background: #AEF1AE'>          collectLocalVariable(exprCode.value)
-</span>81 <span style=''></span><span style='background: #AEF1AE'>          collectLocalVariable(exprCode.isNull)
-</span>82 <span style=''></span><span style='background: #AEF1AE'>
-</span>83 <span style=''></span><span style='background: #AEF1AE'>        case e =&gt;
-</span>84 <span style=''></span><span style='background: #AEF1AE'>          subExprs.get(ExpressionEquals(e)) match {
-</span>85 <span style=''></span><span style='background: #AEF1AE'>            case Some(state) =&gt;
-</span>86 <span style=''></span><span style='background: #AEF1AE'>              collectLocalVariable(state.eval.value)
-</span>87 <span style=''></span><span style='background: #AEF1AE'>              collectLocalVariable(state.eval.isNull)
-</span>88 <span style=''></span><span style='background: #AEF1AE'>            case None =&gt;
-</span>89 <span style=''></span><span style='background: #AEF1AE'>              stack.pushAll(e.children)
-</span>90 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>91 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>92 <span style=''>    }
-</span>93 <span style=''>
-</span>94 <span style=''>    </span><span style='background: #AEF1AE'>(argSet.toSet, exprCodesNeedEvaluate.toSet)</span><span style=''>
-</span>95 <span style=''>  }
-</span>96 <span style=''>}
+</span>35 <span style=''>  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues, required by DBR (Holder and OSS impl work fine on OSS,
+</span>36 <span style=''>  // but not on DBR as it doesn't use deterministic), hence all the coverage-off
+</span>37 <span style=''>  def getLocalInputVariableValues(
+</span>38 <span style=''>                                   ctx: CodegenContext,
+</span>39 <span style=''>                                   expr: Seq[Expression],
+</span>40 <span style=''>                                   subExprs: Map[ExpressionEquals, SubExprEliminationState])
+</span>41 <span style=''>  : (Set[VariableValue], Set[ExprCode]) = {
+</span>42 <span style=''>    val argSet = </span><span style='background: #AEF1AE'>mutable.Set[VariableValue]()</span><span style=''>
+</span>43 <span style=''>    val exprCodesNeedEvaluate = </span><span style='background: #AEF1AE'>mutable.Set[ExprCode]()</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>    if (</span><span style='background: #AEF1AE'>ctx.INPUT_ROW != null</span><span style=''>) {
+</span>46 <span style=''>      </span><span style='background: #AEF1AE'>argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])</span><span style=''>
+</span>47 <span style=''>    }
+</span>48 <span style=''>
+</span>49 <span style=''>    val splits = </span><span style='background: #AEF1AE'>collectFirstZeroCodeGenSplitCompilations(ctx, expr)</span><span style=''>
+</span>50 <span style=''>    // $COVERAGE-OFF$
+</span>51 <span style=''>    val totalParams =
+</span>52 <span style=''>      splits.foldLeft(ParameterInformation.forMerging) {
+</span>53 <span style=''>        (cur, s) =&gt;
+</span>54 <span style=''>          val p = s.usedParameters_
+</span>55 <span style=''>          cur.mergeParams(ctx, p, false)
+</span>56 <span style=''>      }
+</span>57 <span style=''>
+</span>58 <span style=''>    // #145 - only required due to DBR
+</span>59 <span style=''>    totalParams.params.foreach{
+</span>60 <span style=''>      p =&gt;
+</span>61 <span style=''>        argSet += JavaCode.variable(p.name, p.classType)
+</span>62 <span style=''>    }
+</span>63 <span style=''>    // $COVERAGE-ON$
+</span>64 <span style=''>
+</span>65 <span style=''>    // Collects local variables from a given `expr` tree
+</span>66 <span style=''>    val collectLocalVariable = (ev: ExprValue) =&gt; ev match {
+</span>67 <span style=''>      case vv: VariableValue =&gt; </span><span style='background: #AEF1AE'>argSet += vv</span><span style=''>
+</span>68 <span style=''>      case _ </span><span style='background: #AEF1AE'>=&gt;</span><span style=''>
+</span>69 <span style=''>    }
+</span>70 <span style=''>
+</span>71 <span style=''>    val stack = </span><span style='background: #AEF1AE'>mutable.Stack[Expression]()</span><span style=''>
+</span>72 <span style=''>    </span><span style='background: #AEF1AE'>stack.pushAll(expr)</span><span style=''>
+</span>73 <span style=''>    </span><span style='background: #AEF1AE'>while (stack.nonEmpty) {
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      stack.pop() match {
+</span>75 <span style=''></span><span style='background: #AEF1AE'>        case ref: BoundReference if ctx.currentVars != null &amp;&amp;
+</span>76 <span style=''></span><span style='background: #AEF1AE'>          ctx.currentVars(ref.ordinal) != null =&gt;
+</span>77 <span style=''></span><span style='background: #AEF1AE'>          val exprCode = ctx.currentVars(ref.ordinal)
+</span>78 <span style=''></span><span style='background: #AEF1AE'>          // If the referred variable is not evaluated yet.
+</span>79 <span style=''></span><span style='background: #AEF1AE'>          // $COVERAGE-OFF$
+</span>80 <span style=''></span><span style='background: #AEF1AE'>          if (exprCode.code != EmptyBlock) {
+</span>81 <span style=''></span><span style='background: #AEF1AE'>            exprCodesNeedEvaluate += exprCode.copy()
+</span>82 <span style=''></span><span style='background: #AEF1AE'>            exprCode.code = EmptyBlock
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>84 <span style=''></span><span style='background: #AEF1AE'>          // $COVERAGE-ON$
+</span>85 <span style=''></span><span style='background: #AEF1AE'>          collectLocalVariable(exprCode.value)
+</span>86 <span style=''></span><span style='background: #AEF1AE'>          collectLocalVariable(exprCode.isNull)
+</span>87 <span style=''></span><span style='background: #AEF1AE'>
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        case e =&gt;
+</span>89 <span style=''></span><span style='background: #AEF1AE'>          subExprs.get(ExpressionEquals(e)) match {
+</span>90 <span style=''></span><span style='background: #AEF1AE'>            case Some(state) =&gt;
+</span>91 <span style=''></span><span style='background: #AEF1AE'>              collectLocalVariable(state.eval.value)
+</span>92 <span style=''></span><span style='background: #AEF1AE'>              collectLocalVariable(state.eval.isNull)
+</span>93 <span style=''></span><span style='background: #AEF1AE'>            case None =&gt;
+</span>94 <span style=''></span><span style='background: #AEF1AE'>              stack.pushAll(e.children)
+</span>95 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>97 <span style=''>    }
+</span>98 <span style=''>
+</span>99 <span style=''>    </span><span style='background: #AEF1AE'>(argSet.toSet, exprCodesNeedEvaluate.toSet)</span><span style=''>
+</span>100 <span style=''>  }
+</span>101 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -135,7 +140,7 @@
           30
         </td>
         <td>
-          2890
+          2597
         </td>
         <td>
           1360
@@ -159,7 +164,7 @@
           30
         </td>
         <td>
-          2891
+          2598
         </td>
         <td>
           1332
@@ -183,7 +188,7 @@
           30
         </td>
         <td>
-          2892
+          2599
         </td>
         <td>
           1332
@@ -207,7 +212,7 @@
           32
         </td>
         <td>
-          2893
+          2600
         </td>
         <td>
           1400
@@ -231,7 +236,7 @@
           32
         </td>
         <td>
-          2894
+          2601
         </td>
         <td>
           1387
@@ -252,15 +257,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          42
         </td>
         <td>
-          2895
+          2602
         </td>
         <td>
-          1893
+          1926
           -
-          1921
+          1954
         </td>
         <td>
           Apply
@@ -276,15 +281,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          43
         </td>
         <td>
-          2896
+          2603
         </td>
         <td>
-          1954
+          1987
           -
-          1977
+          2010
         </td>
         <td>
           Apply
@@ -300,15 +305,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          45
         </td>
         <td>
-          2897
+          2604
         </td>
         <td>
-          1987
+          2020
           -
-          2008
+          2041
         </td>
         <td>
           Apply
@@ -324,15 +329,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          45
         </td>
         <td>
-          2903
+          2610
         </td>
         <td>
-          1983
+          2016
           -
-          1983
+          2016
         </td>
         <td>
           Literal
@@ -348,15 +353,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          45
         </td>
         <td>
-          2904
+          2611
         </td>
         <td>
-          1983
+          2016
           -
-          1983
+          2016
         </td>
         <td>
           Block
@@ -372,15 +377,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          2898
+          2605
         </td>
         <td>
-          2046
+          2079
           -
-          2059
+          2092
         </td>
         <td>
           Select
@@ -396,15 +401,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          2899
+          2606
         </td>
         <td>
-          2061
+          2094
           -
-          2081
+          2114
         </td>
         <td>
           Literal
@@ -420,15 +425,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          2900
+          2607
         </td>
         <td>
-          2028
+          2061
           -
-          2082
+          2115
         </td>
         <td>
           Apply
@@ -444,15 +449,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          2901
+          2608
         </td>
         <td>
-          2018
+          2051
           -
-          2082
+          2115
         </td>
         <td>
           Apply
@@ -468,15 +473,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          2902
+          2609
         </td>
         <td>
-          2018
+          2051
           -
-          2082
+          2115
         </td>
         <td>
           Block
@@ -492,15 +497,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          49
         </td>
         <td>
-          2905
+          2612
         </td>
         <td>
-          2107
+          2140
           -
-          2158
+          2191
         </td>
         <td>
           Apply
@@ -516,234 +521,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          67
         </td>
         <td>
-          2906
+          2613
         </td>
         <td>
-          2203
+          2716
           -
-          2234
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ParameterInformation.forMerging
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.ParameterInformation.forMerging
-        </td>
-      </tr><tr>
-        <td>
-          50
-        </td>
-        <td>
-          2909
-        </td>
-        <td>
-          2187
-          -
-          2342
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOnceOps.foldLeft
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          splits.foldLeft[com.sparkutils.quality.impl.util.ParameterInformation](com.sparkutils.quality.impl.util.ParameterInformation.forMerging)(((cur: com.sparkutils.quality.impl.util.ParameterInformation, s: com.sparkutils.quality.impl.SplitCompilation) =&gt; {
-  val p: com.sparkutils.quality.impl.util.ParameterInformation = s.usedParameters_;
-  cur.mergeParams(ctx, p, false)
-}))
-        </td>
-      </tr><tr>
-        <td>
-          52
-        </td>
-        <td>
-          2907
-        </td>
-        <td>
-          2276
-          -
-          2293
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.SplitCompilation.usedParameters_
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          s.usedParameters_
-        </td>
-      </tr><tr>
-        <td>
-          53
-        </td>
-        <td>
-          2908
-        </td>
-        <td>
-          2304
-          -
-          2334
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ParameterInformation.mergeParams
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          cur.mergeParams(ctx, p, false)
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          2914
-        </td>
-        <td>
-          2387
-          -
-          2488
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOnceOps.foreach
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          totalParams.params.foreach[scala.collection.mutable.Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue]](((p: com.sparkutils.quality.impl.util.ParamType) =&gt; argSet.+=(org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.variable(p.name, p.classType))))
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          2910
-        </td>
-        <td>
-          2462
-          -
-          2468
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ParamType.name
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          p.name
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          2911
-        </td>
-        <td>
-          2470
-          -
-          2481
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ParamType.classType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          p.classType
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          2912
-        </td>
-        <td>
-          2444
-          -
-          2482
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.variable
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.variable(p.name, p.classType)
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          2913
-        </td>
-        <td>
-          2434
-          -
-          2482
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.Growable.+=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          argSet.+=(org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.variable(p.name, p.classType))
-        </td>
-      </tr><tr>
-        <td>
-          64
-        </td>
-        <td>
-          2915
-        </td>
-        <td>
-          2640
-          -
-          2652
+          2728
         </td>
         <td>
           Apply
@@ -759,15 +545,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          67
         </td>
         <td>
-          2916
+          2614
         </td>
         <td>
-          2640
+          2716
           -
-          2652
+          2728
         </td>
         <td>
           Block
@@ -783,15 +569,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          68
         </td>
         <td>
-          2917
+          2615
         </td>
         <td>
-          2666
+          2742
           -
-          2668
+          2744
         </td>
         <td>
           Literal
@@ -807,15 +593,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          68
         </td>
         <td>
-          2918
+          2616
         </td>
         <td>
-          2666
+          2742
           -
-          2668
+          2744
         </td>
         <td>
           Block
@@ -831,15 +617,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          2919
+          2617
         </td>
         <td>
-          2692
+          2768
           -
-          2719
+          2795
         </td>
         <td>
           Apply
@@ -855,15 +641,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          72
         </td>
         <td>
-          2920
+          2618
         </td>
         <td>
-          2724
+          2800
           -
-          2743
+          2819
         </td>
         <td>
           Apply
@@ -879,15 +665,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          73
         </td>
         <td>
-          2921
+          2619
         </td>
         <td>
-          2755
+          2831
           -
-          2769
+          2845
         </td>
         <td>
           Select
@@ -903,15 +689,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          73
         </td>
         <td>
-          2954
+          2643
         </td>
         <td>
-          2748
+          2824
           -
-          3564
+          3695
         </td>
         <td>
           Block
@@ -950,15 +736,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          73
         </td>
         <td>
-          2955
+          2644
         </td>
         <td>
-          2748
+          2824
           -
-          2748
+          2824
         </td>
         <td>
           Literal
@@ -974,15 +760,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          73
         </td>
         <td>
-          2956
+          2645
         </td>
         <td>
-          2748
+          2824
           -
-          2748
+          2824
         </td>
         <td>
           Block
@@ -998,15 +784,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          74
         </td>
         <td>
-          2922
+          2620
         </td>
         <td>
-          2779
+          2855
           -
-          2790
+          2866
         </td>
         <td>
           Apply
@@ -1022,15 +808,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          74
         </td>
         <td>
-          2953
+          2642
         </td>
         <td>
-          2791
+          2867
           -
-          2791
+          2867
         </td>
         <td>
           Apply
@@ -1046,15 +832,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          75
         </td>
         <td>
-          2923
+          2621
         </td>
         <td>
-          2854
+          2930
           -
-          2858
+          2934
         </td>
         <td>
           Literal
@@ -1070,15 +856,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          75
         </td>
         <td>
-          2925
+          2623
         </td>
         <td>
-          2835
+          2911
           -
-          2908
+          2984
         </td>
         <td>
           Apply
@@ -1094,15 +880,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          76
         </td>
         <td>
-          2924
+          2622
         </td>
         <td>
-          2872
+          2948
           -
-          2908
+          2984
         </td>
         <td>
           Apply
@@ -1118,15 +904,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          76
         </td>
         <td>
-          2941
+          2630
         </td>
         <td>
-          2909
+          2985
           -
-          3269
+          3400
         </td>
         <td>
           Block
@@ -1153,15 +939,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          77
         </td>
         <td>
-          2926
+          2624
         </td>
         <td>
-          2953
+          3029
           -
-          2964
+          3040
         </td>
         <td>
           Select
@@ -1177,15 +963,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          77
         </td>
         <td>
-          2927
+          2625
         </td>
         <td>
-          2937
+          3013
           -
-          2965
+          3041
         </td>
         <td>
           Apply
@@ -1201,234 +987,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          85
         </td>
         <td>
-          2928
+          2626
         </td>
         <td>
-          3057
+          3337
           -
-          3067
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          2929
-        </td>
-        <td>
-          3040
-          -
-          3067
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Object.!=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          exprCode.code.!=(org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock)
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          2934
-        </td>
-        <td>
-          3069
-          -
-          3174
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          {
-  exprCodesNeedEvaluate.+=(exprCode.copy(exprCode.copy$default$1, exprCode.copy$default$2, exprCode.copy$default$3));
-  exprCode.code_=(org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock)
-}
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          2935
-        </td>
-        <td>
-          3036
-          -
-          3036
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          2936
-        </td>
-        <td>
-          3036
-          -
-          3036
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          2930
-        </td>
-        <td>
-          3108
-          -
-          3123
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          exprCode.copy(exprCode.copy$default$1, exprCode.copy$default$2, exprCode.copy$default$3)
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          2931
-        </td>
-        <td>
-          3083
-          -
-          3123
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.Growable.+=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          exprCodesNeedEvaluate.+=(exprCode.copy(exprCode.copy$default$1, exprCode.copy$default$2, exprCode.copy$default$3))
-        </td>
-      </tr><tr>
-        <td>
-          78
-        </td>
-        <td>
-          2932
-        </td>
-        <td>
-          3152
-          -
-          3162
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock
-        </td>
-      </tr><tr>
-        <td>
-          78
-        </td>
-        <td>
-          2933
-        </td>
-        <td>
-          3136
-          -
-          3162
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code_=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          exprCode.code_=(org.apache.spark.sql.catalyst.expressions.codegen.EmptyBlock)
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          2937
-        </td>
-        <td>
-          3206
-          -
-          3220
+          3351
         </td>
         <td>
           Select
@@ -1444,15 +1011,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          85
         </td>
         <td>
-          2938
+          2627
         </td>
         <td>
-          3185
+          3316
           -
-          3221
+          3352
         </td>
         <td>
           Apply
@@ -1468,15 +1035,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          86
         </td>
         <td>
-          2939
+          2628
         </td>
         <td>
-          3253
+          3384
           -
-          3268
+          3399
         </td>
         <td>
           Select
@@ -1492,15 +1059,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          86
         </td>
         <td>
-          2940
+          2629
         </td>
         <td>
-          3232
+          3363
           -
-          3269
+          3400
         </td>
         <td>
           Apply
@@ -1516,15 +1083,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          89
         </td>
         <td>
-          2942
+          2631
         </td>
         <td>
-          3312
+          3443
           -
-          3331
+          3462
         </td>
         <td>
           Apply
@@ -1540,15 +1107,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          89
         </td>
         <td>
-          2943
+          2632
         </td>
         <td>
-          3299
+          3430
           -
-          3332
+          3463
         </td>
         <td>
           Apply
@@ -1564,15 +1131,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          89
         </td>
         <td>
-          2952
+          2641
         </td>
         <td>
-          3299
+          3430
           -
-          3556
+          3687
         </td>
         <td>
           Match
@@ -1594,15 +1161,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          90
         </td>
         <td>
-          2948
+          2637
         </td>
         <td>
-          3370
+          3501
           -
-          3479
+          3610
         </td>
         <td>
           Block
@@ -1621,15 +1188,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          91
         </td>
         <td>
-          2944
+          2633
         </td>
         <td>
-          3408
+          3539
           -
-          3424
+          3555
         </td>
         <td>
           Select
@@ -1645,15 +1212,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          91
         </td>
         <td>
-          2945
+          2634
         </td>
         <td>
-          3387
+          3518
           -
-          3425
+          3556
         </td>
         <td>
           Apply
@@ -1669,15 +1236,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          92
         </td>
         <td>
-          2946
+          2635
         </td>
         <td>
-          3461
+          3592
           -
-          3478
+          3609
         </td>
         <td>
           Select
@@ -1693,15 +1260,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          92
         </td>
         <td>
-          2947
+          2636
         </td>
         <td>
-          3440
+          3571
           -
-          3479
+          3610
         </td>
         <td>
           Apply
@@ -1717,15 +1284,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          94
         </td>
         <td>
-          2949
+          2638
         </td>
         <td>
-          3533
+          3664
           -
-          3543
+          3674
         </td>
         <td>
           Select
@@ -1741,15 +1308,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          94
         </td>
         <td>
-          2950
+          2639
         </td>
         <td>
-          3519
+          3650
           -
-          3544
+          3675
         </td>
         <td>
           Apply
@@ -1765,15 +1332,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          94
         </td>
         <td>
-          2951
+          2640
         </td>
         <td>
-          3519
+          3650
           -
-          3544
+          3675
         </td>
         <td>
           Block
@@ -1789,15 +1356,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          99
         </td>
         <td>
-          2957
+          2646
         </td>
         <td>
-          3577
+          3708
           -
-          3589
+          3720
         </td>
         <td>
           TypeApply
@@ -1813,15 +1380,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          99
         </td>
         <td>
-          2958
+          2647
         </td>
         <td>
-          3591
+          3722
           -
-          3618
+          3749
         </td>
         <td>
           TypeApply
@@ -1837,15 +1404,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          99
         </td>
         <td>
-          2959
+          2648
         </td>
         <td>
-          3576
+          3707
           -
-          3619
+          3750
         </td>
         <td>
           Apply
