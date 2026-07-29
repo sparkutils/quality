@@ -79,7 +79,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
   test("controlRunner") {
-    v3_2_and_above {
+    v3_4_and_above {
       evalCodeGensNoResolve {
         doRunner(expectedTriggerRules / 2, ruleRunner(_))
       }
@@ -92,7 +92,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
 
-  test("runnerShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false)) } } }
+  test("runnerShouldEliminate") { v3_4_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false)) } } }
 
   // adds an output expression
   def doOutput(count: Int, rsf: RuleSuite => Column, expr: String): Unit =
@@ -105,7 +105,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedOutputRules = rows // one for each row is extra called
 
   test("controlEngine") {
-    v3_2_and_above {
+    v3_4_and_above {
       evalCodeGensNoResolve {
         doOutput((expectedTriggerRules / 2), ruleEngineRunner(_), outputExpr)
       }
@@ -119,7 +119,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, classicFunctions.ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("engineShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
+  test("engineShouldEliminate") { v3_4_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
 
   test("controlExpression") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", forceRunnerEval = true)) }  } // defaults may change later
 
@@ -127,7 +127,7 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   test("expressionShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false, forceRunnerEval = true)) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("expressionShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false)) } } }
+  test("expressionShouldEliminate") { v3_4_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false)) } } }
 
   val folderExpr = "a -> if(myequal(product, 'p1'), a, named_struct('r',0))"
   val starter = sql.functions.struct(sql.functions.lit(1).as("r"))

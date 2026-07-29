@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.SplitCompilation
 import com.sparkutils.quality.impl.extension.ZeroCodeGen
 import com.sparkutils.quality.impl.util.{ParameterInformation, SeparateCompilation}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, ExpressionEquals, ExpressionProxy}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, EmptyBlock, ExprCode, ExprValue, JavaCode, SubExprEliminationState, VariableValue}
 
 import scala.collection.mutable
@@ -14,17 +14,26 @@ object ClassicQualitySparkUtilsExt {
   def collectFirstZeroCodeGenSplitCompilations(ctx: CodegenContext, expr: Seq[Expression]): Seq[SplitCompilation] = {
     def firstZeroWith(expression: Expression): Seq[SplitCompilation] =
       expression match {
+        /*
+        via #145 OSS uses the deterministic property to remove nesting and enforce projections, DBR ignores this
+        and behaves like pre #145
+        */
+        // $COVERAGE-OFF$
         case ZeroCodeGen(_, s: SplitCompilation, _, _) =>
           // ensure it has been compiled
           expression.genCode(ctx)
           // do not go further
           Seq(s)
+        case p: ExpressionProxy =>
+          firstZeroWith(p.child)
+        // $COVERAGE-ON$
         case _ => expression.children.flatMap(firstZeroWith)
       }
     expr.flatMap(firstZeroWith)
   }
 
-  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues
+  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues, required by DBR (Holder and OSS impl work fine on OSS,
+  // but not on DBR as it doesn't use deterministic), hence all the coverage-off
   def getLocalInputVariableValues(
                                    ctx: CodegenContext,
                                    expr: Seq[Expression],
@@ -38,6 +47,7 @@ object ClassicQualitySparkUtilsExt {
     }
 
     val splits = collectFirstZeroCodeGenSplitCompilations(ctx, expr)
+    // $COVERAGE-OFF$
     val totalParams =
       splits.foldLeft(ParameterInformation.forMerging) {
         (cur, s) =>
@@ -45,10 +55,12 @@ object ClassicQualitySparkUtilsExt {
           cur.mergeParams(ctx, p, false)
       }
 
+    // #145 - only required due to DBR
     totalParams.params.foreach{
       p =>
         argSet += JavaCode.variable(p.name, p.classType)
     }
+    // $COVERAGE-ON$
 
     // Collects local variables from a given `expr` tree
     val collectLocalVariable = (ev: ExprValue) => ev match {
@@ -64,10 +76,12 @@ object ClassicQualitySparkUtilsExt {
           ctx.currentVars(ref.ordinal) != null =>
           val exprCode = ctx.currentVars(ref.ordinal)
           // If the referred variable is not evaluated yet.
+          // $COVERAGE-OFF$
           if (exprCode.code != EmptyBlock) {
             exprCodesNeedEvaluate += exprCode.copy()
             exprCode.code = EmptyBlock
           }
+          // $COVERAGE-ON$
           collectLocalVariable(exprCode.value)
           collectLocalVariable(exprCode.isNull)
 

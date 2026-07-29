@@ -38,7 +38,9 @@ object ClassicQualitySparkUtils {
   def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
     val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq, additional)
+    // val e = withRefExpr(ctx, children)
+
+    val p = formatParams(ctx, /*(a ++ e)*/a.toSeq, additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }

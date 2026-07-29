@@ -489,8 +489,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
     val SeparateCompilation(clazz, fres, parameters) =
-      SeparateCompilation.withSubExpressions(this,
-        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren), outerCtx, ev, ruleSuite.id,
+      SeparateCompilation.withSubExpressions(this, // only one wins so no need to evaluate the outputs
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren.take(triggerCount)), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 

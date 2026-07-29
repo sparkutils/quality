@@ -4,12 +4,10 @@ import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.Runner
-import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNested}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.qualityFunctions.FunNLambda
 import org.apache.spark.sql.types.DataType
 
 /**

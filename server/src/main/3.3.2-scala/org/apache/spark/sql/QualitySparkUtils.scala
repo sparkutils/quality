@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, LambdaFunctions}
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.aggregate.{ScalaAggregator, TypedAggregateExpression}
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, GroupResultsWithProcess, LambdaFunctions, MapTransform, RefCodeGen}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
@@ -38,7 +38,9 @@ object ClassicQualitySparkUtils {
   def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[(VariableValue, Boolean)]): ParameterInformation = {
     val (a, b) = ClassicQualitySparkUtilsExt.getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq, additional)
+    // val e = withRefExpr(ctx, children)
+
+    val p = formatParams(ctx, /*(a ++ e)*/a.toSeq, additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }

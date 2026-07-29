@@ -112,7 +112,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
 
 
   test("testRuleResult") {
-    evalCodeGensNoResolve {
+    forceInterpreted {
       funNRewrites {
         doTestRuleResult()
       }

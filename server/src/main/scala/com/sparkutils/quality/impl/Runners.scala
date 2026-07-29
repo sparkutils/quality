@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
 import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, ParameterInformation, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
+import com.sparkutils.shim.expressions.NondeterministicLike
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -56,6 +57,9 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
  * Shared trait for all runners
  */
 trait Runner extends Expression {
+
+  // #145 - Spark 3 doesn't allow Nondeterministic to be pattern matched due to classloading, it's not really needed though
+  final override lazy val deterministic: Boolean = false
 
   /**
    * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGenWrap]]
