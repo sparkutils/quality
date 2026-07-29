@@ -241,7 +241,7 @@ var start = System.nanoTime()
 
 
     var start = System.nanoTime()
-    val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
+    val d = s.read.option("header",true).csv(testFile(s,outputDir))
     val r = d.select(expr("*"), ruleEngineRunner(rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       extraConfig = Map(
         showSplitCompilationTime -> "true",
