@@ -230,7 +230,7 @@ var start = System.nanoTime()
       count() shouldBe 0
   }
 
-  def do1to1RulesOnly(s: SparkSession): Unit = {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
+  def do1to1RulesOnly(s: SparkSession): Unit = {
     import s.implicits._
 /*    val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       "1:1 loaded direct cost",
@@ -238,11 +238,17 @@ var start = System.nanoTime()
         showSplitCompilationTime -> "true",
         "statsEvery" -> "1000"
       ))*/
-
+    val rulesuite = rules(s, genRules1to1(s, outputDir).as[(String, String, Int)])
 
     var start = System.nanoTime()
     val d = s.read.option("header",true).csv(testFile(s,outputDir))
-    val r = d.select(expr("*"), ruleEngineRunner(rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
+    val r = d.select(expr("*"), ruleEngineRunner(rulesuite, Some(
+        StructType(Seq(
+          StructField("k_out", StringType),
+          StructField("l_out", StringType)
+        )
+        )
+      ),
       extraConfig = Map(
         showSplitCompilationTime -> "true",
         "statsEvery" -> "1000"
@@ -264,12 +270,11 @@ var start = System.nanoTime()
     val processOf20kx20k = fullDump // - compilationEstimation
     println(s"$typ - took ${fullDump.toMinutes}m${fullDump.toSeconds % 60}s to do full noop write, of which" +
       s" ${processOf20kx20k.toMinutes}m${processOf20kx20k.toSeconds % 60}s in processing 20kx20k")
-    r
-/*
-    val play = res.persist(StorageLevel.OFF_HEAP)
+
+    val play = r.persist(StorageLevel.OFF_HEAP)
 
     play.filter("(k_out is null) or (k != k_out) or (l != l_out) or (l_out is null)").
-      count() shouldBe 0*/
+      count() shouldBe 0
   }
 
   // this is a beast do by hand or on 16gb
@@ -324,6 +329,7 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
+  // with the result test enabled add a minute or so to all timings, but also note the processing time almost halves
   // pre 0.2.0 would require a 12gb heap and patience with > 5m runs, run on 0.2.0 takes sub 2m on 32g i9-9900 corsair with 12gb heap, sub 3 ms / row
   // running the same test on 0.1.3.1 is 2.5m minimum with > 6ms / row
   // not_Cluster as the serialisation of the plan to executors requires at least a 64gb node type.
