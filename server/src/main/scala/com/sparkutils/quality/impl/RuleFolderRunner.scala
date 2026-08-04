@@ -4,7 +4,6 @@ import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.Triggers.defaultGrouper
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.catalyst.InternalRow
@@ -110,12 +109,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     val SeparateCompilation(clazz, fres, _) = SeparateCompilation.withSubExpressions(
-      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(
-        if (extraConfig.boolean(evaluateCSEForOutputExpressions, false))
-          realChildren
-        else
-          realChildren.take(triggerCount)
-      ), outerCtx, ev, ruleSuite.id,
+      this, Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(realChildren.take(triggerCount)), outerCtx, ev, ruleSuite.id,
       topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
         val cacheApproach =

@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
-import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, NonDeterministicHelper, ParameterInformation, RuleSetMap}
+import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, ParameterInformation, RuleSetMap}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorDumpAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.shim.expressions.NondeterministicLike
@@ -56,10 +56,10 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
 /**
  * Shared trait for all runners
  */
-trait Runner extends Expression with NonDeterministicHelper {
+trait Runner extends Expression {
 
-  // #145 - Spark < 3.4 doesn't allow Nondeterministic to be pattern matched due to classloading, it's not really needed though
-  //final override lazy val deterministic: Boolean = false
+  // #145 - Spark 3 doesn't allow Nondeterministic to be pattern matched due to classloading, it's not really needed though
+  final override lazy val deterministic: Boolean = false
 
   /**
    * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGenWrap]]
