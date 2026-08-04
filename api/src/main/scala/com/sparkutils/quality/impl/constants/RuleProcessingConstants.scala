@@ -89,4 +89,12 @@ trait RuleProcessingConstants {
    * larger datastructures)
    */
   val useEvaluatedOnlyRuleSetResults = "quality.useEvaluatedOnlyRuleSetResults"
+
+  /**
+   * By default, collector and folder do not use output expressions when considering common sub expression elimination.
+   * This can be overridden with "true" with a trade-off from analysis and compilation overhead for possible performance
+   * improvements in WholeStageCodeGen for expensive output expressions (e.g. large calculations or deep user functions that
+   * based on input only, which are re-used multiple times).
+   */
+  val evaluateCSEForOutputExpressions = "quality.evaluateCSEForOutputExpressions"
 }

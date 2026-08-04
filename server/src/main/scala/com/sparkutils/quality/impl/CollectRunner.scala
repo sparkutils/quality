@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.shim.expressions.Names
@@ -248,7 +249,12 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 
     val SeparateCompilation(clazz, fres, _) =
       SeparateCompilation.withSubExpressions(this,
-        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(children.take(triggerCount)), outerCtx, ev, ruleSuite.id,
+        Triggers.loadTriggerGrouper(extraConfig).useChildrenForRunner(
+          if (extraConfig.boolean(evaluateCSEForOutputExpressions, false))
+            children
+          else
+            children.take(triggerCount)
+        ), outerCtx, ev, ruleSuite.id,
         topLevelCompilationUnit = true) {
       (ctx, ruleRunnerExpressionIdx, _) =>
 

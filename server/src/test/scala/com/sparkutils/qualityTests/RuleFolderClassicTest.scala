@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{groupProcessorKey, impl, topLevelBooleanGrouper}
+import com.sparkutils.quality.{evaluateCSEForOutputExpressions, groupProcessorKey, impl, topLevelBooleanGrouper}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.catalyst.expressions.Literal
 
@@ -96,3 +96,37 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
   } }
 
 }
+
+
+class RuleFolderClassicWithOutputCSETest extends RuleFolderClassicTestBase {
+
+  override def options: Map[String, String] = Map(
+    evaluateCSEForOutputExpressions -> "true"
+  )
+
+  test("testSimpleProductionRules") { not3_0_or_3_1 {
+    evalCodeGensNoResolve {
+      funNRewrites {
+        doTestSimpleProductionRules()
+      }
+    }
+  } }
+
+  test("default processor"){ not3_0_or_3_1 {
+    evalCodeGensNoResolve {
+      funNRewrites {
+        doTestDefaultRules()
+      }
+    }
+  } }
+
+  test("default processor via debug"){ not3_0_or_3_1 {
+    evalCodeGensNoResolve {
+      funNRewrites {
+        doTestDefaultRulesWithDebug()
+      }
+    }
+  } }
+
+}
+

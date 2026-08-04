@@ -316,12 +316,12 @@ class RuleEngineTest extends RuleEngineTestBase {
         ))
       ))
       val testDF = seq.toDF("i").as("main")
-      testDF.collect()
+      //testDF.collect()
       val resdf = testDF.transform(ruleEngineWithStructFOT(rs))
       try {
-        val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
-        assert(res.count(_.isEmpty) == 1)
-        assert(res.flatten.forall(_ == 4))
+        val res = resdf.selectExpr("ruleEngine.result.col1","abs(ruleEngine.result.col1)").as[(Option[Int], Option[Int])].collect()
+        assert(res.count(_._1.isEmpty) == 1)
+        assert(res.flatMap(_._1).forall(_ == 4))
       } catch {
         case t: Throwable =>
           throw t

@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{groupProcessorKey, topLevelBooleanGrouper}
+import com.sparkutils.quality.{evaluateCSEForOutputExpressions, groupProcessorKey, topLevelBooleanGrouper}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 
 class CollectRunnerClassicTest extends SharedConnectTests with CollectRunnerTestBase {
@@ -23,6 +23,22 @@ class CollectRunnerClassicGrouperTest extends CollectRunnerClassicTest {
       m =
         Map(
           groupProcessorKey -> topLevelBooleanGrouper
+        )
+    }
+    m
+  }
+
+}
+
+class CollectRunnerClassicWithOuputCSETest extends CollectRunnerClassicTest {
+
+  override def options: Map[String, String] = {
+    var m = Map.empty[String, String]
+    not3_0_or_3_1 {
+
+      m =
+        Map(
+          evaluateCSEForOutputExpressions -> "true"
         )
     }
     m
