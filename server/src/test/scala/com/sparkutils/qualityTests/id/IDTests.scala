@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
-import com.sparkutils.testing.SparkTestUtils.ouputDir
+import com.sparkutils.testing.SparkTestUtils.outputDir
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug, enumToScala}
 import org.apache.spark.sql.functions._
@@ -336,9 +336,9 @@ class IDTests extends SharedPureConnectTests with VariableTestShims {
 
     val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
-    uniqueExploded.write.mode("overwrite").parquet(ouputDir + "uniqueidequal")
+    uniqueExploded.write.mode("overwrite").parquet(outputDir + "uniqueidequal")
     // .cache doesn't work on connect base and 0 work finds 15000 rows, 1 doesn't match anything possibly https://issues.apache.org/jira/browse/SPARK-53917
-    val cached = sparkSession.read.parquet(ouputDir + "uniqueidequal")
+    val cached = sparkSession.read.parquet(outputDir + "uniqueidequal")
 
     val count = uniqueExploded.count()
 
