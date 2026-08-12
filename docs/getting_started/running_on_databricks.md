@@ -74,6 +74,10 @@ all Quality test batches completed
 !!! note "Databricks 18.x / UC introduces different delta behaviour"
     When running the test suite on 18.x the Delta extension tests will fail with spurious errors, these do not occur when using OSS or earlier DBRs.
 
+## Running on Databricks Runtime 19
+
+As of 0.2.0 Databricks 19 (noted as of release__19.x-snapshot-photon-scala2.13__databricks__19.2.4__affc832__32d3219__jenkins__59c4a83__format-3) crashes when trying to run tests and is unsupported.
+
 ## Running on Databricks Runtime 18 LTS
 
 The following test combinations are supported as of 0.2.0:
@@ -87,7 +91,7 @@ The following test combinations are supported as of 0.2.0:
 | Shared Compute | quality_api_18.3.dbr                 | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
 | Shared Compute | quality_api_4.1.0.oss                | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
 
-Databricks 18 has been tested as of release__18.3.x-snapshot-photon-scala2.13__databricks__18.3.2__6659d0d__ed0c38b__jenkins__6962a57__format-3 (search for spark.databricks.clusterUsageTags.sparkImageLabel on the environment spark properties page for the exact version your cluster uses)
+Databricks 18 has been tested as of release__18.3.x-snapshot-photon-scala2.13__databricks__18.3.3__bfd1bbf__b0356d3__jenkins__bc102bd__format-3 (search for spark.databricks.clusterUsageTags.sparkImageLabel on the environment spark properties page for the exact version your cluster uses)
 
 ## Running on Databricks Runtime 17.3 LTS
 

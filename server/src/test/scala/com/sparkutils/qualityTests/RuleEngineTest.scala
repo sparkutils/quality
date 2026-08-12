@@ -129,6 +129,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
       val rr0 = res(0).ruleSuiteResults.ruleSetResults(Id(50,1)).ruleResults
       val rr0r = Seq(rr0(Id(100,1)), rr0(Id(200,1)))
       v3_5_and_above { // spark 3/3.1 don't actually respect the compilation flag
+        // NOTE - test will/may fail on dbr 18 shared setup as it's actually inCodeGen always and the client setup doesn't matter
         if (inCodegen) {
           rr0r shouldBe Seq(UnevaluatedRule, UnevaluatedRule)
         } else {

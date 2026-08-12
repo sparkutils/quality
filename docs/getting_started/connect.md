@@ -4,8 +4,10 @@ This allows applications to use the quality_api with the stable Spark Connect in
 In order to enable this, from 0.2.0 onwards, Quality's moves to a split jar and implementation model:
 
 * Core Scala types are present in quality_core, each - now source stable for years - are marked with \@SerialVersionUID(1L)
-* quality_api provides the Connect friendly api, using these core types, with most complex logic taking place on the server
-* The quality server jar itself provides the implementation found in the Quality extension and serializes the core jvm types
+* quality_api_stub forces a 'connect first' approach and is excluded by both quality_api and quality 'server' 
+* quality_connect_api provides the Connect friendly api, using these core types, with most complex logic taking place on the server
+* quality_api provides an ideal compile time dependency, allowing the same artifacts to be published to different Connect (along with api_stub) or Classic runtimes (with the quality 'server' jar itself)
+* The quality 'server' jar itself provides the implementation found in the Quality extension and serializes the core jvm types
 
 Breaking binary compatibility of the core types is now identifiable via their \@SerialVersionUID(1L) changes.  Changes to the core types will include increasing the version id.
 
@@ -13,13 +15,13 @@ Given the stable Connect interface, and a suitable runtime, this _should_ allow 
 
 Supported combinations:
 
-| Spark Runtime                 | Known Supported Version | Client application Library | 
-|-------------------------------|-------------------------|----------------------------| 
-| Databricks Shared Compute     | 17.3                    | quality_api_17.3           |
-| Databricks Shared Compute     | 17.3                    | quality_api_4.0.0.oss      |
-| Databricks Non Shared Compute | 17.3                    | quality_api_17.3           |
-| Databricks Non Shared Compute | 17.3                    | quality_api_4.0.0.oss      |
-| OSS Spark connect.local       | 4.0.*                   | quality_api_17.3           |
+| Spark Runtime                 | Known Supported Version | Client application Library      | 
+|-------------------------------|-------------------------|---------------------------------| 
+| Databricks Shared Compute     | 17.3 / 18               | quality_connect_api_17.3 / 18.3 |
+| Databricks Shared Compute     | 17.3 / 18               | quality_connect_api_4.0.0.oss   |
+| Databricks Non Shared Compute | 17.3 / 18               | quality_connect_api_17.3 / 18.3 |
+| Databricks Non Shared Compute | 17.3 / 18               | quality_connect_api_4.0.0.oss   |
+| OSS Spark connect.local       | 4.0.*                   | quality_connect_api_17.3 / 18.3 |
 
 This is also true for remote connect usage, for example running the QualityTestRunner in connect mode from the ide to Databricks with the following environment variables:
 

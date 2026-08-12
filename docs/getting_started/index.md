@@ -151,38 +151,43 @@ The build poms generate those variables via maven profiles, but you are advised 
 
 The full list of supported runtimes is below:
 
-| Spark Version | sparkShortVersion | qualityRuntime                 | scalaCompatVersion |
-|---------------|-------------------|--------------------------------|--------------------| 
-| 3.1.3         | 3.1               |                                | 2.12               | 
-| 3.2.0         | 3.2               |                                | 2.12               | 
-| 3.2.1         | 3.2               | 3.2.1.oss_                     | 2.12               | 
-| 3.3.2         | 3.3               | 3.3.2.oss_                     | 2.12               | 
-| 3.3.2         | 3.3               | 12.2.dbr_                      | 2.12               |
-| 3.4.1         | 3.4               | 3.4.1.oss_                     | 2.12               |
-| 3.4.1         | 3.4               | 13.3.dbr_                      | 2.12               |
-| 3.5.0         | 3.5               | 3.5.0.oss_                     | 2.12               |
-| 3.5.0         | 3.5               | 14.3.dbr_                      | 2.12               |
-| 3.5.0         | 3.5               | 15.4.dbr_                      | 2.12               |
-| 3.5.0         | 3.5               | 16.4.dbr_                      | 2.12               |
-| 4.0.0         | 4.0               | 4.0.0.oss_                     | 2.13               |
-| 4.0.0         | 4.0               | 17.3.dbr_                      | 2.13               |
-| 4.0.0         | 4.0               | api_4.0.0.oss_                 | 2.13               |
-| 4.0.0         | 4.0               | api_17.3.dbr_                  | 2.13               |
-| 4.1.0         | 4.1               | api_4.1.0.oss_                 | 2.13               |
-| 4.1.0         | 4.1               | 4.1.0.oss_                     | 2.13               |
-| 4.1.0         | 4.1               | 18.3.dbr_                      | 2.13               |
-| 4.2.0         | 4.2               | api_4.2.0.oss_                 | 2.13               |
-| 4.2.0         | 4.2               | 4.2.0.oss_                     | 2.13               |
-| 4.2.0         | 4.2               | 18.3.dbr_ (for use on DBR 19)  | 2.13               |
+| Spark Version | sparkShortVersion | qualityRuntime                | scalaCompatVersion |
+|---------------|-------------------|-------------------------------|--------------------| 
+| 3.1.3         | 3.1               |                               | 2.12               | 
+| 3.2.0         | 3.2               |                               | 2.12               | 
+| 3.2.1         | 3.2               | 3.2.1.oss_                    | 2.12               | 
+| 3.3.2         | 3.3               | 3.3.2.oss_                    | 2.12               | 
+| 3.3.2         | 3.3               | 12.2.dbr_                     | 2.12               |
+| 3.4.1         | 3.4               | 3.4.1.oss_                    | 2.12               |
+| 3.4.1         | 3.4               | 13.3.dbr_                     | 2.12               |
+| 3.5.0         | 3.5               | 3.5.0.oss_                    | 2.12               |
+| 3.5.0         | 3.5               | 14.3.dbr_                     | 2.12               |
+| 3.5.0         | 3.5               | 15.4.dbr_                     | 2.12               |
+| 3.5.0         | 3.5               | 16.4.dbr_                     | 2.12               |
+| 4.0.0         | 4.0               | 4.0.0.oss_                    | 2.13               |
+| 4.0.0         | 4.0               | 17.3.dbr_                     | 2.13               |
+| 4.0.0         | 4.0               | api_4.0.0.oss_                | 2.13               |
+| 4.0.0         | 4.0               | api_17.3.dbr_                 | 2.13               |
+| 4.1.0         | 4.1               | api_4.1.0.oss_                | 2.13               |
+| 4.1.0         | 4.1               | 4.1.0.oss_                    | 2.13               |
+| 4.1.0         | 4.1               | 18.3.dbr_                     | 2.13               |
+| 4.2.0         | 4.2               | api_4.2.0.oss_                | 2.13               |
+| 4.2.0         | 4.2               | 4.2.0.oss_                    | 2.13               |
+| 4.2.0         | 4.2               | 18.3.dbr_ (for use on DBR 19) | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
-Introduced in 0.2.0 is support for Spark Connect driven development, via the quality_api jar (shown above for 4.0.0 and 4.1.0), this includes Databricks Shared Compute support but requires [Session extensions](#using-the-sql-functions-on-spark-thrift-hive-servers).  
+Introduced in 0.2.0 is support for Spark Connect driven development, via the quality_connect_api jar and the flexible deployment raw quality_api (shown above for 4.x.0 as api), this includes Databricks Shared Compute support but requires [Session extensions](#using-the-sql-functions-on-spark-thrift-hive-servers).  
 
-!!! info "0.1.3 Requires com.sparkutils.frameless for newer releases"
+!!! info "As of 0.1.3, Quality requires com.sparkutils.frameless for newer releases"
     Quality 0.1.3 uses [com.sparkutils.frameless](https://github.com/sparkutils/frameless) for the 3.5, 13.3 and 14.x releases together with the [shim project](https://github.com/sparkutils/shim), allowing quicker releases of Databricks runtime supports going forward.
     The two frameless code bases are not binary compatible and will require recompilation.
     This may revert to org.typelevel.frameless in the future.
+
+??? info "Deploying for both Connect and Classic"
+    0.2.0 introduces, as per the [Connect](connect.md) page, the quality_api artifact which has no associated runtime.
+    By building against this api your dependencies are kept clean and you can provide the same jar to run with api_stub
+    for Connect usage, or with the quality 'server' jar for Classic usage. 
 
 ## Sql functions vs column dsl
 
@@ -273,7 +278,13 @@ In order to register the extensions on Databricks runtimes you need to additiona
 cp /dbfs/FileStore/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar /databricks/jars/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar
 ```
 
-where the first path is your uploaded jar location.  You can create this script via a notebook on running cluster in the same workspace with throwaway code much like this:
+where the first path is your uploaded jar location.  
+
+For UC based runtimes, such as 17/18, you must have an init_script in a volume directory that is permissioned in UC to have init scripts for clusters. 
+
+#### For pre Databricks 16 runtimes you can generate the init script 
+
+You can create this script via a notebook on running cluster in the same workspace with throwaway code much like this:
 
 ```scala
 val scriptName = "/dbfs/add_quality_plugin.sh"
@@ -291,7 +302,7 @@ new PrintWriter(scriptName) {write(script); close}
 You must still register the Spark config extension attribute, but also make sure the Init script has the same path as the file you created in the above snippet.
 
 !!! important "Dos2Unix"
-    If you are using Windows as your dev env, you will probably have to ensure your line endings are unix, so using git-portable and dos2unix before uploading your file if your are not generating it.
+    If you are using Windows as your dev env, you will probably have to ensure your line endings are unix, so using git-portable and dos2unix before uploading your file if you are not generating it.
 
 ### Configuring on Databricks shared runtimes
 
