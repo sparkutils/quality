@@ -11,37 +11,40 @@
     </tr>
     </table>
 
-## Run complex data quality rules using simple SQL in a batch or streaming Spark application at scale.
+## Run complex data quality and transformation rules using simple SQL in a batch or streaming Spark application at scale.
 
 Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} test packages for [Fabric](getting_started/running_on_fabric.md)
-* :new:{.pulseABit} Spark 4 support
-* :new:{.pulseABit} 5-10% speed bump with a change in compilation defaults
-* :new:{.pulseABit} sparkless [row level processors](advanced/processors.md) added for non-spark runtimes (uses spark at compilation time)
+Version 0.2.0 represents a major milestone with almost 8,440 net new lines of code across 31 issues,
+please check the [changelog](background/changelog.md) for more details.
+
+* :new:{.pulseABit} Spark 4.1, 4.2 and 4.x [Connect Support](getting_started/connect.md)
+* :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
+* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results
+* :new:{.pulseABit} Improved compilation performance for large scale RuleSuites by separate compilation
+* :new:{.pulseABit} Result processing is a minimum of 30% faster and applies to all rule execution, with common boolean and int result cases faster still
+* :new:{.pulseABit} Experimental and optional support for optimised large scale rules (>20k RuleSuites) with up to 100x speed improvements and lower memory requirements via [TriggerGrouper](advanced/triggerGrouping.md)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
+!!! warn "Databricks 18 changes it's release process"
+    Per [this link](https://docs.databricks.com/aws/en/release-notes/runtime/18) Databricks will no longer have minor releases.
+    Please pay attention to the [Running On Databricks](getting_started/running_on_databricks.md) page for exact versions tested against. 
+
 ## Enhanced Spark Functionality
 
-Lookup Functions are distributed across the Spark cluster and held in memory, as such no shuffling is required where the shuffling introduced by joins may be too expensive:
-
-* Support for massive [Bloom Filters](advanced/blooms/) while retaining FPP (i.e. several billion items at 0.001 would not fit into a normal 2gb byte array)
-* [Map lookup](advanced/mapFunctions/) expressions for exact lookups and contains tests, using broadcast variables under the hood they are a great fit for small reference data sets
-* [View loading](advanced/viewLoader.md) - manage the use of session views in your application through configuration and a pluggable [DataFrameLoader](./site/scaladocs/com/sparkutils/quality/DataFrameLoader.html)  
-
 * [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late bound columns
-
-
-* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
+* [Map lookup](advanced/mapFunctions/) expressions for exact lookups and contains tests, using broadcast variables on Classic and Variables on Connect under the hood they are a great fit for small reference data sets
+* [View loading](advanced/viewLoader.md) - manage the use of session views in your application through configuration and a pluggable [DataFrameLoader](./site/scaladocs/com/sparkutils/quality/DataFrameLoader.html)  
 
 
 * [Aggregate functions](advanced/aggregations/) over Maps expandable with simple SQL Lambdas
-
-
 * [Row ID](advanced/rowIdFunctions/) expressions including guaranteed unique row IDs (based on MAC address guarantees)
+
+
+* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
 
 
 Plus a collection of handy [functions](sqlfunctions.md) to integrate it all.

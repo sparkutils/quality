@@ -1,0 +1,1 @@
+This package should only use connect api safe calls, it's code will be run on both testshades, normal classic/server and in IDE tests.

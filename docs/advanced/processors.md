@@ -1,3 +1,6 @@
+!!! warn "Sparkless Row by Row Processors are deprecated"
+    As of 0.2.0 sparkless is deprecated, support for VarCompilation is removed and will no longer be part of the Quality library in subsequent releases.
+
 Quality Processors allow for Quality rules to be used on a jvm outside of Spark execution.  Spark is required for expression resolution and compilation so the pattern of usage is:
 
 ```scala
@@ -144,7 +147,7 @@ val lookups = mapLookupsFromDFs(Map(
     val df = theMap.toDF("subcode", "isvalid")
     (df, column("subcode"), column("isvalid"))
   } )
-), LocalBroadcast(_))
+))
 
 registerMapLookupsAndFunction(lookups)
 
@@ -154,8 +157,6 @@ val rs = RuleSuite(Id(1,1), Seq(
   ))
 ))
 ```
-
-Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be used without a SparkSession and just wraps the value.
 
 ## Performance
 
@@ -215,6 +216,7 @@ The performance of the default configuration, leveraging Spark's MutableProjecti
 The first place belongs to the experimental VarCompilation, see the info box below for more details.
 
 ??? info "Experimental - VarCompilation"
+    Disabled as of 0.2.0
 
     The default of `#!scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
     

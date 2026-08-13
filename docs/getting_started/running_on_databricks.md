@@ -5,59 +5,178 @@ tags:
 - beginner
 ---
 
-The aim is to have explicit support for LTS', other interim versions may be supported as needed.
+LTS' get explicit support, other interim versions may be supported as needed.
 
-## Running 3.1 builds on Databricks Runtime 9.1 LTS
+## Testing out Quality via Notebooks
 
-Use the 9.1.dbr build / profile, the artefact name will also end with _9.1.dbr.  OSS 3.1 do not need to worry about this and should not use this profile.
+You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 18.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_18.3.dbr_4.1_2.13/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
 
-Databricks has back-ported TreePattern including the final nodePatterns in HigherOrderFunction and 3.2's Conf class.  As such very old versions of non-opensource Quality (<=0.5.0) will fail with AbstractMethodError's when lambda's are used are 9.1 as the OSS binary version of HigherOrderFunction does not have nodePattern.  Similarly, the quality_testshade jar must use the 9.1.dbr version due to Conf changes.
+Then, with cluster nodes of 64gb ram (only BigRules requires this, so 16gb is fine when just using the shades to experiment), using:
 
-The 9.1.dbr build class files are built on the fake TreePattern and HigherOrderFunction present in the 9.1.dbr-scala source directory, they are however removed in the jar.
+```scala
+import com.sparkutils.qualityTests.QualityTestRunner
+import com.sparkutils.testing.SparkTestUtils
 
-ResolveTableValuedFunctions and ResolveCreateNamedStruct are removed from resolveWith as they are binary incompatible with OSS.  This does not seem to effect building namedstructs using resolveWith.
+// uncomment to disable connect test usage on runtimes that support it, like DBR 17.3
+// System.setProperty("SPARKUTILS_DISABLE_CONNECT_TESTS","true")
 
-## Running 3.2.1 builds on Databricks Runtime 10.4
+// uncomment to disable classic test usage on runtimes that support connect, DBR 17.3
+// a good use case is simulating a UC shared cluster (with init script / spark session extensions enabled) 
+// when running on a classic cluster setup.
+// On an actual UC Shared Compute cluster this is true by default (as the connect.SparkSession is provided) 
+// System.setProperty("SPARKUTILS_DISABLE_CLASSIC_TESTS","true")
 
-Use the 10.4.dbr build / profile, the artefact name will also end with _10.4.dbr.
+// for running on azure set the configuration for both classic and connect client
+val keyMap = Map(s"fs.azure.account.key.${srv_path}${dfs}" -> accountKey)
+SparkTestUtils.setRuntimeConnectClientConfig(keyMap)
+SparkTestUtils.setRuntimeClassicConfig(keyMap)
 
-DBR 10.4 backports canonicalisation changes which allow Quality and any other code using explode and arrays to functionally run.  Performance is still known to be affected.  These fixes are not present in the 3.2.1 OSS release, although performance improvements may be back-ported.
+val root_path = loc
+SparkTestUtils.setPath(root_path+"/qualityTests")
+QualityTestRunner.test()
+```
 
-ResolveTables, ResolveAlterTableCommands and ResolveHigherOrderFunctions are removed from resolveWith as they are binary incompatible with OSS.
+in your cell will run through all of the test suite used when building Quality.
 
-!!! info "Only 10.4 LTS is supported"
-    10.2 version support was removed in 0.0.1
+Ideally at the end of your runs you'll see - after up to an hour or so and some stdout - for example a run on DBR 17.3 provides:
 
-## Running 3.3.0 builds on Databricks Runtime 11.3 LTS
+```
+Quality - starting test batch 0
+Run starting. Expected test count is: 183
+....
+Run completed in 2 minutes, 49 seconds.
+Total number of tests run: 183
+Suites: completed 10, aborted 0
+Tests: succeeded 183, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
+projectName - gc'ing after finishing test batch 0
+Quality - starting test batch 1
+....
+Run completed in 1 minute.
+Total number of tests run: 158
+Suites: completed 10, aborted 0
+Tests: succeeded 158, failed 0, canceled 0, ignored 1, pending 0
+All tests passed.
+....
+Run completed in 1 minute, 56 seconds.
+Total number of tests run: 106
+Suites: completed 10, aborted 0
+Tests: succeeded 106, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
+Quality - gc'ing after finishing test batch 2
+all Quality test batches completed
+```
 
-Use the 11.3.dbr build / profile, the artefact name will also end with _11.3.dbr.  Due to a backport of [SPARK-39316](https://issues.apache.org/jira/browse/SPARK-39316) only 11.3 LTS is supported (although likely 11.2 will also run), this changed the result type of Add causing incorrect aggregation precision via aggExpr (Sum and Average stopped using Add for this reason).
+!!! note "Databricks 17.x / 18.x"
+    When running the test suite with an extension and classic cluster library several optimisation tests will fail (as the extension has already enabled them they cannot be disabled through the test suite).
+    These tests (usually FunNRewrite based) can only be tested via classic clusters without extension.
+
+!!! note "Databricks 18.x / UC introduces different delta behaviour"
+    When running the test suite on 18.x the Delta extension tests will fail with spurious errors, these do not occur when using OSS or earlier DBRs.
+
+## Running on Databricks Runtime 19
+
+As of 0.2.0 running the 18.3 build runs on Databricks 19 (noted as of release__19.x-snapshot-photon-scala2.13__databricks__19.2.4__affc832__32d3219__jenkins__59c4a83__format-3).
+
+This works as 18.x already backported changes to UnresolveFunction aligning it with 4.2.0, making them (as of 19.2.4) compatible.
+
+## Running on Databricks Runtime 18 LTS
+
+The following test combinations are supported as of 0.2.0:
+
+| Compute Type   | Cluster Library                      | Extension                    | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                | SPARKUTILS_DISABLE_CLASSIC_TESTS (default false) | SPARKUTILS_DISABLE_CONNECT_TESTS (default false) | Time Taken Standard_D8ds_v5 32gb 8 cores 2 executors (m) |
+|----------------|--------------------------------------|------------------------------|-------------------------|------------------------------|---------------------------------------------|--------------------------------------------------|--------------------------------------------------|---------------------------------------------------------:|
+| Non Shared     | quality_testshade_18.3.dbr           |                              |                         | :octicons-checkbox-24:       | > 500                                       |                                                  | true                                             |                                                       30 |
+| Non Shared     | quality_testshade_18.3.dbr           | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |                                                  |                                                  |                                                       60 |
+| Shared Compute | quality_connect_testshade_18.3.dbr   | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_connect_testshade_4.1.0.oss  | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_api_18.3.dbr                 | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
+| Shared Compute | quality_api_4.1.0.oss                | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
+
+Databricks 18 has been tested as of release__18.3.x-snapshot-photon-scala2.13__databricks__18.3.3__bfd1bbf__b0356d3__jenkins__bc102bd__format-3 (search for spark.databricks.clusterUsageTags.sparkImageLabel on the environment spark properties page for the exact version your cluster uses)
+
+## Running on Databricks Runtime 17.3 LTS
+
+Supported as of 0.1.3.1.  Only 0.2.0 supports connect and shared cluster, with extension, usage.
+
+17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase.
+
+!!! info "Non-Shared Connect"
+    Using quality_testshade on both client and extension allows mixing modes.  To use connect on the test cases leverage:
+    
+    ```scala
+    SparkSession.builder.config("spark.api.mode", "connect").getOrCreate()
+    ```
+    
+    from the testing 17.3 specific build.  For any Fabric (future) / OSS similar approaches using the quality_testshade_4.0.0.oss developers will need to set:
+
+    ```scala
+    System.setProperty("SPARKUTILS_TESTING_USE_LOCAL_CONNECT", "true")
+    ```
+
+    before running any tests to stop an attempt to spawned jvm's (which is never needed with Databricks).
+
+!!! note "Shading/Uber jar"
+    The last two combinations require users to correctly manage the shading and, as such, do not include the test jars or any of the jarjar handling.
+
+    See [connect](connect.md) for details on how the jars / libraries can be built, correctly shaded and more importantly how the server side can now evolve independently of your client application code.
+
+### Using Lakeguard / Shared Compute clusters with 0.2.0
+
+In order to use Shared Compute clusters you must register spark [session extensions](index.md#configuring-on-databricks-shared-runtimes) for the server side quality (to be run on the driver and executor nodes).
+
+As this mode is purely connect, no ClassicOnly functions will be usable. 
+
+#### Which shade to use for exploration or testing?
+
+You can use either the quality_connect_testshade or quality_testshade to test or experiment in workbooks in this setup.
+The quality_connect_testshade only packages the quality_api so runs fully only via Spark 4 Connect apis, moreover - as it doesn't require server side code you can also use the oss shade.
+
+When using the connect_testshade jar the number of tests run is smaller (only 118 pure connect tests are run) but you should see similar output to:
+
+```
+Quality - starting test batch 0
+Run starting. Expected test count is: 118
+AggregatesTest:
+- mapTest (10 seconds, 151 milliseconds)
+- multiGroups (6 seconds, 610 milliseconds)
+- testFlattenResults (1 second, 809 milliseconds)
+- testSalience (1 second, 817 milliseconds)
+- testDebug (293 milliseconds)
+...
+Run completed in 4 minutes, 22 seconds.
+Total number of tests run: 118
+Suites: completed 10, aborted 0
+Tests: succeeded 118, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
+Quality - gc'ing after finishing test batch 0
+Quality - starting test batch 1
+Run starting. Expected test count is: 53
+...
+Run completed in 1 minute, 28 seconds.
+Total number of tests run: 53
+Suites: completed 6, aborted 0
+Tests: succeeded 53, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
+Quality - gc'ing after finishing test batch 1
+all Quality test batches completed
+```
+
+#### Known Issues
+
+* Logging INFO with map operations, despite these being implemented by Quality, you can ignore these
+> INFO Log4jUsageLogger: sparkThrowable=1.0, tags=List(errorClass=UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE), blob=null
+> INFO Log4jUsageLogger: sparkThrowable=1.0, tags=List(errorClass=DATATYPE_MISMATCH.INVALID_ORDERING_TYPE), blob=null
+* Any use of Spark Classic / catalyst internals on a shared cluster can trigger very wierd issues such as Verify or ImplementationChanged Errors.
+* A number of stacks will seemingly flash in the output window after starting a cell in the notebooks, this seems unrelated to Quality.
 
 ## Running on Databricks Runtime 12.2 LTS
 
-DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.3.0 is the preferred approach for maximum compatibility. 
-
-## Running on Databricks Runtime 13.0
-
-As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
-
-## Running on Databricks Runtime 13.1/13.2
-  
-13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
-
-!!! WARN "The 13.1/2 runtimes, given the LTS version, are deprecated and will be removed in 0.1.4."
+DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.3.0 is the preferred approach for maximum compatibility.
 
 ## Running on Databricks Runtime 13.3 LTS
 
 13.3 backports yet more 3.5 so the 13.3.dbr build must be used.
-
-## Running on Databricks Runtime 14.0/14.1
-  
-14.0 and 14.1 can be used with the 14.0.dbr runtime, 14.2 however is not compatible, it back-ports two changes that render Quality 0.1.3 impossible to run:
-
-1. 44913 - StaticInvoke has changed breaking frameless binary compatibility
-2. ResolveReferences now takes catalogue as a parameter
-
-!!! WARN "The 14.0/1 runtimes, given the LTS version, are deprecated and will be removed in 0.1.4."
 
 ## Running on Databricks Runtime 14.3 LTS
 
@@ -75,46 +194,13 @@ Supported as of 0.1.3.1.
 
 16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
 
-## Running on Databricks Runtime 17.3 LTS
+## Running on Databricks Runtime 17.3 / 18.3 / 18 LTS
 
-Supported as of 0.1.3.1.
+Support via 0.2.0 and is tested on latest 17.3 and 18 (via 18.3.dbr - build 18.3.3 observed via spark.databricks.clusterUsageTags.sparkImageLabel).
 
-17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase. 
+Databricks 18 backported Spark 4.2.0's UnresolvedFunction interface and, as such, requires its own runtime support.
 
-## Testing out Quality via Notebooks
+## Running on Databricks Runtime 19
 
-You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 11.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_11.3.dbr_3.3_2.12/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
-
-Then using:
-
-```scala
-import com.sparkutils.quality.tests.TestSuite
-import com.sparkutils.qualityTests.SparkTestUtils
-
-SparkTestUtils.setPath("path_where_test_files_should_be_generated")
-TestSuite.runTests
-```
-
-in your cell will run through all of the test suite used when building Quality.
-
-In Databricks notebooks you can set the path up via:
-
-```scala
-val fileLoc = "/dbfs/databricks/quality_test"
-SparkTestUtils.setPath(fileLoc)
-```
-
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 17.3 provides:
-
-```
-Running: ruleEngineSuiteVersionedRoundTripsDF(com.sparkutils.qualityTests.VersionSerializingTest), finished in: 5s
-
-Time: 765.281
-
-OK (431 tests)
-
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 431. Time: 765281ms.
-import com.sparkutils.quality.tests.TestSuite
-import com.sparkutils.qualityTests.SparkTestUtils
-fileLoc: String = /dbfs/databricks/quality_test
-```
+Support via 0.2.0 and the 18.3.dbr release (tested against 19.1.3 release__19.x-snapshot-photon-scala2.13__databricks__19.1.3__132a64e__553b6cb__jenkins__d71fd8f__format-3),
+DBFS however is no longer usable as such, per #141, bucketed large bloom filters no longer work.
