@@ -76,7 +76,9 @@ all Quality test batches completed
 
 ## Running on Databricks Runtime 19
 
-As of 0.2.0 Databricks 19 (noted as of release__19.x-snapshot-photon-scala2.13__databricks__19.2.4__affc832__32d3219__jenkins__59c4a83__format-3) crashes when trying to run tests and is unsupported.
+As of 0.2.0 running the 18.3 build runs on Databricks 19 (noted as of release__19.x-snapshot-photon-scala2.13__databricks__19.2.4__affc832__32d3219__jenkins__59c4a83__format-3).
+
+This works as 18.x already backported changes to UnresolveFunction aligning it with 4.2.0, making them (as of 19.2.4) compatible.
 
 ## Running on Databricks Runtime 18 LTS
 
