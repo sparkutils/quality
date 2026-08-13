@@ -5,9 +5,9 @@ tags:
 - beginner
 ---
 
-Quality has three main flavours with sprinklings of other Quality ingredients like the [sql function suite](../sqlfunctions.md).
+Quality has four main flavours with sprinklings of other Quality ingredients like the [sql function suite](../sqlfunctions.md).
 
-These flavours are provided by three "runners" which add a Column to a Spark Dataset/Dataframe.
+These flavours are provided by four "runners" which add a Column to a Spark Dataset/Dataframe.
 
 ## Quality / QualityData - ruleRunner 
 
@@ -37,8 +37,42 @@ _What is stored:_
 
 Unlike QualityRules which uses salience to select only one Output expression, Folder uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - [folding](https://en.wikipedia.org/wiki/Fold_(higher-order_function)#:~:text=In%20functional%20programming%2C%20fold%20(also,constituent%20parts%2C%20building%20up%20a)) the results as it goes. 
 
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
 _Example Usage:_ Correction of in-bound data to enable subsequent calculators to process, defaulting etc.
 
 _What is stored:_ 
 ```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/folder.puml"
+```
+
+## QualityExpressions - ExpressionRunner
+
+[QualityExpressions](../advanced/expressionRunner.md) extends QualityRules providing the raw results as yaml strings (with type) for expressions and allowing aggregate expressions.
+
+_Example Usage:_ Providing totals or other relevant aggregations over datasets or DQ results - e.g. only deem the data load correct when 90% of the rows have good DQ.
+
+_What is stored:_
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/expressionRunner.puml"
+```
+
+You can also use the typedExpressionRunner, which saves the results of expressions with the same type.
+
+_Example Usage:_ Instead of checking if something exists in a view in a rule, then using the view's value in an Output expression, use typedExpressionRunner to save the lookup value directly.  The rule can check if rule_result is null, this can noticeably speed up view heavy queries.    
+
+_What is stored:_ For a type of STRUCT<key: INT, value: STRING>
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/typedExpressionRunner.puml"
+```
+
+## QualityCollector - collectRunner
+
+[QualityFolder](../advanced/ruleFolder.md) extends QualityRules providing the ability to collect multiple Output Expressions, sorted by salience with a default flatten.
+
+Unlike QualityRules which uses salience to select only one Output expression, Collector uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - collecting the results as it goes.
+
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
+_Example Usage:_ Derivation logic
+
+_What is stored:_
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/collector.puml"
 ```

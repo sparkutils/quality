@@ -3,6 +3,7 @@ tags: advanced
 ---
    
 Quality provides a basic rule engine for data quality rules the output of each rule however is always translated to RuleResult, encoded and persisted for audit reasons.
+If _any_ rule trigger matches the RuleSuiteResult.overallResult will be Passed otherwise Failed is returned.
 
 The ruleEngineRunner function however allows you to take an action based on the passing of a rule and, via salience, choose the most appropriate output for a given row.
 
@@ -12,7 +13,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 
 ```scala
   val ruleResultProcessor = 
-    RunOnPassProcessor(salience, Id(outputId, outputVersion), RuleLogicUtils.expr("array(account_row('from', account), account_row('to', 'other_account1'))")))
+    RunOnPassProcessor(salience, Id(outputId, outputVersion), RuleLogicUtils)("array(account_row('from', account), account_row('to', 'other_account1'))")))
   val rule = Rule(Id(id, version), expressionRule, ruleResultProcessor)
   val ruleSuite = RuleSuite(Id(ruleSuiteId, ruleSuiteVersion), Seq(
       RuleSet(Id(ruleSetId, ruleSetVersion), Seq(rule)
@@ -96,13 +97,13 @@ ARRAY<STRUCT<`salience`: INTEGER, `result`: ARRAY<ORIGINGALRESULTTYPE>>
     1. no rules have matched (you can verify this as you'll have no passed() rules).
     2. your rule actually returned a null (you can verify this by putting on debug mode, you'll see a salience but no result)
 
-## flattenRuleResults
+## flatten_rule_results
     
 ```scala
-  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flattenRuleResults(together)) as expl").selectExpr("expl.*")
+  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flatten_rule_results(together)) as expl").selectExpr("expl.*")
 ```
 
-This sql function behaves the same way as per flattenResults, however there are now two structures to 'explode'.  debugRules works as expected here as well.
+This sql function behaves the same way as per flatten_results, however there are now two structures to 'explode'.  debugRules works as expected here as well.
 
 ## resolveWith
 
@@ -113,7 +114,8 @@ This sql function behaves the same way as per flattenResults, however there are 
     1. Using filter then count will stop necessary attributes being produced for resolving, Spark optimises them out as count doesn't need them, however the rules definitely do need some attributes to be useful.
     2. You may not select different attributes, remove any, re-order them, or add extra attributes, this is likely to cause failure in show'ing or write'ing
     3. Spark is free to optimise other actions than just count, ymmv in which ones work.     
-     
+    4. The 0.1.0 implementation of update_field (based on the Spark impl) does not work in some circumstances (testSimpleProductionRules, testSalience will fail) - see #36
+    
 resolveWith attempts to improve performance of planning for general spark operations by first using a reduced plan against the source dataframe.  The resulting Expression will have all functions and attributes resolved and is hidden from further processing by Spark until your rules actually run. 
 
 ```scala

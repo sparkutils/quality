@@ -30,6 +30,23 @@ Single argument lambdas should not use brackets around the parameters and zero a
 ??? warning "Don't use 'current'... as a lambda variable name on 2.4"
     Bizarrely this causes the parser to fail on 2.4 only, no more recent version suffers this.  Same goes for left or right as names.
 
+!!! info "0.1.3.1 optimisations can be enabled"
+    0.1.3.1 introduces the expansion of Qualitylambda functions, allowing sub expression elimination to take place.  The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
+
+    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow specific overriding should issues arise.
+    All rewrites can be disabled for a cluster by using quality_disable_optimiser_rules=com.sparkutils.quality.impl.extension.FunNRewrite config.
+
+    The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
+
+## Why do these exist when Spark supports SQL functions
+
+In short:
+1. Multiple-arity
+2. Late type binding (outside of HoFs)
+3. Lighter syntax
+4. Higher Order Functions, use them in any appropriate Spark function like aggregates
+4. Correlated subquery support when used as HoFs
+
 ## What about default parameter or different length parameter length Lambdas?  
 
 To define multiple parameter length lambdas just define new lambdas with the same name but different argument lengths.  You can freely call the same lambda name with different parameters e.g.:
@@ -50,7 +67,7 @@ df.withColumn("newcalc", expr("multValCCY(value, ccyrate)"))
 
 As Lambda's in Spark aren't first class citizens you can neither partially apply them (fill in parameters to derive new lambdas) nor pass them into a lambda.
 
-In 0.7.1 Quality experimentally adds three new concepts to the mix:
+Quality experimentally adds three new concepts to the mix:
 
 1. Placeholders - `#!scala _()` - which represents a value which still needs to be filled (partial application)
 2. Application - `#!scala callFun()` - which, in a lambda, allows you to apply a function parameter
@@ -107,7 +124,7 @@ val deep = LambdaFunction("deep", "(func, a, b) -> use(func, a, b)", Id(2,2))
 
 Deep takes the function and simply passes it to use where the callFun exists.
 
-Finally you can also further partially apply your lambda variables:
+Finally, you can also further partially apply your lambda variables:
 
 ```scala
 val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
@@ -144,15 +161,19 @@ assert(6L == { val sql = sparkSession.sql("select callFun(retLambda(1L, 2L), 3L)
 
 here the user function retLambda returns the plus with 3 arity applied over a and b, leaving a function of one arity to fill.  The top level callFun then applies the last argument (c).
 
-The second test 
+!!! note "It's sql only"
+    As you can create your own functions based on Column transformations the functionality is not extended to the dsl where there are better host language based solutions.
 
 ??? warning "It is experimental"
     Although behaviour has been tested with compilation and across the support DBRs it's entirely possible there are gaps in the trickery used.
     
     A good example of the experimental nature is the _() function, it's quite possible that is taken by Spark at a later stage.
 
-??? warning "_lambda_ drop in call arguments to transform_values and transform_keys don't work on 3.0 and 3.1.2"
+??? warning "_lambda_ drop in call arguments to transform_values and transform_keys don't work on 3.0 and 3.1.2/3"
     They pattern match on List and not seq, later versions fix this.  To work around this you must explicitly use lambdas for these functions.
+
+??? warning "Do not mix higher order functions with subqueries"
+    Per [SPARK-47509](https://issues.apache.org/jira/browse/SPARK-47509) subqueries within a HOF can lead to correctness issues, such usage is not supported 
 
 ## Controlling compilation - Tweaking the Quality Optimisations
 
@@ -204,6 +225,13 @@ Alternatively if you have a hotspot with any inbuilt HoF such as array_transform
 ```
 -Dquality.lambdaHandlers=org.apache.spark.sql.catalyst.expressions.TransformValues=org.mine.SuperfastTransformValues
 ```
+
+!!! note "Handlers disable FunNRewrite"
+    The FunNRewrite optimisation lifts lambdas out to higher level expressions, enabling sub expression elimination.
+    This behaviour can be disabled by using /* USED_AS_LAMBDA */ as a comment within your user function definition, the
+    same occurs when a Spark Higher Order Function, such as transform/ArrayTransform, is used with a handler.
+    This allows the handlers to be run, compiling out the HOF, as a trade-off to possible gains from sub expression elimination.
+    Future versions of Spark may compile out the HigherOrderFunctions removing this limitation.
 
 ### Why do all this?
 

@@ -3,9 +3,9 @@
 ## Errors Summary
 |Type|Count|
 |---|---:|
-      | __RuleNameError__ Name nonExistentFielda is missing | 1 |
+      | __SparkFunctionNameError__ Name nonExistentFunction is missing | 1 |
 | __RuleNameError__ Name nonExistentFieldb is missing | 1 |
-| __SparkFunctionNameError__ Name nonExistentFunction is missing | 1 |
+| __RuleNameError__ Name nonExistentFielda is missing | 1 |
 
 ## Warnings Summary
 |Type|Count|
@@ -15,7 +15,7 @@
 
 ## Errors Identified for RuleSuite - Id 0, 1 <a name="ruleSuiteErrors_0_1"></a>
 
-### Id 16, 1 <a name="Errors_0_1"></a>
+### Id 16, 1 <a name="Errors_16_1"></a>
 
 __RuleNameError__ Name nonExistentFielda is missing occurred when processing id Id(16,1) against <a href="../sampleDocsOutput/#rule_16_1">expression</a>
 
@@ -44,17 +44,7 @@ nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb
 
 ## Warnings Identified for RuleSuite - Id 0, 1 <a name="ruleSuiteWarnings_0_1"></a>
 
-### Id 2, 1 <a name="Warnings_0_1"></a>
-
-__NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(2,1) against <a href="../sampleDocsOutput/#rule_2_1">expression</a>
-
-```sql
-/** description @param fielda desc */ concat(fielda, fieldb)
-```
-
-
-
-### Id 1002, 1 <a name="Warnings_0_1"></a>
+### Id 1002, 1 <a name="Warnings_1002_1"></a>
 
 __NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(1002,1) against <a href="../sampleDocsOutput/#outputExpression_1002_1">expression</a>
 
@@ -64,7 +54,17 @@ __NonLambdaDocParameters__ Parameter documentation is present on a non lambda ex
 
 
 
-### Id 6, 1 <a name="Warnings_0_1"></a>
+### Id 2, 1 <a name="Warnings_2_1"></a>
+
+__NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(2,1) against <a href="../sampleDocsOutput/#rule_2_1">expression</a>
+
+```sql
+/** description @param fielda desc */ concat(fielda, fieldb)
+```
+
+
+
+### Id 6, 1 <a name="Warnings_6_1"></a>
 
 __ExtraDocParameter__ Parameter fielda is not found in the lambda expression, occurred when processing id Id(6,1) against <a href="../sampleDocsOutput/#lambda_6_1">expression</a>
 

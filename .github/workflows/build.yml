@@ -1,0 +1,238 @@
+# Full build setup off main, with ~docsOnly commit filter to run just mvn_site then docs.
+name: Default CI
+
+on:
+  push:
+    branches: [ "main", "temp/*" ]
+  pull_request:
+    branches: [ "main", "temp/*" ]
+
+env:
+  MAVEN_CLI_OPTS: &MAVEN_CLI_OPTS "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  MAVEN_CLI_TESTSHADES_OPTS: &MAVEN_CLI_TESTSHADES_OPTS "-f testShades/pom.xml --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  # -Dmaven.repo.local=.m2/repository not needed on github, seems ~/.m2 is supported / expected
+  MAVEN_OPTS_8: &MAVEN_OPTS_8 "-ea -XX:+IgnoreUnrecognizedVMOptions -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard -Dmaven.wagon.http.retryHandler.count=3 -Dhttps.protocols=TLSv1.2 -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+  MAVEN_OPTS_21: &MAVEN_OPTS_21 "-ea -XX:+IgnoreUnrecognizedVMOptions -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard -Dmaven.wagon.http.retryHandler.count=3 -Dhttps.protocols=TLSv1.2 -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.action=ALL-UNNAMED --add-opens java.base/sun.util.calendar=ALL-UNNAMED"
+
+jobs:
+
+  # all versions that can be built with tests - typically oss only.  Fail fast so we can see all compilation or test errors at once
+  testBuilds:
+    uses: sparkutils/building/.github/workflows/run_build.yml@main
+    with:
+      testString: test # use tests for verifying only the delta tests have issues testString: test
+      theMatrix: |
+        {
+          "profile": ["Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350"],
+          "scala": [ "dummy" ]
+        }
+      jdk: 11
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_8
+    secrets: inherit
+
+  # all versions that can be built with tests - typically oss only.  Fail fast so we can see all compilation or test errors at once
+  testBuilds_21:
+    uses: sparkutils/building/.github/workflows/run_build.yml@main
+    with:
+      testString: test # use tests for verifying only the delta tests have issues testString: test
+      theMatrix: |
+        {
+          "profile": [ "Spark4", "Spark41", "Spark42" ],
+          "scala": [ "dummy" ]
+        }
+      jdk: 21
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_21
+    secrets: inherit
+
+  # all versions that cannot be built with tests - typically Databricks only
+  noTestBuilds_21:
+    uses: sparkutils/building/.github/workflows/run_build.yml@main
+    with:
+      testString: -DskipTests # use tests for verifying only the delta tests have issues testString: test
+      theMatrix: |
+        {
+          "profile": [ "17.3.dbr", "18.3.dbr" ],
+          "scala": [ "dummy" ]
+        }
+      jdk: 21
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_21
+    secrets: inherit
+
+  # all versions that cannot be built with tests - typically Databricks only
+  noTestBuilds:
+    uses: sparkutils/building/.github/workflows/run_build.yml@main
+    with:
+      testString: -DskipTests # use tests for verifying only the delta tests have issues testString: test
+      theMatrix: |
+        {
+          "profile": ["13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "scala": [ "dummy" ]
+        }
+      jdk: 11
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_8
+    secrets: inherit
+
+  # prove tests run with single thread, ensures compilation issues aren't hidden by being run on multiple threads instead of re-used in the same thread (e.g. state resetting etc.)
+  # build scoverage tests on 3.3.2 first, then 3.5.0 and finally 4 with aggregate, the copy the data out, not doing a clean build fails on site.  Also needs single threading to work, have noticed multiple failures and inconsistent coverage.
+  mvn_site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.2
+      - uses: s-weigand/setup-conda@v1
+        with:
+          python-version: '3.10'
+      - uses: sparkutils/spark-maven-action@main
+        with:
+          title: Building Spark4 coverage and site, including Spark332 and Spark350 coverage
+          noCheckout: true # checkout removes tmpSCoverage
+          script: |
+            export MAVEN_OPTS="${{ inputs.mvnOpts }}"
+            if [ "${{ github.event_name }}" == "pull_request" ]; then
+              echo Skipping GPG from PR
+              SKIP_GPG="-Dgpg.skip"
+            else
+              echo Running GPG
+              SKIP_GPG=""
+            fi
+            conda install libgomp=11.2.0 # force the right libs
+            conda install graphviz=2.50.0 # conda is from fatty
+
+            echo '#!/bin/bash' > dott
+            echo 'dot "$@" 2> >(grep -v "pango" | grep -v "Warning" >&2 )' >> dott
+
+            chmod u+x dott
+
+            export QUALITY_SPARK_HOSTS=1
+            export QUALITY_LAMBDA_SUBS=true
+
+            mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark41
+            
+            mvn $MAVEN_CLI_OPTS site $SKIP_GPG -P Spark41
+        
+            # copy over the jar sites
+            mv server/target/site target/site/$(mvn -f server help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41)
+            mv api/target/site target/site/$(mvn -f api help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41)
+            mv api_stub/target/site target/site/$(mvn -f api_stub help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41)
+            mv core/target/site target/site/$(mvn -f core help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41)
+
+            # prepare ids for the 
+            echo $(mvn -f server help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41) > target/server_id.txt
+            echo $(mvn -f api help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41) > target/api.txt
+            echo $(mvn -f api_stub help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41) > target/api_stub.txt
+            echo $(mvn -f core help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark41) > target/core.txt
+                       
+            echo $(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark41) > target/version.txt
+
+            grep -A 3 'Statement coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' > target/coverage.txt
+            grep -A 3 'Branch coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' >> target/coverage.txt
+          gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          jdk: 21
+          mvnCliOpts: *MAVEN_CLI_OPTS
+          mvnOpts: *MAVEN_OPTS_21
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      - id: version
+        run: echo version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark4) >> "$GITHUB_OUTPUT"
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+      - name: target
+        uses: actions/upload-artifact@v4
+        with:
+          name: target-mvn_site
+          path: |
+            target/site
+            target/coverage.txt
+            target/version.txt
+            target/server_id.txt
+            target/api.txt
+            target/api_stub.txt
+            target/core.txt
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # only publish snapshots on main by default, or when ~cut-release is in the commits
+  publish:
+    needs: [ testBuilds_21, noTestBuilds_21, testBuilds, mvn_site, noTestBuilds ]
+    uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    with:
+      theMatrix: |
+        {
+          "profile": ["Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "scala": [ "dummy" ]
+        }
+      jdk: 11
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_8
+    secrets: inherit
+
+  publishShadeBuilds:
+    needs: [ publish ]
+    uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    with:
+      theMatrix: |
+        {
+          "profile": ["Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "scala": [ "server" ]
+        }
+      jdk: 11
+      mvnCliOpts: *MAVEN_CLI_TESTSHADES_OPTS
+      mvnOpts: *MAVEN_OPTS_8
+    secrets: inherit
+
+  # all versions that can be built with tests - typically oss only.  Fail fast so we can see all compilation or test errors at once
+  publishBuilds_21:
+    needs: [ testBuilds_21, noTestBuilds_21, testBuilds, mvn_site, noTestBuilds ]
+    uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    with:
+      theMatrix: |
+        {
+          "profile": [ "Spark4", "Spark41", "Spark42", "17.3.dbr", "18.3.dbr" ],
+          "scala": [ "dummy" ]
+        }
+      jdk: 21
+      mvnCliOpts: *MAVEN_CLI_OPTS
+      mvnOpts: *MAVEN_OPTS_21
+    secrets: inherit
+
+  publishShadeBuilds_21:
+    needs: [ publishBuilds_21 ]
+    uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    with:
+      theMatrix: |
+        {
+          "profile": [ "Spark4", "Spark41", "Spark42", "17.3.dbr", "18.3.dbr" ],
+          "scala": [ "server", "client" ]
+        }
+      jdk: 21
+      mvnCliOpts: *MAVEN_CLI_TESTSHADES_OPTS
+      mvnOpts: *MAVEN_OPTS_21
+    secrets: inherit
+
+  site:
+    needs: [mvn_site]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4.1.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: target-mvn_site
+          path: target
+      - uses: sparkutils/mkdocs-action@main
+        with:
+          prepScript: |
+            cp -rf target/site docs/
+            cp target/coverage.txt docs/
+            cp target/version.txt .
+            cp target/coverage.txt .
+            
+            cp target/server_id.txt .
+            cp target/api.txt .
+            cp target/api_stub.txt .
+            cp target/core.txt .

@@ -16,12 +16,12 @@ From a performance perspective you should transform the column to make the struc
 selectExpr("*","myIDField.*").drop("myIDField")
 ```
 
-* rngID('prefix') - generates a Random 128bit number with each column name prefixed for easy extraction
-* uniqueID('prefix') - generates a unique 160bit ID with each column name prefixed for easy extraction
-* fieldBasedID('prefix', 'messagedigest', exp1, exp2, *) - generates a digest based e.g. 'MD5' identifier based on an expression list
-* providedID('prefix', longArrayBasedExpression) - generates a providedID based on supplied array of two longs expression
-* murmur3ID('prefix', exp1, exp2, *) - generates and ID using hashes based on a version of murmur3 - not cryptographically secure but fast
-* idEqual('left_prefix', 'right_prefix') - (SQL only) tests the two top level field IDs by adding the prefixes, note this does allow predicate push-down / pruning etc. (NB further versions may be added when 160bit is exceeded)
+* rng_id('prefix') - generates a Random 128bit number with each column name prefixed for easy extraction
+* unique_id('prefix') - generates a unique 160bit ID with each column name prefixed for easy extraction
+* field_based_id('prefix', 'messagedigest', exp1, exp2, *) - generates a digest based e.g. 'MD5' identifier based on an expression list
+* provided_id('prefix', longArrayBasedExpression) - generates a providedID based on supplied array of two longs expression
+* murmur3_id('prefix', exp1, exp2, *) - generates and ID using hashes based on a version of murmur3 - not cryptographically secure but fast
+* id_equal('left_prefix', 'right_prefix') - (SQL only) tests the two top level field IDs by adding the prefixes, note this does allow predicate push-down / pruning etc. (NB further versions may be added when 160bit is exceeded)
 
 !!! note "Id's can be 96-bit or larger multiples of 64"
     The algorithm you chose to use for generating Ids will change the length of underlying longs, idEqual cannot be used on different lengths but you can easily replace this with a lambda of the correct length.

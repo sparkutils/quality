@@ -1,90 +1,173 @@
 ---
 functions:
-  murmur3ID:
+  rule_result:
+    description: |
+      rule_result(ruleSuiteResultColumn, packedRuleSuiteId, packedRuleSetId, packedRuleId) uses the packed long id's to retrieve the integer ruleResult (see below for ExpressionRunner) or null if it can't be found.  
+
+      You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values.
+
+      rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
+    alternatives:
+      - "rule_result(ruleSuiteResultColumn, ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion) uses unpacked id and versions"
+    tags:
+      - rule
+  to_yaml:
+    description: |
+      to_yaml(expression, [options map]) uses snakeyaml to convert Spark datatypes into yaml.
+      
+      Passing null into the function returns a null yaml (newline is appended):
+      
+      ```yaml
+      null
+        
+      ```
+      
+      All null values will be treated in this fashion.  The string "null" will be represented as (again new line is present):
+      
+      ```yaml
+      'null'
+
+      ```
+      
+      The optional "options map" parameter currently supports the following output options:
+      
+      - useFullScalarType, defaults to false.  Instead of using the default yaml tags uses the full classnames for scalars, reducing risk of precision loss if the yaml is to be used outside of the from_yaml function.
+      
+      sample usage:
+      
+      ```scala
+      val df = sparkSession.sql("select array(1,2,3,4,5) og")
+          .selectExpr("*", "to_yaml(og, map('useFullScalarType', 'true')) y")
+          .selectExpr("*", "from_yaml(y, 'array<int>') f")
+          .filter("f == og")
+      ```
+      
+      !!! warning "snakeyaml is provided scope"
+          Databricks runtimes provide sparkyaml, so whilst Quality builds against the correct versions for Databricks it can onyl use provided scope.
+          
+          snakeyaml is 1.24 on DBRs below 13.1, but not present on OSS, so you may need to add the dependency yourself, tested compatible versions are 1.24 and 1.33. 
+    tags:
+      - yaml
+  from_yaml:
+    description: |
+      from_yaml(string, 'ddlType') uses snakeyaml to convert yaml into Spark datatypes   
+    tags:
+      - yaml
+  strip_result_ddl:
+    description: |
+      strip_result_ddl(expressionsResult) removes the resultDDL field from expressionsRunner results, leaving only the string result itself for more compact storage 
+    tags:
+      - rule
+  murmur3_ID:
     description: "murmur3ID('prefix', fields*) Generates a 160bit id using murmer3 hashing over input fields, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     tags:
       - ID
       - Hash
-  uniqueID:
+  unique_ID:
     description: "uniqueID('prefix') Generates a 160bit guaranteed unique id (requires MAC address uniqueness) with contiguous higher values within a partition and overflow with timestamp ms., prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     tags:
       - ID
-  rngID:
-    description: "rngID('prefix') Generates a 160bit random id using XO_RO_SHI_RO_128_PP, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
+  id_size:
+    description: "id_size(base64) Given a base64 from id_base64 returns the number of _i long fields"
+    tags:
+      - ID
+  id_base64:
+    description: "id_base64(base, i0, i1, ix) Generates a base64 encoded representation of the id, either the single struct field or the individual parts"
     alternatives:
-      - "rngId('prefix', 'algorithm') Uses Commons RNG RandomSource to implement the RNG, using other algorithm's may generate more long _iN fields"
-      - "rngId('prefix', 'algorithm', seedL) Uses Commons RNG RandomSource to implement the RNG with a long seed, using other algorithm's may generate more long _iN fields"
+      - "id_base64(id_struct) Uses an id field to generate"         
+    tags:
+      - ID      
+  id_from_base64:
+    description: "id_from_base64(base64) Parses the base64 string with an expected default long size of two i.e. an 160bit ID, any string which is not of the correct size will return null"
+    alternatives:
+      - "id_from_base64(base64f, size) Uses a size, which must be literal, to specify the type"
+    tags:
+      - ID
+  id_raw_type:
+    description: "id_raw_type(idstruct) Given a prefixed id returns the fields without their prefix"
+    tags:
+      - ID            
+  rng_ID:
+    description: "rng_ID('prefix') Generates a 160bit random id using XO_RO_SHI_RO_128_PP, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
+    alternatives:
+      - "rng_Id('prefix', 'algorithm') Uses Commons RNG RandomSource to implement the RNG, using other algorithm's may generate more long _iN fields"
+      - "rng_Id('prefix', 'algorithm', seedL) Uses Commons RNG RandomSource to implement the RNG with a long seed, using other algorithm's may generate more long _iN fields"
     tags:
       - ID
       - RNG
-  providedID:
-    description: "providedID('prefix', existingLongs) creates an id for an existing array of longs, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
+  provided_ID:
+    description: "provided_ID('prefix', existingLongs) creates an id for an existing array of longs, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
     tags:
       - ID
-  fieldBasedID:
-    description: "fieldBasedID('prefix', 'digestImpl', fields*) creates a variable bit length id by using a given MessageDigest impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
-    tags:
-      - ID
-      - Hash
-  hashFieldBasedID:
-    description: "hashFieldBasedID('prefix', 'digestImpl', fields*) creates a variable bit length id by using a given Guava Hasher impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
+  field_Based_ID:
+    description: "field_Based_ID('prefix', 'digestImpl', fields*) creates a variable bit length id by using a given MessageDigest impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
     tags:
       - ID
       - Hash
-  zaLongsFieldBasedID:
-    description: "zaLongsFieldBasedID('prefix', 'digestImpl', fields*) creates a variable length id by using a given Zero Allocation impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure. Murmur3_128 is faster than on the Guava implementation."
+  hash_Field_Based_ID:
+    description: "hash_Field_Based_ID('prefix', 'digestImpl', fields*) creates a variable bit length id by using a given Guava Hasher impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure"
     tags:
       - ID
       - Hash
-  zaFieldBasedID:
+  za_Longs_Field_Based_ID:
+    description: "za_Longs_Field_Based_ID('prefix', 'digestImpl', fields*) creates a variable length id by using a given Zero Allocation impl over the fields, prefix is used with the _base, _i0 and _iN fields in the resulting structure. Murmur3_128 is faster than on the Guava implementation."
+    tags:
+      - ID
+      - Hash
+  za_Field_Based_ID:
     description: |
-      zaFieldBasedID('prefix', 'digestImpl', fields*) creates a 64bit id (96bit including header) by using a given Zero Allocation impl over the fields, prefix is used with the _base and _i0 fields in the resulting structure.
+      za_Field_Based_ID('prefix', 'digestImpl', fields*) creates a 64bit id (96bit including header) by using a given Zero Allocation impl over the fields, prefix is used with the _base and _i0 fields in the resulting structure.
 
       Prefer using the zaLongsFieldBasedID for less collisions
     tags:
       - ID
       - Hash
-  digestToLongsStruct:
-    description: "digestToLongsStruct('digestImpl', fields*) creates structure of longs with i0 to iN named fields based on creating the given MessageDigest impl."
+  digest_To_Longs_Struct:
+    description: "digest_To_Longs_Struct('digestImpl', fields*) creates structure of longs with i0 to iN named fields based on creating the given MessageDigest impl."
     tags:
       - Hash
-  digestToLongs:
-    description: "digestToLongs('digestImpl', fields*) creates an array of longs based on creating the given MessageDigest impl.  A 128-bit impl will generate two longs from it's digest"
+  digest_To_Longs:
+    description: "digest_To_Longs('digestImpl', fields*) creates an array of longs based on creating the given MessageDigest impl.  A 128-bit impl will generate two longs from it's digest"
     tags:
       - Hash
-  ruleSuiteResultDetails:
-    description: "ruleSuiteResultDetails(dq) strips the overallResult from the dataquality results, suitable for keeping overall result as a top-level field with associated performance improvements"
-  idEqual:
-    description: "idEqual(leftPrefix, rightPrefix) takes two prefixes which will be used to match leftPrefix_base = rightPrefix_base, i0 and i1 fields.  It does not currently support more than two i's "
+  rule_Suite_Result_Details:
+    description: "rule_Suite_Result_Details(dq) strips the overallResult from the dataquality results, suitable for keeping overall result as a top-level field with associated performance improvements"
+  id_Equal:
+    description: "id_Equal(leftPrefix, rightPrefix) takes two prefixes which will be used to match leftPrefix_base = rightPrefix_base, i0 and i1 fields.  It does not currently support more than two i's "
     tags:
       - ID
-  longPairEqual:
-    description: "longPairEqual(leftPrefix, rightPrefix) takes two prefixes which will be used to match leftPrefix_lower = rightPrefix_lower and leftPrefix_higher = rightPrefix_higher"
+  long_Pair_Equal:
+    description: "long_Pair_Equal(leftPrefix, rightPrefix) takes two prefixes which will be used to match leftPrefix_lower = rightPrefix_lower and leftPrefix_higher = rightPrefix_higher"
     tags:
       - longs
-  bigBloom:
+  big_Bloom:
     description: |
-      bigBloom(buildFrom, expectedSize, expectedFPP, 'bloom_id') creates an aggregated bloom filter using the buildFrom expression.  
+      big_Bloom(buildFrom, expectedSize, expectedFPP) creates an aggregated bloom filter using the buildFrom expression.  
       
-      The blooms are stored on a shared filesystem using the bloom_id, they can scale to high numbers of items whilst keeping the FPP (e.g. millions at 0.01 would imply 99% probability, you may have to cast to double in Spark 3.2).
+      The blooms are stored on a shared filesystem using a generated uuid, they can scale to high numbers of items whilst keeping the FPP (e.g. millions at 0.01 would imply 99% probability, you may have to cast to double in Spark 3.2).
       
       buildFrom can be driven by digestToLongs or hashWith functions when using multiple fields.
+    alternatives:
+      - "big_Bloom(buildFrom, expectedSize, expectedFPP, 'bloom_loc') - per above but uses a fixed string bloom_loc instead of a uuid"
     tags:
       - bloom
-  smallBloom:
-    description: "smallBloom(buildFrom, expectedSize, expectedFPP) creates a simply bytearray bloom filter using the expected size and fpp - 0.01 is 99%, you may have to cast to double in Spark 3.2. buildFrom can be driven by digestToLongs or hashWith functions when using multiple fields."
+  small_Bloom:
+    description: "small_Bloom(buildFrom, expectedSize, expectedFPP) creates a simply bytearray bloom filter using the expected size and fpp - 0.01 is 99%, you may have to cast to double in Spark 3.2. buildFrom can be driven by digestToLongs or hashWith functions when using multiple fields."
     tags:
       - bloom
-  longPairFromUUID:
-    description: "longPairFromUUID(expr) converts a UUID to a structure with lower and higher longs"
+  long_Pair_From_UUID:
+    description: "long_Pair_From_UUID(expr) converts a UUID to a structure with lower and higher longs"
     tags:
       - longs
-  longPair:
-    description: "longPair(lower, higher) creates a structure with these lower and higher longs"
+  long_Pair:
+    description: "long_Pair(lower, higher) creates a structure with these lower and higher longs"
     tags:
       - longs
-  rngUUID:
-    description: "rngUUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid"
+  rng_UUID:
+    description: |
+      rng_UUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid - use with, for example, the rng() function.
+      
+      If a simple conversion from two longs (lower, higher) to a uuid is desired then use as_uuid, rng_uuid applies the same transformations as the Spark uuid to the input higher and lower longs.
     tags:
       - longs
   rng:
@@ -95,29 +178,29 @@ functions:
     tags:
       - longs
       - RNG
-  rngBytes:
-    description: "rngBytes() Generates a 128bit random id using XO_RO_SHI_RO_128_PP, encoded as a byte array"
+  rng_Bytes:
+    description: "rng_Bytes() Generates a 128bit random id using XO_RO_SHI_RO_128_PP, encoded as a byte array"
     alternatives:
-      - "rngBytes('algorithm') Uses Commons RNG RandomSource to implement the RNG"
-      - "rngBytes('algorithm', seedL) Uses Commons RNG RandomSource to implement the RNG with a long seed"
-      - "rngBytes('algorithm', seedL, byteCount) Uses Commons RNG RandomSource to implement the RNG with a long seed, with a specific byte length integer (e.g. 16 is two longs, 8 is integer)"
+      - "rng_Bytes('algorithm') Uses Commons RNG RandomSource to implement the RNG"
+      - "rng_Bytes('algorithm', seedL) Uses Commons RNG RandomSource to implement the RNG with a long seed"
+      - "rng_Bytes('algorithm', seedL, byteCount) Uses Commons RNG RandomSource to implement the RNG with a long seed, with a specific byte length integer (e.g. 16 is two longs, 8 is integer)"
     tags:
       - RNG
-  returnSum:
-    description: "returnSum( sum type ddl ) just returns the sum and ignores the count param, expands to resultsWith( [sum ddl_type], (sum, count) -> sum)"
+  return_Sum:
+    description: "return_Sum( sum type ddl ) just returns the sum and ignores the count param, expands to resultsWith( [sum ddl_type], (sum, count) -> sum)"
     tags:
       - aggregate
-  sumWith:
-    description: "sumWith( x ) adds expression x for each row processed in an aggExpr with a default of LongType"
+  sum_With:
+    description: "sum_With( x ) adds expression x for each row processed in an aggExpr with a default of LongType"
     alternatives:
-      - "sumWith( [ddl type], x) Use the given ddl type e.g. 'MAP&lt;STRING, DOUBLE&gt;'"
+      - "sum_With( [ddl type], x) Use the given ddl type e.g. 'MAP&lt;STRING, DOUBLE&gt;'"
     tags:
       - aggregate
-  resultsWith:
-    description: "resultsWith( x ) process results lambda x (e.g. (sum, count) -> sum ) that takes sum from the aggregate, count from the number of rows counted.  Defaults both the sumtype and counttype as LongType"
+  results_With:
+    description: "results_With( x ) process results lambda x (e.g. (sum, count) -> sum ) that takes sum from the aggregate, count from the number of rows counted.  Defaults both the sumtype and counttype as LongType"
     alternatives:
-      - "resultsWith( [sum ddl type], x) Use the given ddl type for the sum type e.g. 'MAP&lt;STRING, DOUBLE&gt;'"
-      - "resultsWith( [sum ddl type], [result ddl type], x) Use the given ddl type for the sum and result types"
+      - "results_With( [sum ddl type], x) Use the given ddl type for the sum type e.g. 'MAP&lt;STRING, DOUBLE&gt;'"
+      - "results_With( [sum ddl type], [result ddl type], x) Use the given ddl type for the sum and result types"
     tags:
       - aggregate
   inc:
@@ -130,11 +213,11 @@ functions:
     description: "meanF() simple mean on the results, expecting sum and count type Long"
     tags:
       - aggregate
-  aggExpr:
+  agg_Expr:
     description: |
-      aggExpr( [ddl sum type], filter, sum, result) aggregates on rows which match the filter expression using the sum expression to aggregate then processes the results using the result expression.
+      agg_Expr( [ddl sum type], filter, sum, result) aggregates on rows which match the filter expression using the sum expression to aggregate then processes the results using the result expression.
       
-      You can run multiple aggExpr's in a single pass select, use the first parameter to thread DDL type information through to the sum and result functions.
+      You can run multiple agg_Expr's in a single pass select, use the first parameter to thread DDL type information through to the sum and result functions.
     tags:
       - aggregate
   passed:
@@ -145,17 +228,25 @@ functions:
     description: "failed() returns the Failed Integer result (0) for use in filtering"
     tags:
       - rule
-  softFailed:
-    description: "softFailed() returns the SoftFailed Integer result (-1) for use in filtering"
+  soft_failed:
+    description: "soft_failed() returns the SoftFailed Integer result (-1) for use in filtering"
     tags:
       - rule
-  disabledRule:
-    description: "disabledRule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+  disabled_rule:
+    description: "disabled_rule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+    tags:
+      - rule      
+  ignored_rule:
+    description: "ignored_rule() returns the IgnoredRule Integer result (-3) for use in filtering and to ignoring rules (e.g. a return value in an active rule)"
     tags:
       - rule
-  coalesceIfAttributesMissingDisable:
+  default_rule:
+    description: "default_rule() returns the DefaultRule Integer result (-4) for use in filtering and returned by collectRunner defaultProcessor"
+    tags:
+      - rule
+  coalesce_If_Attributes_Missing_Disable:
     description: |
-      coalesceIfAttributesMissingDisable(expr) substitutes expr with the DisabledRule Integer result (-2) when expr has missing attributes in the source dataframe.  Your code must call the scala processIfAttributeMissing function before using in validate or ruleEngineRunner/ruleRunner:
+      coalesce_If_Attributes_Missing_Disable(expr) substitutes expr with the DisabledRule Integer result (-2) when expr has missing attributes in the source dataframe.  Your code must call the scala processIfAttributeMissing function before using in validate or ruleEngineRunner/ruleRunner:
       
       ```scala
       val missingAttributesAreReplacedRS = processIfAttributeMissing(rs, struct)
@@ -164,11 +255,12 @@ functions:
 
       // use it missingAttributesAreReplacedRS in your dataframe..
       ```
+      NOTE: When using Spark 4 / DBR 17.3 or higher you can use the connect friendly process_if_attribute_missing SQL function instead  
     tags:
       - rule
-  coalesceIfAttributesMissing:
+  coalesce_If_Attributes_Missing:
     description: |
-      coalesceIfAttributesMissing(expr, replaceWith) substitutes expr with the replaceWith expression when expr has missing attributes in the source dataframe.    Your code must call the scala processIfAttributeMissing function before using in validate or ruleEngineRunner/ruleRunner:
+      coalesce_If_Attributes_Missing(expr, replaceWith) substitutes expr with the replaceWith expression when expr has missing attributes in the source dataframe.    Your code must call the scala processIfAttributeMissing function before using in validate or ruleEngineRunner/ruleRunner:
 
       ```scala
       val missingAttributesAreReplacedRS = processIfAttributeMissing(rs, struct)
@@ -177,109 +269,146 @@ functions:
 
       // use it missingAttributesAreReplacedRS in your dataframe..
       ```
+      NOTE: When using Spark 4 / DBR 17.3 or higher you can use the connect friendly process_if_attribute_missing SQL function instead
     tags:
       - rule
-  packInts:
-    description: "packInts(lower, higher) a packaged long from two ints, used within result compression"
+  pack_Ints:
+    description: "pack_Ints(lower, higher) a packaged long from two ints, used within result compression"
     tags:
       - ruleid
   unpack:
     description: "unpack(expr) takes a packed rule long and unpacks it to a .id and .version structure"       
     tags:
       - ruleid
-  unpackIdTriple:
-    description: "unpackIdTriple(expr) takes a packed rule triple of longs (ruleSuiteId, ruleSetId and ruleId) and unpacks it to (ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion)"       
+  unpack_Id_Triple:
+    description: "unpack_Id_Triple(expr) takes a packed rule triple of longs (ruleSuiteId, ruleSetId and ruleId) and unpacks it to (ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion)"       
     tags:
       - ruleid
-  softFail:
-    description: "softFail(ruleexpr) will treat any rule failure (e.g. failed() ) as returning softFailed()"
+  soft_Fail:
+    description: "soft_Fail(ruleexpr) will treat any rule failure (e.g. failed() ) as returning softFailed()"
     tags:
       - rule
   probability:
     description: "probability(expr) will translate probability rule results into a double, e.g. 1000 returns 0.01. This is useful for interpreting and filtering on probability based results: 0 -> 10000 non-inclusive"
     tags:
       - rule
-  flattenResults:
-    description: "flattenResults(dataQualityExpr) expands data quality results into a flat array"
-  flattenRuleResults:
+  flatten_Results:
+    description: "flatten_Results(dataQualityExpr) expands data quality results into a flat array"
+  flatten_Rule_Results:
     description: |
-      flattenRuleResults(dataQualityExpr) expands data quality results into a structure of flattenedResults, salientRule (the one used to create the output) and the rule result.
+      flatten_Rule_Results(dataQualityExpr) expands data quality results into a structure of flattenedResults, salientRule (the one used to create the output) and the rule result.
       
       salientRule will be null if there was no matching rule
-  probabilityIn:
+  probability_In:
     description: |
-      probabilityIn(expr, 'bloomid') returns the probability of the expr being in the bloomfilter specified by bloomid.  
+      probability_In(expr, 'bloomid') returns the probability of the expr being in the bloomfilter specified by bloomid.  
       
       This function either returns 0.0, where it is definitely not present, or the original FPP where it _may_ be present.
       
       You may use digestToLongs or hashWith as appropriate to use multiple columns safely.
     tags:
       - bloom
-  mapLookup:
-    description: "mapLookup(expr, 'mapid') returns either the lookup in map specified by mapid or null"
+  map_Lookup:
+    description: | 
+      map_Lookup('mapid', expr) returns either the lookup in map specified by mapid or null.
+      
+      On Spark 4 / DBR 17.3 and later this function uses Spark Variables and takes the form:
+      >  map_lookup('mapid', expr, mapLookupsVar)
+      Where mapLookupsVar is the result of loadMaps
+    alternatives:
+      - "map_lookup('mapid', expr, 'mapLookupsVar') - allows faster if, as is default with the scala api, the QUALITY MAP BROADCAST mapLookupsVar is called"
     tags:
       - map
-  mapContains:
-    description: "mapContains(expr, 'mapid') returns true if there is an item in the map"
-    tags:
-      - map
-  saferLongPair:
-    description: "deprecated use uniqueId - saferLongPair(expr, 'bloomid') Prefer to use uniqueID, this 'safer' rng repeatedly calls the expr rng function until there is no matching entry in the bloom id.  It returns lower and higher longs."
-    tags:
-      - longs
-  hashWithStruct:
-    description: "per hashWith('HASH', fields*) but generates a struct with i0 to ix named longs.  This structure is not suitable for blooms"
-    tags:
-      - Hash
-  zaHashLongsWithStruct:
-    description: "similar to zaHashLongsWith('HASH', fields*) but generates an ID relevant multi length long struct, which is not suitable for blooms"
-    tags:
-      - Hash
-  zaHashWith:
+      - variable
+      - Spark4
+  map_Contains:
     description: |
-      zaHashWith('HASH', fields*) generates a single length long array always with 64 bits but with a [zero allocation implementation](https://github.com/OpenHFT/Zero-Allocation-Hashing).  This structure is suitable for blooms, the default XX algorithm is used by the internal bigBloom implementation.
+      map_Contains('mapid', expr) returns true if there is an item in the map.
+
+      On Spark 4 / DBR 17.3 and later this function uses Spark Variables and  takes the form:
+      >  map_contains('mapid', expr, mapLookupsVar)
+      Where mapLookupsVar is the result of loadMaps
+    tags:
+      - map
+      - variable
+      - Spark4
+  comparable_Maps:
+    description: | 
+      comparable_Maps(struct | array | map) converts any maps in the input param into sorted arrays of a key, value struct.
+      
+      This allows developers to perform sorts, distincts, group bys and union set operations with Maps, currently not supported by Spark sql as of 3.4.
+            
+      The sorting behaviour uses Sparks existing odering logic but allows for extension during the calls to the registerQualityFunctions via the mapCompare parameter and the defaultMapCompare function.
+    tags:
+      - map
+  reverse_Comparable_Maps:
+    description: "reverses a call to comparableMaps"
+    tags:
+      - map
+  hash_With_Struct:
+    description: "per hash_With('HASH', fields*) but generates a struct with i0 to ix named longs.  This structure is not suitable for blooms"
+    tags:
+      - Hash
+  za_Hash_Longs_With_Struct:
+    description: "similar to za_Hash_Longs_With('HASH', fields*) but generates an ID relevant multi length long struct, which is not suitable for blooms"
+    tags:
+      - Hash
+  za_Hash_With:
+    description: |
+      za_Hash_With('HASH', fields*) generates a single length long array always with 64 bits but with a [zero allocation implementation](https://github.com/OpenHFT/Zero-Allocation-Hashing).  This structure is suitable for blooms, the default XX algorithm is used by the internal bigBloom implementation.
       
       Available HASH functions are MURMUR3_64, CITY_1_1, FARMNA, FARMOU, METRO, WY_V3, XX
     tags:
       - Hash
-  zaHashWithStruct:
+  za_Hash_With_Struct:
     description: |
-      similar to zaHashWith('HASH', fields*) but generates an ID relevant multi length long struct (of one long), which is not suitable for blooms.
+      similar to za_Hash_With('HASH', fields*) but generates an ID relevant multi length long struct (of one long), which is not suitable for blooms.
 
       Prefer zaHashLongsWithStruct for reduced collisions with either the MURMUR3_128 or XXH3 versions of hashes
     tags:
       - Hash
-  zaHashLongsWith:
+  za_Hash_Longs_With:
     description: |
-      zaHashLongsWith('HASH', fields*) generates a multi length long array but with a [zero allocation implementation](https://github.com/OpenHFT/Zero-Allocation-Hashing).  This structure is suitable for blooms, the default XXH3 algorithm is the 128bit version of that used by the internal bigBloom implementation.
+      za_Hash_Longs_With('HASH', fields*) generates a multi length long array but with a [zero allocation implementation](https://github.com/OpenHFT/Zero-Allocation-Hashing).  This structure is suitable for blooms, the default XXH3 algorithm is the 128bit version of that used by the internal bigBloom implementation.
       
       Available HASH functions are MURMUR3_128, XXH3
     tags:
       - Hash
-  hashWith:
+  hash_With:
     description: |
-      hashWith('HASH', fields*) Generates a hash value (array of longs) suitable for using in blooms based on the given Guava hash implementation.
+      hash_With('HASH', fields*) Generates a hash value (array of longs) suitable for using in blooms based on the given Guava hash implementation.
       
       *Note* based on testing the digestToLongs function for SHA256 and MD5 are faster.  
       
       Valid hashes: MURMUR3_32, MURMUR3_128, MD5, SHA-1, SHA-256, SHA-512, ADLER32, CRC32, SIPHASH24. When an invalid HASH name is provided MURMUR3_128 will be chosen.
       
-      ??? warning "Open source Spark 3.1.2 issues"
-          On Spark 3.1.2 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
+      ??? warning "Open source Spark 3.1.2/3 issues"
+          On Spark 3.1.2/3 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
     tags:
       - Hash      
-  prefixedToLongPair:
+  prefixed_To_Long_Pair:
     description: |
-      prefixedToLongPair('prefix', field) converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
+      prefixed_To_Long_Pair(field, 'prefix') converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
   
       This is suitable for converting provided id's into uuids for example via a further call to rngUUID.   
     tags:
-      - ID, longs      
-  updateField:
+      - ID, longs
+  as_uuid:
+    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid. Note: this is not functionally equivalent to rng_uuid(longPair(lower, higher)) despite having the same types."
+    tags:
+      - longs
+  drop_field:
     description: |
-      updateField(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+      drop_field(structure_expr, 'field.subfield'*) removes fields from a structure, but will not remove parent nodes. 
 
-      This is wrapped and almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
+      This is a wrapped version of 3.4.1's dropField implementation.
+    tags:
+      - struct
+  update_field:
+    description: |
+      update_field(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+
+      This is a wrapped version of 3.4.1's withField implementation.
     tags:
       - struct
   \_:
@@ -303,26 +432,207 @@ functions:
       Used from the top level sql it performs a similar function expecting either a full user function or a partially applied function, typically returned from another lambda user function.
     tags:
       - lambda
-  printExpr:
+  print_Expr:
     description: |
-      printExpr( [msg], expr ) prints the expression tree via toString with an optional msg 
+      print_Expr( [msg], expr ) prints the expression tree via toString with an optional msg 
 
       The message is printed to the **driver** nodes std. output, often shown in notebooks as well.  To use with unit testing you may overwrite the writer function in registerQualityFunctions, 
       you should however use a top level object and var to write into (or stream).
-  printCode:
+    tags:
+      - util
+  print_Code:
     description: |
-      printCode( [msg], expr ) prints the code generated by an expression, the value variable and the isNull variable and forwards eval calls / type etc. to the expression.
+      print_Code( [msg], expr ) prints the code generated by an expression, the value variable and the isNull variable and forwards eval calls / type etc. to the expression.
 
       The code is printed once per partition on the **executors** std. output.  You will have to check each executor to find the used nodes output.  To use with unit testing on a single host you may overwrite the writer function in registerQualityFunctions, 
       you should however use a top level object and var to write into (or stream), printCode will not be able to write to std out properly (spark redirects / captures stdout) or non top level objects (due to classloader / function instance issues).  Testing on other hosts
       without using stdout should do so to a shared file location or similar.
 
-      !!! "information" It is not compatible with every expression
+      ??? note "It is not compatible with every expression"
           Aggregate expressions like aggExpr or sum etc. won't generate code so they aren't compatible with printCode.
 
           \_lambda\_ is also incompatible with printCode both wrapping a user function and the \_lambda\_ function.  Similarly the \_() placeholder function cannot be wrapped.
 
-          Any function expecting a specific signature like aggExpr or other HigherOrderFunctions like aggregate or filter are unlikely to support wrapped arguements.
+          Any function expecting a specific signature like aggExpr or other HigherOrderFunctions like aggregate or filter are unlikely to support wrapped arguments.
+    tags:
+      - util
+  process_if_attribute_missing:
+    description: |
+      process_if_attribute_missing( ruleSuiteVariable, ddl, name ) processes the rule suite at ruleSuiteVariable for
+      coalesce_If_Attributes_Missing_Disable / coalesce_If_Attributes_Missing and sets the resulting transformed ruleSuite 
+      to a variable with the name parameter (this can be the same name as ruleSuiteVariable e.g.:
+      
+      ```sql
+      process_if_attribute_missing(myRuleSuite, 'struct<..>', 'myRuleSuite')
+      ```
+      
+      Calling process_if_attribute_missing inside a ruleSuite is not permitted and will throw exceptions.
+      
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
+    tags:
+      - variable
+      - util
+      - Spark4
+  dq_rule_runner:
+    description: |
+      dq_rule_runner( ruleSuiteVariable ) processes the rule suite stored at ruleSuiteVariable using the DQ runner as if calling ruleRunner directly.
+      
+      All the alternatives correlate to their pre Spark 4 non-sql versions. 
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
+    alternatives:
+      - "dq_rule_runner( ruleSuiteVariable, variablesPerFunc, variableFuncGroup ) - additionally specifies the number of expressions to use per function and the number of functions to call in one group, defaulting to 40 and 20 respectively"
+    tags:
+      - variable
+      - runner
+      - Spark4
+  typed_expression_runner:
+    description: |
+      typed_expression_runner( ruleSuiteVariable, ddl ) processes the rule suite stored at ruleSuiteVariable using the typed expression runner as if calling typedExpressionRunner directly.
+      
+      The ddl parameter specifies the output expressions type, all expressions must share this type.
+
+      All the alternatives correlate to their pre Spark 4 non-sql versions. 
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
+    alternatives:
+      - "typed_expression_runner( ruleSuiteVariable, ddl, name ) - allows naming the column directly"
+      - "typed_expression_runner( ruleSuiteVariable, ddl, name, variablesPerFunc, variableFuncGroup) - This version provides two additional compilation options, these are typically not needed."
+    tags:
+      - variable
+      - runner
+      - Spark4
+  expression_runner:
+    description: |
+      expression_runner( ruleSuiteVariable ) processes the rule suite stored at ruleSuiteVariable using the typed expression runner as if calling expressionRunner directly.
+      
+      The function always serializes to yaml output and expressions do not need to share the actual real type.
+
+      All the alternatives correlate to their pre Spark 4 non-sql versions. 
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
+    alternatives:
+      - "expression_runner( ruleSuiteVariable, name ) - allows naming the column directly"
+      - "expression_runner( ruleSuiteVariable, name, options ) - additionally allows the SnakeYaml output to be configured by the options map"
+      - "expression_runner( ruleSuiteVariable, name, options, variablesPerFunc, variableFuncGroup) - This version provides two additional compilation options, these are typically not needed."
+    tags:
+      - variable
+      - runner
+      - Spark4
+  rule_engine_runner:
+    description: |
+      rule_engine_runner( ruleSuiteVariable, ddl ) processes the rule suite stored at ruleSuiteVariable using the DQ runner as if calling ruleEngineRunner directly.
+      
+      The specified ddl type is used for all output expressions    
+
+      All the alternatives correlate to their pre Spark 4 non-sql versions. 
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
+    alternatives:
+      - "rule_engine_runner( ruleSuiteVariable ) - Spark derives the output expression type, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
+      - "rule_engine_runner( ruleSuiteVariable, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results"
+      - |
+        rule_engine_runner( ruleSuiteVariable, ddl, debug, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
+    tags:
+      - variable
+      - runner
+      - Spark4
+  rule_folder_runner:
+    description: |
+      rule_folder_runner( ruleSuiteVariable, starter, ddl ) processes the rule suite stored at ruleSuiteVariable using the DQ runner as if calling ruleFolderRunner directly.
+
+      The starter expression parameter is used to create the initial structure to be folded over, the ddl type is used to control nullability and the type exactly.
+
+      All the alternatives correlate to their pre Spark 4 non-sql versions. 
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
+    alternatives:
+      - "rule_folder_runner( ruleSuiteVariable, starter ) - Spark derives the output expression type from starter, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
+      - "rule_folder_runner( ruleSuiteVariable, starter, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results so you can see changes between folds"
+      - |
+        rule_folder_runner( ruleSuiteVariable, starter, ddl, debug, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
+    tags:
+      - variable
+      - runner
+      - Spark4
+  collect_runner:
+    description: |
+      collect_runner( ruleSuiteVariable ) processes the rule suite stored at ruleSuiteVariable using the DQ runner as if calling collectRunner directly.
+
+      The optional ddl type is used to control nullability and the type exactly, defaulting to Spark deriving the type that is collected, 
+      the default of flattening flattens any nested arrays returned by the output expressions and the includeNulls, by default, filters out any null values.
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
+    alternatives:
+      - "collect_runner( ruleSuiteVariable, ddl ) - Spark derives the output expression type from the output expressions, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
+      - "collect_runner( ruleSuiteVariable, ddl, flatten ) - additionally setting flatten to false, returning collections of nested arrays for array type OutputExpressions"
+      - "collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls ) - includeNulls keeps null values, encoding results should use Option with Scala Encoders"
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
+        This version also allows tweaking further collectRunner specific optimisations, these are typically not needed and use should be carefully evaluated.  
+    tags:
+      - variable
+      - runner
+      - Spark4
+  rule_suite_statistics:
+    description: |
+      The rule_suite_statistics(ruleSuiteResult) aggregate function collects a RuleSuiteGroupStatistics object for a given dataset using the default 0.8 probability.
+      When using a split details and overall pair, recombine them via:
+
+      ```sql
+      rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
+      ```
+    tags:
+      - rule
+  rule_suite_from:
+    description: |
+      rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId ) loads the highest versioned RuleSuite with Id rulesSuiteId from the RuleSuiteGroup stored in the variable.
+
+      ruleSuiteGroupVariables must be registered via the register_rule_suite_group functions. 
+    alternatives:
+      - |
+        rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId, ruleSuiteVersion ) loads the exact RuleSuite from the RuleSuiteGroup stored in the variable.
+    tags:
+      - variable
+      - rule
+      - Spark4
+  group_results:
+    description: |
+      group_results( array_of_runner_results ) processes an array of runner results (excluding expressionRunner), grouping the ruleSuiteResults into a RuleSuiteGroupResults alongside any payload. 
+
+      This, in combination with rule_suite_from allows nested runners (excluding expressionRunner) to be configured into a RuleSuite and their results grouped into RuleSuiteGroupResults, or indeed run over RuleSuiteGroupResults.
+      
+      DQ Runner results or simple arrays of RuleSuiteGroupResults do not produce a payload and cannot use the overloaded version.  Only arrays of matching structs are accepted, anything else will fail the analysis phase.
+    alternatives:
+      - | 
+        group_results(  array_of_runner_results, result processing lambda ) - uses a processing lambda for engine payloads, saving a projection e.g.:
+        
+        ```sql
+        group_results( array_of_engines_returning_arrays, f -> flatten(f) )
+        ```
+        
+        using the processing version without an engine result will fail the analysis phase.
+    tags:
+      - rule
+  group_audit:
+    description: |
+      group_audit( array_of_runner_results, rule_runners, ... ) processes audit information from any audit providing expression including, as with group_results, an array of results or group results.
+      
+      Unlike group_results the parameters can have mixed formats and only the RuleSuiteResult (or RulesSuiteGroupResults) is kept. 
+    tags:
+      - rule
+  unify_result:
+    description: |
+      unify_result( rule_engine_results ) converts rule engine results into collector / folder results (dropping salient rule), also works with group_results.
+      
+      It does not process debug, expression or DQ results and will fail these in the analysis phase.
+    tags:
+      - rule
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}
@@ -333,7 +643,7 @@ functions:
 {% set tag = None %}
 {% set class %}{% if descs.tags and descs.tags|length > 0 %}{% for tag in descs.tags %}{{ tag }} {% endfor %}{% endif %}{% endset %}
 
-##{{ ref }}
+## {{ ref }}
 {{ descs.description }}
 {% if descs.alternatives and descs.alternatives|length > 0 %}
 __Alternatives:__
@@ -344,5 +654,13 @@ __Alternatives:__
 {% endfor %}
 {%- endif %}
 {% if descs.tags and descs.tags|length > 0 %}
+<div class="list comma-list">
+<p>Tags:</p>
+<ul>
+{% for tag in descs.tags %}
+<li>{{ tag }}</li>
+{% endfor %}
+</ul>
+</div>
 {%- endif %}
 {% endfor %}

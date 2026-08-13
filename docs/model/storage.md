@@ -43,6 +43,9 @@ In order to optimise storage and marshalling the VersionId parts are packed into
 * Failed => FailedInt // 0
 * SoftFailed => SoftFailedInt // -1
 * Disabled => DisabledInt // -2
+* Ignored => IgnoredInt // -3
+* DefaultRule => DefaultRuleInt // -4
+* Unevaluated => UnevaluatedRuleInt // -5
 * Passed => PassedInt // 100000
 * Probability(percentage) => (percentage * PassedInt).toInt
 
@@ -55,8 +58,8 @@ import frameless._
 import com.sparkutils.quality.implicits._
 // derive an encoder for the pair with a user type and the RuleSuiteResult for a given row
 implicit val enc = TypedExpressionEncoder[(TestIdLeft, RuleSuiteResult)]
-// select the fields needed for the user type and the DataQuality result (or details with RuleResult, RuleSuiteResultDetails for seperate overall results and details)
+// select the fields needed for the user type and the DataQuality result (or details with RuleResult, RuleSuiteResultDetails for separate overall results and details)
 val ds = df.selectExpr("named_struct('left_lower', `1`, 'left_higher', `2`)","DataQuality").as[(TestIdLeft, RuleSuiteResult)]
 ```
 
-the developer can then interegate the data quality results alongside their relevant data.
+the developer can then integrate the data quality results alongside their relevant data.
