@@ -117,6 +117,14 @@ trait RuleRunnerFunctionImports {
   val failed = callFunction("failed")
 
   /**
+   * if_relevant(filter, cond) - returns passed() when filter and cond are true,
+   * failed() when filter is true and cond is false, and ignored_rule() otherwise.
+   * For top-level IF expressions that should mark non-matching rows as ignored,
+   * not failed.
+   */
+  def if_relevant(filter: Column, cond: Column): Column = callFunction("if_relevant", filter, cond)
+
+  /**
    * Flattens DQ results, unpacking the nested structure into a simple relation
    * @param result
    * @return

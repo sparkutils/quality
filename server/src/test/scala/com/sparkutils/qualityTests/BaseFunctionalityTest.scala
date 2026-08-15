@@ -753,6 +753,37 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       )))), (Passed, Passed), Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
+  test("if_relevant") {
+    // #136 - if_relevant(filter, cond) => if(filter, if(cond, passed, failed), ignored)
+    // resultChecker asserts on a single (arbitrary, due to repartition) row, so each
+    // rule must produce the same result for every id in 0..999
+    // Rule 30: filter=false for all ids -> IgnoredRule
+    // Rule 31: filter=true, cond=true for all ids -> Passed
+    // Rule 32: filter=true, cond=false for all ids -> Failed
+    // Rule 33: filter null -> Failed
+    // Rule 34: filter=true, cond null -> Failed
+    // Rules 35-38 cover non-boolean inputs: both filter and cond go through
+    // anyToRuleResultInt, so the string/int encodings accepted there must work
+    // in either position (one of each kind is enough).
+    // Rule 35: cond='true' string -> Passed
+    // Rule 36: cond='passed' string -> Passed
+    // Rule 37: filter='true' string, cond='failed' string -> Failed
+    // Rule 38: cond='ignored' string -> passes the rule result through -> IgnoredRule
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule(s"if_relevant(id > 5 * $resultCheckerCodeGenSize, id > 0)")),
+        Rule(Id(31, 3), ExpressionRule("if_relevant(id >= 0, id >= 0)")),
+        Rule(Id(32, 3), ExpressionRule("if_relevant(id >= 0, id < 0)")),
+        Rule(Id(33, 3), ExpressionRule("if_relevant(cast(null as boolean), id > 0)")),
+        Rule(Id(34, 3), ExpressionRule("if_relevant(true, cast(null as boolean))")),
+        Rule(Id(35, 3), ExpressionRule("if_relevant(id >= 0, 'true')")),
+        Rule(Id(36, 3), ExpressionRule("if_relevant(id >= 0, 'passed')")),
+        Rule(Id(37, 3), ExpressionRule("if_relevant('true', 'failed')")),
+        Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')"))
+      )))), (Failed, Failed), Seq(IgnoredRule, Passed, Failed, Failed, Failed,
+        Passed, Passed, Failed, IgnoredRule))
+  }
+
   test("mixedIgnore") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(

@@ -72,7 +72,7 @@ object RuleRegistrationFunctions {
       "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
       "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
       "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","ignored_rule","default_rule",
-      "unevaluated_rule","pack_Ints","unpack",
+      "unevaluated_rule","pack_Ints","unpack","if_relevant",
       "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
       "map_Lookup","map_Contains","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
@@ -227,6 +227,8 @@ object RuleRegistrationFunctions {
     register("ignored_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr, Set(0))
     register("default_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DefaultRuleExpr, Set(0))
     register("unevaluated_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.UnevaluatedExpr, Set(0))
+    // #136 - if_relevant(filter, cond) => if(filter, if(cond, passed, failed), ignored)
+    register("if_relevant", exps => IfRelevantExpr(exps(0), exps(1)), Set(2))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 
