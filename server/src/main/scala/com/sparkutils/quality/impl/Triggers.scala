@@ -49,12 +49,22 @@ case class Groups(groups: Seq[Group]) extends GroupOr {
 
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
-case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) extends LowestSalience {
+/**
+ * @param filterFalseResults (trigger index, result) to write when groupFilter is false, only
+ *                           needed where that case has a meaningful answer differing from the
+ *                           runner's defaultRuleResult - if_relevant yields IgnoredRule, if(c,a,b)
+ *                           yields b.  Empty for And derived filters, there filter false means the
+ *                           conjunction is false so the rule did not trigger.
+ */
+case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr,
+                 filterFalseResults: Seq[(Int, Expression)] = Seq.empty) extends LowestSalience {
   def size = payload.size + 1
 
   def optimisedSize = payload.optimisedSize + 1
 
   def groupFilters: Seq[Expression] = payload.groupFilters :+ groupFilter
+
+  def filterFalseExpressions: Seq[Expression] = filterFalseResults.map(_._2)
 }
 
 case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
@@ -281,8 +291,8 @@ trait GroupBasedGrouper extends TriggerGrouper {
             groupDepth: Int, outerParams: ParameterInformation,
             returnIfGroupSalienceCheckFalse: Boolean,
             shouldReturn: String, groups: Seq[Group])
-          , allGroupExprs,
-          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
+          , allGroupExprs ++ group.filterFalseExpressions,
+          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams, map)
 
       (
         returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
@@ -307,8 +317,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
             map: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block],
             groupDepth: Int, outerParams: ParameterInformation,
             returnIfGroupSalienceCheckFalse: Boolean,
-            shouldReturn: String, triggers: Seq[Trigger]), allGroupExprs,
-          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams)
+            shouldReturn: String, triggers: Seq[Trigger]),
+          allGroupExprs ++ group.filterFalseExpressions,
+          returnIfGroupSalienceCheckFalse, shouldReturn, outerParams, map)
 
       (body.code, clazzes, widerAdditionalParams)
     }
@@ -388,7 +399,9 @@ trait GroupBasedGrouper extends TriggerGrouper {
                                      produceTriggerResult: (CodegenContext, ParameterInformation, String) => TriggerResult,
                                      allGroupExprs: Seq[Expression],
                                      returnIfGroupSalienceCheckFalse: Boolean, shouldReturn: String,
-                                     outerParams: ParameterInformation
+                                     outerParams: ParameterInformation,
+                                     // writes the filter-false branch, the same map the payload uses
+                                     triggerResultWriter: Map[Int, (CodegenContext, ParameterInformation, Expression, Boolean) => Block]
                                     ): (Block, Seq[(Int, CodeAndComment)], ParameterInformation) = {
     val groupIndex = idHolder.next()
     val id = s"Group$groupIndex"
@@ -443,6 +456,20 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     val eval = group.groupFilter.genCode(ctx)
 
+    // a skipped group leaves the runner's defaultRuleResult in place, which is wrong where the
+    // construct has a meaningful answer for the filter-false case, so write those explicitly
+    val filterFalseBranch =
+      if (group.filterFalseResults.isEmpty)
+        ""
+      else
+        s"""
+           else {
+              ${group.filterFalseResults.map { case (triggerIndex, resultExpr) =>
+                  triggerResultWriter(triggerIndex).apply(ctx, outerParams, resultExpr, false).code
+                }.mkString("\n")}
+           }
+           """
+
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
     (
       returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
@@ -452,6 +479,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
         if ((!${eval.isNull}) && ${eval.value} ) {
           ${expr.code}
         }
+        $filterFalseBranch
         """
       ), body, compilationParams)
   }
