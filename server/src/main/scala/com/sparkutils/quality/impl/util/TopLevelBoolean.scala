@@ -2,8 +2,9 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
+import com.sparkutils.quality.impl.{Group, Groups, IfRelevantExpr, Runner, Trigger, Triggers}
+import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, If, Literal, Murmur3Hash, Or, Remainder}
 import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
@@ -244,6 +245,13 @@ object TopLevelBoolean {
         t.copy(expression = removeTopLevels(groupParts, t.expression))).sortBy(_.salience)
     }
 
+    // must be called with the original triggers: removeTopLevels rewrites the matched filter to
+    // Literal(true), after which the if_relevant / if shape is gone
+    def filterFalseFor(pop: Iterable[Trigger], groupFilter: Expression): Seq[(Int, Expression)] =
+      pop.toSeq.flatMap { t =>
+        filterFalseResultFor(groupFilter, t.expression).map(t.index -> _)
+      }
+
     val topHitter =
       orderedLarger.foldLeft(Seq.empty[Group]) {
         case (cur, (sub, (groupParts, triggers))) =>
@@ -283,10 +291,15 @@ object TopLevelBoolean {
 
                   if (bucketed.size == 1 && differentiator.bucketer(0,numberOfBuckets) == Literal(true)) {
                     // if it's "true" lift it back up
-                    val corrected = addSeen(bucketed.head._2.map(_._2), groupParts)
+                    val originals = bucketed.head._2.map(_._2)
+                    val filterFalse = filterFalseFor(originals, sub)
+                    val corrected = addSeen(originals, groupParts)
                     val lowest = corrected.minBy(_.salience).salience
-                    Seq(Group(sub, lowest, Triggers(corrected, lowest)))
-                  } else
+                    Seq(Group(sub, lowest, Triggers(corrected, lowest), filterFalse))
+                  } else {
+                    // inner groups key on bucketedExp, so sub's filter-false results belong to
+                    // the outer group
+                    val outerFilterFalse = filterFalseFor(triggers, sub)
                     Seq(Group(sub, triggers.minBy(_.salience).salience, Groups(
                       bucketed.foldLeft(Seq.empty[Group]){
                         case (cur, (bucket, trips)) =>
@@ -296,15 +309,17 @@ object TopLevelBoolean {
                           val lowest = corrected.minBy(_.salience).salience
                           cur :+ Group(bucketedExp, lowest, Triggers(corrected, lowest))
                       }.sortBy(_.lowestSalience)
-                    )))
+                    ), outerFilterFalse))
+                  }
               }
             cur ++ newSeqs
           } else if (triggers.size > 4) { // TODO random number
             // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
+            val filterFalse = filterFalseFor(triggers, sub)
             val newTriggers = addSeen(triggers, groupParts)
             val lowest = newTriggers.minBy(_.salience).salience
-            cur :+ Group(sub, lowest, Triggers(newTriggers, lowest))
+            cur :+ Group(sub, lowest, Triggers(newTriggers, lowest), filterFalse)
           } else
             cur
       }
@@ -338,10 +353,53 @@ object TopLevelBoolean {
     // TODO: intentionally excluded from subexpression elimination
     case _: Or => Set.empty
     case And(left, right) => fromParts(left) ++ fromParts(right)
+    // if_relevant is IntegerType, so the BooleanType case below never sees it.  Its filter is
+    // only groupable because Group carries filterFalseResults, see filterFalseResultFor.
+    // A nullable filter cannot be grouped: if_relevant answers Failed for a null filter but the
+    // generated branch is `if ((!isNull) && value)`, which cannot tell null from false.
+    case IfRelevantExpr(filter, _) if filter.dataType == BooleanType && !filter.nullable =>
+      fromParts(filter)
+    case If(predicate, trueValue, falseValue)
+      if predicate.dataType == BooleanType &&
+         trueValue.dataType == BooleanType &&
+         falseValue.dataType == BooleanType =>
+      fromParts(predicate)
     case e: Expression if e.dataType == BooleanType =>
       Set(e)
     case _ => Set.empty
   }
+
+  /**
+   * True when groupFilter is the whole of condition, or one of its top level And conjuncts.
+   *
+   * fromParts recurses into a composite filter and the frequency filter in `from` then keeps only
+   * the shared conjuncts, so the group filter is regularly a strict subset of the condition it was
+   * lifted out of.  A conjunct being false still makes the whole conjunction false, so the
+   * filter-false answer is the same either way.
+   */
+  private def coversCondition(groupFilter: Expression, condition: Expression): Boolean =
+    condition match {
+      case _ if condition.semanticEquals(groupFilter) => true
+      case And(left, right) => coversCondition(groupFilter, left) || coversCondition(groupFilter, right)
+      case _ => false
+    }
+
+  /**
+   * The result a trigger must produce when a grouped filter is false, None where the runner's
+   * defaultRuleResult is already correct (And derived filters and anything else).
+   *
+   * @param groupFilter the expression lifted out of the trigger into the group
+   * @param original    the trigger expression before removeTopLevels rewrote it
+   */
+  def filterFalseResultFor(groupFilter: Expression, original: Expression): Option[Expression] =
+    original match {
+      // a nullable filter answers Failed for null, the else branch cannot express that
+      case IfRelevantExpr(filter, _) if !filter.nullable && coversCondition(groupFilter, filter) =>
+        Some(IgnoredRuleExpr)
+      case If(predicate, _, falseValue) if coversCondition(groupFilter, predicate) =>
+        Some(falseValue)
+      case _ => None
+    }
 
   private def from(expression: Expression, t: Expression => Set[Expression], p: Expression => Boolean): Set[Expression] = {
     val resDiff = t(expression).filter(p)
