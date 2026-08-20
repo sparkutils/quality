@@ -365,9 +365,18 @@ trait GroupBasedGrouper extends TriggerGrouper {
         ""
 
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
-    code"""
+    val salienceCheck = groupSalienceCheck(group.lowestSalience.toString)
+
+    // dq and expression runners pass an empty check, and `if () {` is not valid java
+    if (salienceCheck.toString.trim.isEmpty)
+      code"""
       // code for $context
-      if (${groupSalienceCheck(group.lowestSalience.toString)}) {
+      $block
+      """
+    else
+      code"""
+      // code for $context
+      if ($salienceCheck) {
         $block
       } $earlyExit
     """
