@@ -136,7 +136,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_4.1.0.oss_4.1_2.13-0.2.0.jar
+quality_4.1.0.oss_4.1_2.13-0.2.1.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -201,7 +201,7 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.2.0</qualityVersion>
+    <qualityVersion>0.2.1</qualityVersion>
     <qualityTestPrefix>4.1.0.oss_</qualityTestPrefix>
     <qualityDatabricksPrefix>18.3.dbr_</qualityDatabricksPrefix>
     <sparkShortVersion>4.1</sparkShortVersion>
@@ -275,7 +275,7 @@ In order to register the extensions on Databricks runtimes you need to additiona
 ```bash
 #!/bin/bash
 
-cp /dbfs/FileStore/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar /databricks/jars/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar
+cp /dbfs/FileStore/quality_testshade_18.3.dbr_4.1_2.13-0.2.1.jar /databricks/jars/quality_testshade_18.3.dbr_4.1_2.13-0.2.1.jar
 ```
 
 where the first path is your uploaded jar location.  
@@ -291,7 +291,7 @@ val scriptName = "/dbfs/add_quality_plugin.sh"
 val script = s"""
 #!/bin/bash
 
-cp /dbfs/FileStore/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar /databricks/jars/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar
+cp /dbfs/FileStore/quality_testshade_18.3.dbr_4.1_2.13-0.2.1.jar /databricks/jars/quality_testshade_18.3.dbr_4.1_2.13-0.2.1.jar
 """
 import java.io._
 
@@ -311,5 +311,5 @@ Supported from DBR 17.3/18.x and Quality 0.2.0 only, you must enable init script
 ```bash
 #!/bin/bash
 
-cp /Volumes/databricks_ws/schema/jars/quality_testshade_18.1.dbr_4.1_2.13-0.2.0.jar /databricks/jars/quality_testshade_18.1-0.2.0.jar
+cp /Volumes/databricks_ws/schema/jars/quality_testshade_18.3.dbr_4.1_2.13-0.2.1.jar /databricks/jars/quality_testshade_18.3-0.2.1.jar
 ```
