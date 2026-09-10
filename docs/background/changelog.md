@@ -1,4 +1,10 @@
-### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>1st August, 2026</small>
+### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>10th September, 2026</small>
+
+This small feature release adds the if_relevant function.
+
+#136 - if_relevant added, allowing a filter to choose which rules should trigger for a given row
+
+### [0.2.0](https://github.com/sparkutils/quality/milestone/11?closed=1) <small>1st August, 2026</small>
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4, 3 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
 
@@ -115,7 +121,7 @@ Sparkless is deprecated as of this release and will be removed in subsequent rel
 
 #145 - Moved Runners to Nondeterministic, ensuring only one compiled runner instance per projection field is present
 
-### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
+### [0.1.4](https://github.com/sparkutils/quality/milestone/12?closed=1) <small>24th February, 2026</small>
 
 This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.
 
