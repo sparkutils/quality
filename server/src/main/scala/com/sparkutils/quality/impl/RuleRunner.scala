@@ -209,7 +209,10 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resNull = ctx.freshName("isNull")
 
     val groups = RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-      Seq((VariableValue(resultRow, classOf[InternalRow]), false)), allExpr)
+      // the runner must be passed in: groupers compile group bodies into separate classes, where
+      // the enclosing class's runner field does not exist
+      Seq((VariableValue(resultRow, classOf[InternalRow]), false),
+        (VariableValue(inPlaceOffsets.runner, inPlaceOffsets.runnerClazz), false)), allExpr)
 
     val funNames: Iterator[String] = groups.groupCalls
 
@@ -219,7 +222,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       code"""
       // copy row
       $resultRowCopy
-      ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
+      ${funNames.map { f => s"$f(${groups.usedParameters.paramsCall});" }.mkString("\n")}
 
       InternalRow ${exp.value} = $resultRow;
       boolean ${exp.isNull} = false;
@@ -307,7 +310,9 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
             ruleRunnerExpressionIdx
           )
 
-      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)
+      // groupers emit their group bodies as extra classes and those must be forwarded,
+      // empty for the DefaultTriggerGrouper
+      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, triggerRes.extraClasses)
     }
     setClazzSource(clazz)
     fres
