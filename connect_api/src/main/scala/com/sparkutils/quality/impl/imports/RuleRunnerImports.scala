@@ -108,7 +108,7 @@ trait RuleRunnerFunctionImports {
    */
   val default_rule = callFunction("default_rule")
   /**
-   * The passed value
+   * The passed value of a processed rule
    */
   val passed = callFunction("passed")
   /**
@@ -117,10 +117,26 @@ trait RuleRunnerFunctionImports {
   val failed = callFunction("failed")
 
   /**
-   * if_relevant(filter, cond) - returns passed() when filter and cond are true,
-   * failed() when filter is true and cond is false, and ignored_rule() otherwise.
-   * For top-level IF expressions that should mark non-matching rows as ignored,
-   * not failed.
+   * if_relevant(filter, cond) - returns Quality's RuleResult of cond when filter can be evaluated to true.
+   *
+   * Use 'if_relevant' if you wish to signal that a rule cond should only be treated as relevant when filter passes e.g.
+   * 'only evaluate if settlement currency is USD if it's an fx trade and the buy currency is USD'
+   *
+   * Filter also applies Quality's result handling logic, so 'true' or 'passed' in filter will cause cond to be evaluated.
+   *
+   * returns 1 when both filter and cond are passed,
+   * ignored_rule() when filter is can not be evaluated to passed and
+   * Quality's RuleResult from cond otherwise, e.g.
+   * {{{
+   *   if_relevant(true, disabled_rule())
+   * }}}
+   *
+   * will have the result of disabled_rule() but
+   * {{{
+   *   if_relevant(true, true)
+   * }}}
+   *
+   * will have the result of 1.
    */
   def if_relevant(filter: Column, cond: Column): Column = callFunction("if_relevant", filter, cond)
 

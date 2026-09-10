@@ -4,6 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
+import com.sparkutils.quality.impl.RuleLogicUtils.TRUE_INT
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import functions.{ignored_rule, _}
 import impl.PackId.packId
@@ -769,6 +770,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     // Rule 36: cond='passed' string -> Passed
     // Rule 37: filter='true' string, cond='failed' string -> Failed
     // Rule 38: cond='ignored' string -> passes the rule result through -> IgnoredRule
+    // Rule 39: other conds should flow through
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
         Rule(Id(30, 3), ExpressionRule(s"if_relevant(id > 5 * $resultCheckerCodeGenSize, id > 0)")),
@@ -779,9 +781,21 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(35, 3), ExpressionRule("if_relevant(id >= 0, 'true')")),
         Rule(Id(36, 3), ExpressionRule("if_relevant(id >= 0, 'passed')")),
         Rule(Id(37, 3), ExpressionRule("if_relevant('true', 'failed')")),
-        Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')"))
+        Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')")),
+        Rule(Id(39, 3), ExpressionRule("if_relevant(id >= 0, disabled_rule())"))
       )))), (Failed, Failed), Seq(IgnoredRule, Passed, Failed, Failed, Failed,
-        Passed, Passed, Failed, IgnoredRule))
+        Passed, Passed, Failed, IgnoredRule, DisabledRule))
+
+    evalCodeGens {
+      val s = sparkSession
+      import s.implicits._
+      val res = s.sql("select 1 id").select(
+        if_relevant(col("id") >= 0, col("id") >= 0),
+        if_relevant(col("id") >= 0, disabled_rule)
+      ).as[(Int, Int)].head()
+
+      res shouldBe (TRUE_INT, DisabledRuleInt)
+    }
   }
 
   test("mixedIgnore") {
