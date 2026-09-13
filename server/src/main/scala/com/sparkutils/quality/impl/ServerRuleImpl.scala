@@ -9,13 +9,14 @@ import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, Not, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -225,6 +226,8 @@ object RuleLogicUtils {
    * See SoftFailedUtils.softFail, which returns 1/-1 for the same reason.
    */
   val TRUE_INT = 1
+
+  def anyToRuleResultIntGen(code: ExprCode): String = anyToRuleResultIntGen(code.value, code.isNull)
 
   // used during compilation code gen
   def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {

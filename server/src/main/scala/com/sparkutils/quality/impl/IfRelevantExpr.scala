@@ -48,13 +48,13 @@ case class IfRelevantExpr(left: Expression, right: Expression) extends BinaryExp
          |${leftCode.code}
          |int ${ev.value} = $FailedInt;
          |if (!${leftCode.isNull}) {
-         |  int $ifRelevantFilterRes = ${anyToRuleResultIntGen(leftCode.value, leftCode.isNull)};
+         |  int $ifRelevantFilterRes = ${anyToRuleResultIntGen(leftCode)};
          |  if ($ifRelevantFilterRes != $PassedInt) {
          |    ${ev.value} = $IgnoredRuleInt;
          |  } else {
          |    ${rightCode.code}
          |    if (!${rightCode.isNull}) {
-         |      int $ifRelevantCondRes = ${anyToRuleResultIntGen(rightCode.value, rightCode.isNull)};
+         |      int $ifRelevantCondRes = ${anyToRuleResultIntGen(rightCode)};
          |      ${ev.value} = ($ifRelevantCondRes == $PassedInt) ? $TRUE_INT : $ifRelevantCondRes;
          |    }
          |  }

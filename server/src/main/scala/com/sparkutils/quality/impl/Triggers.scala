@@ -1,19 +1,17 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.util.SeparateCompilation.Holder
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
-import com.sparkutils.quality.{QualityException, getConfig, groupProcessorKey}
-import com.sparkutils.shim.codegen.SubExprCodeGen
-import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNested}
+import com.sparkutils.quality.{PassedInt, QualityException, groupProcessorKey}
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParamsForNested
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow}
-import org.apache.spark.sql.qualityFunctions.FunNLambda
 
-import scala.runtime.{AbstractFunction10, AbstractFunction9}
+import scala.runtime.AbstractFunction10
 
 trait LowestSalience {
   def lowestSalience: Int
@@ -50,9 +48,9 @@ case class Groups(groups: Seq[Group]) extends GroupOr {
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
 case class Group(groupFilter: Expression, lowestSalience: Int, payload: GroupOr) extends LowestSalience {
-  def size = payload.size + 1
+  def size: Int = payload.size + 1
 
-  def optimisedSize = payload.optimisedSize + 1
+  def optimisedSize: Int = payload.optimisedSize + 1
 
   def groupFilters: Seq[Expression] = payload.groupFilters :+ groupFilter
 }
@@ -434,13 +432,15 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     val eval = group.groupFilter.genCode(ctx)
 
+    val comp = anyToRuleResultIntGen(eval)
+
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
     (
       returnIfSalience(groupSalienceCheck, returnIfGroupSalienceCheckFalse,
         shouldReturn, s"filter ${group.groupFilter.toString}", group,
         code"""
         ${eval.code}
-        if ((!${eval.isNull}) && ${eval.value} ) {
+        if ((!${eval.isNull}) && ( ($comp) == $PassedInt ) ) {
           ${expr.code}
         }
         """
