@@ -1,10 +1,9 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
-import com.sparkutils.quality.{IgnoredRule, PassedInt, groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
+import com.sparkutils.quality.{groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.{Group, Groups, IfRelevantExpr, PassedTestExpr, Runner, Trigger, Triggers}
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, If, Literal, MultiCommutativeOp, Murmur3Hash, Not, Or, Remainder}
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, If, Literal, Murmur3Hash, Not, Or, Remainder}
 import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
