@@ -13,7 +13,7 @@ and it's design is ideal for modeling Expressions, rows and having a clean optim
 ### Sub Expression Elimination is _slower_?
 
 Per point 1. above, Sub Expression Elimination runs for all Expressions within a stage this, in the case of the BigRules test,
-ends up with several 1000s of common sub expressions used throughout the 20k rules.  All of these sub expressions is evaluated
+ends up with several 1000s of common sub expressions used throughout the 20k rules.  All of these sub expressions are evaluated
 for each row, irrespective of whether or not they are even possible to be relevant for a row.  Picture, for example,
 
 ```sql

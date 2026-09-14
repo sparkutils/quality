@@ -63,7 +63,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     ).flatten)
 
     val res = d.select(expr("*"), runner(rules).getField("result").as("r"))
-    res.show(20)
+    //res.show(20)
     res.select( expr(s"""
       case
        when ((a + b) % 20) < 5 then ((a + b + c + d) = r.y) and (r.z = a)
@@ -146,7 +146,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     group.ruleSuites(Id(1,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("((((a + b) % 20) < 15) AND (a = 0))"))) shouldBe true
   } }
 
-  test("test if 1:1"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test if 1:1"){ not3_0_or_3_1 {
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
@@ -157,7 +157,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )
   } }
 
-  test("test if_relevant 1:1"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test if_relevant 1:1"){ not3_0_or_3_1 {
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
@@ -168,7 +168,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )
   } }
 
-  test("test if grouped"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test if grouped"){ not3_0_or_3_1 {
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -188,7 +188,47 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     group.ruleSuites.size shouldBe 5 // 4 groups
   } }
 
-  test("test if_relevant grouped"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test if grouped non boolean"){ not3_0_or_3_1 {
+    doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
+      showSplitCompilationTime -> "true",
+      groupProcessorKey -> topLevelBooleanGrouper,
+      "statsEvery" -> "100",
+      // force the groups around the mods in large buckets
+      groupProcessorBucketSizeKey -> "1000",
+      groupProcessorPercentFilter -> "0.1",
+      groupProcessorDumpAuditKey -> "true",
+      groupProcessorAuditLocation -> outputDir
+    )))(
+      i => s"if((((a + b) % 20) < 15), if(a = $i, 'true', 'false'), 'false')",
+      i => s"if((((a + b) % 20) < 5), if(a = $i, 'true', 'false'), 'false')",
+      i => s"if((((a + b) % 20) < 20), if(a = $i, 'true', 'false'), 'false')"
+    )
+
+    val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
+    group.ruleSuites.size shouldBe 5 // 4 groups
+  } }
+
+  test("test if grouped on negatives"){ not3_0_or_3_1 {
+    doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
+      showSplitCompilationTime -> "true",
+      groupProcessorKey -> topLevelBooleanGrouper,
+      "statsEvery" -> "100",
+      // force the groups around the mods in large buckets
+      groupProcessorBucketSizeKey -> "1000",
+      groupProcessorPercentFilter -> "0.1",
+      groupProcessorDumpAuditKey -> "true",
+      groupProcessorAuditLocation -> outputDir
+    )))(
+      i => s"if((((a + b) % 20) > 25), false, (((a + b) % 20) < 15) and a = $i)",
+      i => s"if((((a + b) % 20) > 25), false, (((a + b) % 20) < 5) and a = $i)",
+      i => s"if((((a + b) % 20) > 25), false, (((a + b) % 20) < 20) and a = $i)"
+    )
+
+    val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
+    group.ruleSuites.size shouldBe 5 // 4 groups
+  } }
+
+  test("test if_relevant grouped"){ not3_0_or_3_1 {
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -202,6 +242,26 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       i => s"if_relevant((((a + b) % 20) < 15), a = $i)",
       i => s"if_relevant((((a + b) % 20) < 5), a = $i)",
       i => s"if_relevant((((a + b) % 20) < 20), a = $i)"
+    )
+
+    val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
+    group.ruleSuites.size shouldBe 4 // the three test groups, there is no negative case for if_relevant
+  } }
+
+  test("test if_relevant grouped non-boolean"){ not3_0_or_3_1 {
+    doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
+      showSplitCompilationTime -> "true",
+      groupProcessorKey -> topLevelBooleanGrouper,
+      "statsEvery" -> "100",
+      // force the groups around the mods in large buckets
+      groupProcessorBucketSizeKey -> "1000",
+      groupProcessorPercentFilter -> "0.1",
+      groupProcessorDumpAuditKey -> "true",
+      groupProcessorAuditLocation -> outputDir
+    )))(
+      i => s"if_relevant((((a + b) % 20) < 15), if(a = $i, 'true', 'false'))",
+      i => s"if_relevant((((a + b) % 20) < 5), if(a = $i, 'true', 'false'))",
+      i => s"if_relevant((((a + b) % 20) < 20), if(a = $i, 'true', 'false'))"
     )
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")

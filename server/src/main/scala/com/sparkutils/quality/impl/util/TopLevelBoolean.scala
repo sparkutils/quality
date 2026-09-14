@@ -231,9 +231,15 @@ object TopLevelBoolean {
 
   def topLevelRewrite(triggers: Seq[Trigger]): Seq[Trigger] =
     triggers flatMap {
+      case t@ Trigger(i: IfRelevantExpr, _, _, _) if (i.left.dataType == BooleanType && i.right.dataType == BooleanType) =>
+        Seq(t.copy(expression = And( i.left, i.right) ))
       case t@ Trigger(i: IfRelevantExpr, _, _, _) =>
         // positive case is covered by anyToRuleResultIntGen, negative case is ignored
         Seq(t.copy(expression = And( PassedTestExpr.passed(i.left), PassedTestExpr.passed(i.right)) ))
+      case t@ Trigger(i: If, _, _, _) if (i.trueValue.dataType == BooleanType && i.falseValue.dataType == BooleanType) =>
+        // rewrite if, although predicate is boolean, the others could be convertible to PassedInt
+        Seq(t.copy(expression = And(i.predicate, i.trueValue)),
+          t.copy(expression = And(Not(i.predicate), i.falseValue)))
       case t@ Trigger(i: If, _, _, _) =>
         // rewrite if, although predicate is boolean, the others could be convertible to PassedInt
         Seq(t.copy(expression = And(i.predicate, PassedTestExpr.passed(i.trueValue))),
@@ -271,7 +277,8 @@ object TopLevelBoolean {
 
             triggers.foreach {
               trigger =>
-                val theseParts = differentiate(differentiateFrom(trigger.expression, i => subs(i).isEmpty))
+                val s = differentiateFrom(trigger.expression, i => subs(i).isEmpty)
+                val theseParts = differentiate(s)
 
                 addToMap(differentiatingBooleans, theseParts, trigger)
             }
