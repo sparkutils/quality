@@ -49,6 +49,4 @@ object PassedTestExpr {
 
   def passed(what: Expression): Expression = PassedTestExpr(what)
 
-  def notPassed(what: Expression): Expression = Not(PassedTestExpr(what))
-
 }

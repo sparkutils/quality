@@ -1,8 +1,13 @@
-### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>10th September, 2026</small>
+### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>16th September, 2026</small>
 
 This small feature release adds the if_relevant function.
 
 #136 - if_relevant added, allowing a filter to choose which rules should trigger for a given row
+
+#148 - integrate if_relevant and 'if' optimisations into TopLevelBooleanGrouper
+
+> if_relevant is converted to a test of both filter and condition, 'if' however gets both paths treated as two distinct rules.
+> Any nested 'if' branches are left -as-is- and only the first two branches are processed.
 
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/11?closed=1) <small>1st August, 2026</small>
 

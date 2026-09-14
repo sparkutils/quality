@@ -232,8 +232,8 @@ object TopLevelBoolean {
   def topLevelRewrite(triggers: Seq[Trigger]): Seq[Trigger] =
     triggers flatMap {
       case t@ Trigger(i: IfRelevantExpr, _, _, _) =>
-        Seq(t.copy(expression = And(PassedTestExpr.passed(i.left), PassedTestExpr.passed(i.right)) ), // positive case is covered by anyToRuleResultIntGen
-          t.copy(And(Not(PassedTestExpr.passed(i.left)), Literal(false)))) // negative is fixed
+        // positive case is covered by anyToRuleResultIntGen, negative case is ignored
+        Seq(t.copy(expression = And( PassedTestExpr.passed(i.left), PassedTestExpr.passed(i.right)) ))
       case t@ Trigger(i: If, _, _, _) =>
         // rewrite if, although predicate is boolean, the others could be convertible to PassedInt
         Seq(t.copy(expression = And(i.predicate, PassedTestExpr.passed(i.trueValue))),

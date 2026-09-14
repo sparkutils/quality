@@ -48,6 +48,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     data.coalesce(1).write.option("header", true).mode(SaveMode.Overwrite).csv(outputDir + "/bgt")
     val s = sparkSession
     val d = s.read.option("header", true).schema("a Int, b Int, c Int, d Int").csv(outputDir + "/bgt")
+
     val rules = RuleEngineTest.rulesRaw(
       (for { i <- 0 until testSize } yield
         Seq(
@@ -62,7 +63,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     ).flatten)
 
     val res = d.select(expr("*"), runner(rules).getField("result").as("r"))
-    //res.show(20)
+    res.show(20)
     res.select( expr(s"""
       case
        when ((a + b) % 20) < 5 then ((a + b + c + d) = r.y) and (r.z = a)
@@ -204,7 +205,7 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size shouldBe 5 // 4 groups
+    group.ruleSuites.size shouldBe 4 // the three test groups, there is no negative case for if_relevant
   } }
 
 }

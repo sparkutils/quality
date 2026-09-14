@@ -657,8 +657,16 @@ functions:
       ```
         
       will have the result of 1.
+      
+      ??? note "TopLevelBooleanGrouper behaviour"
+          When using TopLevelBooleanGrouper the audited result will be different on rule engines with the result being converted to a simple boolean.
+          Only the Passed case (both filter and condition are passed) will trigger outputs on rule engines.
+
+          As such, rather than ignored_rule(), the default Unevaluated will instead be used as the underlying rules will never trigger.          
     tags:
       - rule
+  would_pass:
+    description: would_pass(cond) evaluates any condition and tests if it would store Passed in the Quality results
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

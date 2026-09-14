@@ -229,6 +229,7 @@ object RuleRegistrationFunctions {
     register("unevaluated_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.UnevaluatedExpr, Set(0))
     // #136 - if_relevant(filter, cond) => if(filter, if(cond, passed, failed), ignored)
     register("if_relevant", exps => IfRelevantExpr(exps(0), exps(1)), Set(2))
+    register("would_pass", exps => PassedTestExpr(exps.head), Set(1))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 

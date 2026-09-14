@@ -885,6 +885,18 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     ))
   } }
 
+  // would pass is covered by BooleanGrouperTest for compilation only, this test covers evals
+  test("would_pass behaviour should make sense") {
+    forceInterpreted {
+      val s = sparkSession
+      import s.implicits._
+      s.sql("select would_pass(1)").as[Boolean].head() shouldBe true
+      s.sql("select would_pass(null)").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('failed')").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('ignored')").as[Boolean].head() shouldBe false
+    }
+  }
+
 }
 
 object Holder {
