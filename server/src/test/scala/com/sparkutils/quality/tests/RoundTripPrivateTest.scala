@@ -14,6 +14,8 @@ class RoundTripPrivateTest extends FunSuite with ClassicSharedTests {
 
     case class LitRule(string: String) extends ExprLogic {
       val expr = Literal.create(string, StringType)
+
+      override def updateRule(rule: String): ExpressionRule = copy(rule)
     }
 
     val rules = RuleSuite(Id(1,1), Seq(

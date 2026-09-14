@@ -1,24 +1,24 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{DisabledRule, Failed, Passed, Probability, SoftFailed}
+import com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt
+import com.sparkutils.quality.{DisabledRule, Failed, FailedInt, Passed, PassedInt, Probability, SoftFailed, SoftFailedInt}
 import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
-import org.apache.spark.sql.types.{DataType, DoubleType}
+import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType}
 
 object SoftFailedUtils {
   /**
-   * The results must be interpreted and cast back to a double compatible with anyToRuleResult / anyToRuleResultInt
+   * Passed and Failed need special handling, all other values pass through their in values
    * @param res
    * @return
    */
-  def softFail(res: Any): Double = {
-    val ruleRes = RuleLogicUtils.anyToRuleResult(res)
+  def softFail(res: Any): Int = {
+    val ruleRes = RuleLogicUtils.anyToRuleResultInt(res)
     ruleRes match {
-      case Failed | SoftFailed => -1.0
-      case Passed => 1.0
-      case DisabledRule => -2.0
-      case Probability(percentage) => percentage
+      case FailedInt => -1
+      case PassedInt => 1
+      case _ => ruleRes
     }
   }
 }
@@ -41,7 +41,7 @@ case class SoftFailExpr(child: Expression) extends UnaryExpression with NullInto
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, c => s"com.sparkutils.quality.impl.SoftFailedUtils.softFail($c)")
 
-  override def dataType: DataType = DoubleType
+  override def dataType: DataType = IntegerType
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

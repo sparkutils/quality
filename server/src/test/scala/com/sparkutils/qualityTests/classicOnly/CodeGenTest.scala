@@ -41,7 +41,7 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
         val temporaryDQname: String = "DQ_TEMP_Quality"
 
         df.transform { ndf =>
-          val rr = ruleRunner(genRules(rules, cols),
+          val rr = classicFunctions.ruleRunner(genRules(rules, cols),
             compileEvals = false,
             variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
             resolveWith = Some(df)) // also needed to force code gen
@@ -97,7 +97,7 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
       val temporaryDQname: String = "DQ_TEMP_Quality"
 
       df.transform { ndf =>
-        val rr = ruleEngineRunner(genEngineRules(rules, cols),
+        val rr = classicFunctions.ruleEngineRunner(genEngineRules(rules, cols),
           compileEvals = false,
           variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           resolveWith = Some(df)) // also needed to force code gen

@@ -2,14 +2,17 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.{RuleEngineRunnerImpl, RuleSuiteHelpers}
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.functions.{lit, typedLit}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
 trait ClassicRuleEngineRunnerImports {
 
   /**
-   * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
+   * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
+   *
+   * NOTE if using this in a Connect session resolveWith, compileEvals, forceRunnerEval and forceTriggerEval are ignored and use defaults
+   *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param resultDataType The type of the results from runOnPassProcessors - must be the same for all result types,
    *                       by default most fields will be nullable and encoding must follow the fields when not specified.   *
@@ -28,14 +31,15 @@ trait ClassicRuleEngineRunnerImports {
    */
   def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column =
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false,
+                       extraConfig: Map[String, String] = Map.empty): Column =
     if (ResolveUtil.checkResolveMakesSenseOrClassic(resolveWith))
       RuleEngineRunnerImpl.ruleEngineRunnerImpl(ruleSuite, resultDataType, compileEvals, debugMode, resolveWith, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, forceTriggerEval)
+        variableFuncGroup, forceRunnerEval, forceTriggerEval, extraConfig)
     else
       ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        lit(resultDataType.map(_.sql).getOrElse("")),  lit(compileEvals), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup), lit(forceRunnerEval), lit(forceTriggerEval)
+        lit(resultDataType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
+        lit(variableFuncGroup), typedLit(extraConfig)
       )
 
   /**

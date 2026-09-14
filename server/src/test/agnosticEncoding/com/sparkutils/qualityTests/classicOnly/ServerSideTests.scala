@@ -1,9 +1,13 @@
 package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.{ExpressionRule, HasRuleText, Id, OutputExpression, QualityException, RuleSuite, RuleSuiteGroup, RuleSuiteGroupResults, RunOnPassProcessor, SalientRule, register_rule_suite_group}
 import com.sparkutils.quality.impl.OfRuleSuite
+import com.sparkutils.qualityTests.NewPosting
+import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
+import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.catalyst.expressions.Literal
+import org.apache.spark.sql.functions.{lit, struct}
 import org.apache.spark.sql.types.BinaryType
 import org.scalatest.Matchers
 
@@ -28,13 +32,14 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
       intercept[QualityException] { // Result type: IndexOutOfBoundsException
 
 
-      Literal(Array.ofDim[Byte](22), BinaryType) match {
-        case OfRuleSuite(_) => fail("Should not have matched")
-        case _ => ()
-      }
+        Literal(Array.ofDim[Byte](22), BinaryType) match {
+          case OfRuleSuite(_) => fail("Should not have matched")
+          case _ => ()
+        }
 
-    }
+      }
 
     caught.msg should include("Could not deserialize")
   }
+
 }

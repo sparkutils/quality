@@ -23,7 +23,7 @@ case class QualityFunctionParser(sparkSession: SparkSession, delegate: ParserInt
             val idx = line.indexOf(WITH_TOKEN)
             val name = line.take(idx).trim
             val rule = line.drop(idx + WITH_TOKEN.length).trim
-            logDebug(s"Quality Rule via extension $name with rule: {$rule} - rule end")
+            logDebug(s"Quality User Function via extension $name with implementation: {$rule} - user function end")
             LambdaFunctionImpl(name, rule, Id(-1, -1))
           }
 

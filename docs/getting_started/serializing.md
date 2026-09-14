@@ -7,7 +7,7 @@ tags:
 
 ## Reading & Writing RuleSuites
 
-Typically you'd save the RuleSuite in configuration tables within a Database or Delta or some other easy to edit store.
+Typically, you'd save the RuleSuite in configuration tables within a Database or Delta or some other easy to edit store.
 
 Saving:
 

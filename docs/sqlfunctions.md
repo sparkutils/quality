@@ -7,6 +7,8 @@ functions:
       You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values.
 
       rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
+    alternatives:
+      - "rule_result(ruleSuiteResultColumn, ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion) uses unpacked id and versions"
     tags:
       - rule
   to_yaml:
@@ -226,12 +228,20 @@ functions:
     description: "failed() returns the Failed Integer result (0) for use in filtering"
     tags:
       - rule
-  soft_Failed:
-    description: "soft_Failed() returns the SoftFailed Integer result (-1) for use in filtering"
+  soft_failed:
+    description: "soft_failed() returns the SoftFailed Integer result (-1) for use in filtering"
     tags:
       - rule
-  disabled_Rule:
-    description: "disabledRule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+  disabled_rule:
+    description: "disabled_rule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+    tags:
+      - rule      
+  ignored_rule:
+    description: "ignored_rule() returns the IgnoredRule Integer result (-3) for use in filtering and to ignoring rules (e.g. a return value in an active rule)"
+    tags:
+      - rule
+  default_rule:
+    description: "default_rule() returns the DefaultRule Integer result (-4) for use in filtering and returned by collectRunner defaultProcessor"
     tags:
       - rule
   coalesce_If_Attributes_Missing_Disable:
@@ -304,7 +314,9 @@ functions:
       
       On Spark 4 / DBR 17.3 and later this function uses Spark Variables and takes the form:
       >  map_lookup('mapid', expr, mapLookupsVar)
-      Where mapLookupsVar is the result of loadMaps   
+      Where mapLookupsVar is the result of loadMaps
+    alternatives:
+      - "map_lookup('mapid', expr, 'mapLookupsVar') - allows faster if, as is default with the scala api, the QUALITY MAP BROADCAST mapLookupsVar is called"
     tags:
       - map
       - variable
@@ -436,7 +448,7 @@ functions:
       you should however use a top level object and var to write into (or stream), printCode will not be able to write to std out properly (spark redirects / captures stdout) or non top level objects (due to classloader / function instance issues).  Testing on other hosts
       without using stdout should do so to a shared file location or similar.
 
-      !!! "information" It is not compatible with every expression
+      ??? note "It is not compatible with every expression"
           Aggregate expressions like aggExpr or sum etc. won't generate code so they aren't compatible with printCode.
 
           \_lambda\_ is also incompatible with printCode both wrapping a user function and the \_lambda\_ function.  Similarly the \_() placeholder function cannot be wrapped.
@@ -456,7 +468,7 @@ functions:
       
       Calling process_if_attribute_missing inside a ruleSuite is not permitted and will throw exceptions.
       
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
     tags:
       - variable
       - util
@@ -467,13 +479,9 @@ functions:
       
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.
-      
-      **NB** You should use the default compilation options if you are nesting or chaining runners per #110. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
     alternatives:
-      - "dq_rule_runner( ruleSuiteVariable, compile ) - enables separate compilation of evals, by default this is false and compilation is performed at wholestage codegen"
-      - "dq_rule_runner( ruleSuiteVariable, compile, variablesPerFunc, variableFuncGroup ) - additionally specifies the number of expressions to use per function and the number of functions to call in one group, defaulting to 40 and 20 respectively"
-      - "dq_rule_runner( ruleSuiteVariable, compile, variablesPerFunc, variableFuncGroup, forceRunnerEval ) - additionally allows the expressions to be interpreted, instead of the default - false - which compiles as part of wholestage codegen"
+      - "dq_rule_runner( ruleSuiteVariable, variablesPerFunc, variableFuncGroup ) - additionally specifies the number of expressions to use per function and the number of functions to call in one group, defaulting to 40 and 20 respectively"
     tags:
       - variable
       - runner
@@ -486,12 +494,10 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
-
-      **NB** You should use the default compilation options if you are nesting or chaining runners per #110. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
     alternatives:
       - "typed_expression_runner( ruleSuiteVariable, ddl, name ) - allows naming the column directly"
-      - "typed_expression_runner( ruleSuiteVariable, ddl, name, forceRunnerEval ) - additionally allows the expressions to be interpreted, instead of the default - false - which compiles as part of wholestage codegen"      
+      - "typed_expression_runner( ruleSuiteVariable, ddl, name, variablesPerFunc, variableFuncGroup) - This version provides two additional compilation options, these are typically not needed."
     tags:
       - variable
       - runner
@@ -504,13 +510,11 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
-
-      **NB** You should use the default compilation options if you are nesting or chaining runners per #110. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
     alternatives:
       - "expression_runner( ruleSuiteVariable, name ) - allows naming the column directly"
       - "expression_runner( ruleSuiteVariable, name, options ) - additionally allows the SnakeYaml output to be configured by the options map"
-      - "expression_runner( ruleSuiteVariable, name, options, forceRunnerEval ) - additionally allows the expressions to be interpreted, instead of the default - false - which compiles as part of wholestage codegen"
+      - "expression_runner( ruleSuiteVariable, name, options, variablesPerFunc, variableFuncGroup) - This version provides two additional compilation options, these are typically not needed."
     tags:
       - variable
       - runner
@@ -523,15 +527,13 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
-      
-      **NB** You should use the default compilation options if you are nesting or chaining runners per #110. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
     alternatives:
       - "rule_engine_runner( ruleSuiteVariable ) - Spark derives the output expression type, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
       - "rule_engine_runner( ruleSuiteVariable, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results"
       - |
-        rule_engine_runner( ruleSuiteVariable, ddl, compile, debug, variablesPerFunc, variableFuncGroup, forceRunnerEval, forceTriggerEval)
-        This version provides the full configuration options available from the ruleEngineRunner.
+        rule_engine_runner( ruleSuiteVariable, ddl, debug, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
     tags:
       - variable
       - runner
@@ -544,19 +546,127 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
-
-      **NB** You should use the default compilation options if you are nesting or chaining runners per #110. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
     alternatives:
       - "rule_folder_runner( ruleSuiteVariable, starter ) - Spark derives the output expression type from starter, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
-      - "rule_folder_runner( ruleSuiteVariable, starter, debug, ddl ) - additionally allows entering debug mode and returns each matching rule's output expression results so you can see changes between folds"
+      - "rule_folder_runner( ruleSuiteVariable, starter, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results so you can see changes between folds"
       - |
-        rule_folder_runner( ruleSuiteVariable, starter, compile, debug, variablesPerFunc, variableFuncGroup, forceRunnerEval, ddl, forceTriggerEval)
-        This version provides the full configuration options available from the ruleFolderRunner.
+        rule_folder_runner( ruleSuiteVariable, starter, ddl, debug, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
     tags:
       - variable
       - runner
       - Spark4
+  collect_runner:
+    description: |
+      collect_runner( ruleSuiteVariable ) processes the rule suite stored at ruleSuiteVariable using the DQ runner as if calling collectRunner directly.
+
+      The optional ddl type is used to control nullability and the type exactly, defaulting to Spark deriving the type that is collected, 
+      the default of flattening flattens any nested arrays returned by the output expressions and the includeNulls, by default, filters out any null values.
+
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
+    alternatives:
+      - "collect_runner( ruleSuiteVariable, ddl ) - Spark derives the output expression type from the output expressions, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
+      - "collect_runner( ruleSuiteVariable, ddl, flatten ) - additionally setting flatten to false, returning collections of nested arrays for array type OutputExpressions"
+      - "collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls ) - includeNulls keeps null values, encoding results should use Option with Scala Encoders"
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup)
+        This version provides two additional compilation options, these are typically not needed.
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
+        This version also allows tweaking further collectRunner specific optimisations, these are typically not needed and use should be carefully evaluated.  
+    tags:
+      - variable
+      - runner
+      - Spark4
+  rule_suite_statistics:
+    description: |
+      The rule_suite_statistics(ruleSuiteResult) aggregate function collects a RuleSuiteGroupStatistics object for a given dataset using the default 0.8 probability.
+      When using a split details and overall pair, recombine them via:
+
+      ```sql
+      rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
+      ```
+    tags:
+      - rule
+  rule_suite_from:
+    description: |
+      rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId ) loads the highest versioned RuleSuite with Id rulesSuiteId from the RuleSuiteGroup stored in the variable.
+
+      ruleSuiteGroupVariables must be registered via the register_rule_suite_group functions. 
+    alternatives:
+      - |
+        rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId, ruleSuiteVersion ) loads the exact RuleSuite from the RuleSuiteGroup stored in the variable.
+    tags:
+      - variable
+      - rule
+      - Spark4
+  group_results:
+    description: |
+      group_results( array_of_runner_results ) processes an array of runner results (excluding expressionRunner), grouping the ruleSuiteResults into a RuleSuiteGroupResults alongside any payload. 
+
+      This, in combination with rule_suite_from allows nested runners (excluding expressionRunner) to be configured into a RuleSuite and their results grouped into RuleSuiteGroupResults, or indeed run over RuleSuiteGroupResults.
+      
+      DQ Runner results or simple arrays of RuleSuiteGroupResults do not produce a payload and cannot use the overloaded version.  Only arrays of matching structs are accepted, anything else will fail the analysis phase.
+    alternatives:
+      - | 
+        group_results(  array_of_runner_results, result processing lambda ) - uses a processing lambda for engine payloads, saving a projection e.g.:
+        
+        ```sql
+        group_results( array_of_engines_returning_arrays, f -> flatten(f) )
+        ```
+        
+        using the processing version without an engine result will fail the analysis phase.
+    tags:
+      - rule
+  group_audit:
+    description: |
+      group_audit( array_of_runner_results, rule_runners, ... ) processes audit information from any audit providing expression including, as with group_results, an array of results or group results.
+      
+      Unlike group_results the parameters can have mixed formats and only the RuleSuiteResult (or RulesSuiteGroupResults) is kept. 
+    tags:
+      - rule
+  unify_result:
+    description: |
+      unify_result( rule_engine_results ) converts rule engine results into collector / folder results (dropping salient rule), also works with group_results.
+      
+      It does not process debug, expression or DQ results and will fail these in the analysis phase.
+    tags:
+      - rule
+  if_relevant:
+    description: |
+      if_relevant(filter, cond) - returns Quality's RuleResult of cond when filter can be evaluated to true.
+
+      Use 'if_relevant' if you wish to signal that a rule cond should only be treated as relevant when filter passes e.g.
+      'only evaluate if settlement currency is USD if it's an fx trade and the buy currency is USD'
+        
+      Filter also applies Quality's result handling logic, so 'true' or 'passed' in filter will cause cond to be evaluated.
+        
+      * returns 1 when both filter and cond are passed,
+      * ignored_rule() when filter is can not be evaluated to passed and
+      * Quality's RuleResult from cond otherwise, e.g.
+      
+      ```sql
+        if_relevant(true, disabled_rule())
+      ```
+        
+      will have the result of disabled_rule() but
+      
+      ```sql
+        if_relevant(true, true)
+      ```
+        
+      will have the result of 1.
+      
+      ??? note "TopLevelBooleanGrouper behaviour"
+          When using TopLevelBooleanGrouper the audited result will be different on rule engines with the result being converted to a simple boolean.
+          Only the Passed case (both filter and condition are passed) will trigger outputs on rule engines.
+
+          As such, rather than ignored_rule(), the default Unevaluated will instead be used as the underlying rules will never trigger.          
+    tags:
+      - rule
+  would_pass:
+    description: would_pass(cond) evaluates any condition and tests if it would store Passed in the Quality results
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

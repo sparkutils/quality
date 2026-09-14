@@ -9,9 +9,9 @@ LTS' get explicit support, other interim versions may be supported as needed.
 
 ## Testing out Quality via Notebooks
 
-You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 17.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_17.3.dbr_4.0_2.13/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
+You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 18.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_18.3.dbr_4.1_2.13/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
 
-Then using:
+Then, with cluster nodes of 64gb ram (only BigRules requires this, so 16gb is fine when just using the shades to experiment), using:
 
 ```scala
 import com.sparkutils.qualityTests.QualityTestRunner
@@ -38,7 +38,7 @@ QualityTestRunner.test()
 
 in your cell will run through all of the test suite used when building Quality.
 
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 17.3 provides:
+Ideally at the end of your runs you'll see - after up to an hour or so and some stdout - for example a run on DBR 17.3 provides:
 
 ```
 Quality - starting test batch 0
@@ -67,25 +67,41 @@ Quality - gc'ing after finishing test batch 2
 all Quality test batches completed
 ```
 
-## Running on Databricks Runtime 17.3 LTS
+!!! note "Databricks 17.x / 18.x"
+    When running the test suite with an extension and classic cluster library several optimisation tests will fail (as the extension has already enabled them they cannot be disabled through the test suite).
+    These tests (usually FunNRewrite based) can only be tested via classic clusters without extension.
 
-Supported as of 0.1.3.1.
+!!! note "Databricks 18.x / UC introduces different delta behaviour"
+    When running the test suite on 18.x the Delta extension tests will fail with spurious errors, these do not occur when using OSS or earlier DBRs.
 
-17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase.
+## Running on Databricks Runtime 19
+
+As of 0.2.0 running the 18.3 build runs on Databricks 19 (noted as of release__19.x-snapshot-photon-scala2.13__databricks__19.2.4__affc832__32d3219__jenkins__59c4a83__format-3).
+
+This works as 18.x already backported changes to UnresolveFunction aligning it with 4.2.0, making them (as of 19.2.4) compatible.
+
+## Running on Databricks Runtime 18 LTS
 
 The following test combinations are supported as of 0.2.0:
 
-| Compute Type   | Cluster Library                     | Extension              | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                |
-|----------------|-------------------------------------|------------------------|-------------------------|------------------------------|---------------------------------------------| 
-| Non Shared     | quality_testshade_17.3              |                        |                         | :octicons-checkbox-24:       | > 500                                       |
-| Non Shared     | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |
-| Shared Compute | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
-| Shared Compute | quality_connect_testshade_17.3      | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
-| Shared Compute | quality_connect_testshade_4.0.0.oss | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
-| Shared Compute | quality_api_17.3                    | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |
-| Shared Compute | quality_api_4.0.0.oss               | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |
+| Compute Type   | Cluster Library                      | Extension                    | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                | SPARKUTILS_DISABLE_CLASSIC_TESTS (default false) | SPARKUTILS_DISABLE_CONNECT_TESTS (default false) | Time Taken Standard_D8ds_v5 32gb 8 cores 2 executors (m) |
+|----------------|--------------------------------------|------------------------------|-------------------------|------------------------------|---------------------------------------------|--------------------------------------------------|--------------------------------------------------|---------------------------------------------------------:|
+| Non Shared     | quality_testshade_18.3.dbr           |                              |                         | :octicons-checkbox-24:       | > 500                                       |                                                  | true                                             |                                                       30 |
+| Non Shared     | quality_testshade_18.3.dbr           | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |                                                  |                                                  |                                                       60 |
+| Shared Compute | quality_connect_testshade_18.3.dbr   | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_connect_testshade_4.1.0.oss  | quality_testshade_18.3.dbr   | :octicons-checkbox-24:  |                              | < 180                                       | true                                             |                                                  |                                                       17 |
+| Shared Compute | quality_api_18.3.dbr                 | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
+| Shared Compute | quality_api_4.1.0.oss                | quality_18.3.dbr             | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |                                                  |                                                  |                                                          |
 
-!!! info "Non Shared Connect"
+Databricks 18 has been tested as of release__18.3.x-snapshot-photon-scala2.13__databricks__18.3.3__bfd1bbf__b0356d3__jenkins__bc102bd__format-3 (search for spark.databricks.clusterUsageTags.sparkImageLabel on the environment spark properties page for the exact version your cluster uses)
+
+## Running on Databricks Runtime 17.3 LTS
+
+Supported as of 0.1.3.1.  Only 0.2.0 supports connect and shared cluster, with extension, usage.
+
+17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase.
+
+!!! info "Non-Shared Connect"
     Using quality_testshade on both client and extension allows mixing modes.  To use connect on the test cases leverage:
     
     ```scala
@@ -177,3 +193,14 @@ Supported as of 0.1.3.1.
 Supported as of 0.1.3.1.
 
 16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
+
+## Running on Databricks Runtime 17.3 / 18.3 / 18 LTS
+
+Support via 0.2.0 and is tested on latest 17.3 and 18 (via 18.3.dbr - build 18.3.3 observed via spark.databricks.clusterUsageTags.sparkImageLabel).
+
+Databricks 18 backported Spark 4.2.0's UnresolvedFunction interface and, as such, requires its own runtime support.
+
+## Running on Databricks Runtime 19
+
+Support via 0.2.0 and the 18.3.dbr release (tested against 19.1.3 release__19.x-snapshot-photon-scala2.13__databricks__19.1.3__132a64e__553b6cb__jenkins__d71fd8f__format-3),
+DBFS however is no longer usable as such, per #141, bucketed large bloom filters no longer work.

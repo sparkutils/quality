@@ -2,9 +2,7 @@ package com.sparkutils.quality.impl.yaml
 
 import java.io.{IOException, StringWriter}
 import java.util.Base64
-
-import com.sparkutils.quality.impl.MapUtils
-import com.sparkutils.quality.impl.util.Arrays
+import com.sparkutils.quality.impl.util.{Arrays, MapUtils}
 import org.apache.spark.sql.QualityYamlExt.{makeConverterExt, makeStructFieldConverterExt}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback

@@ -1,16 +1,19 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import com.sparkutils.qualityTests.RuleEngineTest.rulesRaw
 import functions.flatten_folder_results
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedPureConnectTests}
 import frameless.TypedExpressionEncoder
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.scalatest.Matchers
 
-trait RuleFolderTestBase extends SharedPureConnectTests {
+trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -48,6 +51,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
   def rules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
     irules(expressionRules)
 
+  def options: Map[String, String] = Map.empty
+
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     registerLambdaFunctions(Seq(
       LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
@@ -67,9 +72,16 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
     val sc = sqlContext
     import sc.implicits._
 
-    (dataFrame: DataFrame) =>
-      ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
+    if (ShimUtils.isClassic(SparkSession.active))
+      (dataFrame: DataFrame) =>
+        Runners.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals,
+          extraConfig = options).get
+    else
+      (_: DataFrame) =>
+        ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))),
+          struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), lit(""), lit(debugMode)
+      )
   }
 
   def testAndRulesForReplace(useSetSyntax: Boolean) = {
@@ -96,7 +108,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
           OutputExpression("set(subcode = 1234)"))),
 
           (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-            OutputExpression("set( account = concat(currentResult.account,'_fruit'), subcode = 6000)"))),
+            OutputExpression("set( account = concat(currentResult.account,'_fruit'), subcode = if(subcode = 4, 3, 6000) )"))),
           (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
             OutputExpression("set(account = 'to')"))),
           (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
@@ -132,8 +144,11 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
 
     val outdfit = loadedDF.
       withColumn("together",
-        ruleFolderRunner(ruleSuite, struct(lit("").as("transfer_type"),
-          $"product", $"account", $"subcode") /*, useType = Some(
+        com.sparkutils.quality.ruleFolderRunner(ruleSuite,
+          startingStruct = struct(lit("").as("transfer_type"),
+          $"product", $"account", $"subcode"), useType = None, extraConfig = options,
+          debugMode = false,
+          variablesPerFunc = 40, variableFuncGroup = 20 /*, useType = Some(
           StructType(Seq(StructField("transfer_type", StringType),
             StructField("product", StringType),
             StructField("account", StringType),
@@ -238,15 +253,17 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
   def doTestSimpleProductionRules(): Unit = evalCodeGensNoResolve {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        OutputExpression("thecurrent1 -> updateField(updateField(thecurrent1, 'subcode', 1234), 'transfer_type', 'from')"))),
         //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
 
         (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+          OutputExpression("thecurrent2 -> updateField(thecurrent2, 'transfer_type', 'to')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+          OutputExpression("thecurrent3 -> updateField(thecurrent3, 'transfer_type', 'from')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+          OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
+            OutputExpression("thecurrent4 -> update_field(thecurrent4, 'account', concat(account,'_fruit'))")))
       ), compileEvals = true, debugMode = true
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
@@ -269,6 +286,12 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
     assert(res(0).result.contains( Seq((1000, NewPosting("from", "4201", "edt", 1234)))) )
+    // #112 - overall should make sense
+    val (passed, failed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == Passed
+    }
+    passed.map(_._2) shouldBe Seq(0, 3, 4, 5)
+    failed.map(_._2) shouldBe Seq(1, 2)
 
     //    TestOn("fxotc", "4201", 40),
     assert(res(3).result.contains(Seq((1000, NewPosting("to", "4206", "fx", 90)))))
@@ -277,13 +300,113 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
     // did the field replace work
     assert(res(5).result.contains(Seq((1000, NewPosting("from", "4201", "eqotc", 60)), (1001, NewPosting("from", "4201_fruit", "eqotc", 60)))))
 
+
   }
 
+  def doTestDefaultRules(): Unit = evalCodeGensNoResolve {
+    val rer = irules(
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+      ), debugMode = false, transformRuleSuite = _.copy(
+        defaultProcessor = DefaultProcessor(Id(102002, 1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'defaulted')"))
+      )
+    ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
+
+    val testDataDF = {
+      val s = sparkSession
+      import s.implicits._
+      testData.toDF()
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF
+      .withColumn("together", rer(testDataDF))
+
+    val res = outdf.select("together.*").as[RuleFolderResult[NewPosting]].collect()
+
+    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+    assert(res(0).result.contains( NewPosting("from", "4201", "edt", 1234)))
+    // #112 - overall should make sense
+    val (defaulted, passed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == DefaultRule
+    }
+    passed.map(_._2) shouldBe Seq(0)
+    defaulted.map(_._2) shouldBe Seq(1, 2, 3, 4, 5)
+
+    res.drop(1).map(_.result.map(_.account)).distinct should contain(Some("defaulted"))
+  }
+
+  def doTestDefaultRulesWithDebug(): Unit = evalCodeGensNoResolve {
+    val rer = irules(
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+      ), debugMode = true, transformRuleSuite = _.copy(
+        defaultProcessor = DefaultProcessor(Id(102002, 1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'defaulted')"))
+      )
+    ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
+
+    val testDataDF = {
+      val s = sparkSession
+      import s.implicits._
+      testData.toDF()
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF
+      .withColumn("together", rer(testDataDF))
+
+    val res = outdf.select("together.*").as[RuleFolderResult[Seq[(Int,NewPosting)]]].collect()
+
+    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+    assert(res(0).result.contains( Seq((1000, NewPosting("from", "4201", "edt", 1234)))))
+    // #112 - overall should make sense
+    val (defaulted, passed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == DefaultRule
+    }
+    passed.map(_._2) shouldBe Seq(0)
+    defaulted.map(_._2) shouldBe Seq(1, 2, 3, 4, 5)
+
+    res.drop(1).map(_.result.map(_.head._2.account)).distinct should contain(Some("defaulted"))
+    res.drop(1).map(_.result.map(_.head._1)).distinct should contain(Some(DefaultRuleSalience))
+  }
 }
 
 class RuleFolderTest extends RuleFolderTestBase {
+
   test("testSimpleProductionRules") {
     doTestSimpleProductionRules()
+  }
+
+  test("default processor"){
+    doTestDefaultRules()
+  }
+
+  test("default processor via debug"){
+    doTestDefaultRulesWithDebug()
   }
 
   test("testSimpleProductionRulesReplace") { doTestSimpleProductionRulesReplace(false) }
@@ -323,4 +446,28 @@ class RuleFolderTest extends RuleFolderTestBase {
 
   test("testFlattenResultsSet") { doTestFlattenResults(true) }
 
+  test("simple folder should work with connect") {
+
+    val s = sparkSession
+    import s.implicits._
+
+    val data = Seq(
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1)
+    ).toDF("c", "d")
+
+    val r = data.withColumn("*", ruleFolderRunner( rulesRaw(Seq(
+      (ExpressionRule("true"), // processor_input_wrapper(c, true) works, so folder added this, it only needs to be on the first as well, mind-blowing
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
+    )), startingStruct = struct(col("c"), col("d")), extraConfig = options) )
+    r.collect()
+
+  }
 }

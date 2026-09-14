@@ -16,8 +16,10 @@ protected[quality] object SerializingShim {
    * @return a combined dataframe when on server, none in this stub
    */
   def combineImpl(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
-                                     outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
+                                     outputExpressionRows: Option[DataFrame] = None,
                                      globalLambdaSuites: Option[DataFrame] = None,
-                                     globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = None
+                                     globalOutputExpressionSuites: Option[DataFrame] = None,
+                                      ruleSuites: Option[DataFrame] = None
+                    ): Option[DataFrame] = None
 
 }

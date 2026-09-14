@@ -1,51 +1,34 @@
 package com.sparkutils.quality.impl.mapLookup
 
-import com.sparkutils.quality.impl.MapUtils
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
+import com.sparkutils.quality.MapLookups
+import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.ShimUtils.{column, expression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.MapData
-import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.{Column, SparkSession}
 
 
-trait MapLookupExpressionBase[T] extends Expression with CodegenFallback {
+/**
+ * Returns a value when the lookup is present with the correct value type, or Null when not throws if the table is not present
+ * @param mapId the name of the map entry / dataframe the lookupmap belongs to
+ * @param child the expression to lookup
+ * @param arrayMap the lookup broadcast maps
+ */
+@ExpressionDescription(
+  usage = "_FUNC_(content to lookup, bloomFilterName) - Returns either the lookup value or Null when not present",
+  examples = """
+    Examples:
+      > SELECT _FUNC_('a thing that might be there', 'otherDataset');
+       0.9
+  """,
+  since = "0.0.1")
+case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends
+  UnaryExpression with MapLookupExpressionBase[Broadcast[MapData]] {
 
-  val mapId: String
-  val child: Expression
-  val arrayMap: T
-  val dataType: DataType
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
-  def mapData(t: T): MapData
-
-  lazy val theMap = MapUtils.toScalaMapKeysConverted(mapData(arrayMap), child.dataType, dataType)
-
-  lazy val converter = CatalystTypeConverters.createToScalaConverter(child.dataType)
-
-  override def eval(row: InternalRow): Any = {
-    val eres = child.eval(row)
-    if (eres == null)
-      null
-    else {
-      // strings will be UTF8Strings, they are present in the map, only convert when that fails
-      val res = theMap.get(eres).orElse( theMap.get({
-        val converted = converter(eres)
-        converted
-      } )).getOrElse( null)
-      if (res != null)
-        res
-      else
-        null
-    }
-  }
-
-  override def nullable: Boolean = true
-
-  override def sql: String = s"(map_lookup($mapId, ${child.sql}))"
-
-  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    // force theMap and converter to be resolved before the session may be shut in processors
-    theMap
-    converter
-    super.doGenCode(ctx, ev)
-  }
+  override def mapData(t: Broadcast[MapData]): MapData = t.value
 }

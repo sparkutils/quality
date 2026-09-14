@@ -385,9 +385,9 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
     doDecimalPrecisionTestF(df => agg_expr(DecimalType(37, 18), df("dec").isNotNull, sum_with(entry => df("dec") + entry), return_sum) as "agg")
   }
 
-  test("decimalPrecisionNO_REWRITETest") {
+  test("decimalPrecisionNO_REWRITETest") { not_Databricks { // DBR 18 (18.3, last of the minors) breaks this, but as it's not functionality we want the test is disabled.  #135 will remove
     doDecimalPrecisionTest(expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(37,18)', entry -> cast( (dec + entry) as DECIMAL(37,18)) ), returnSum('DECIMAL(37,18)')) as agg"))
-  }
+  } }
 
   //@Test
   //def decimalPrecisionDeprecatedTest = doDecimalPrecisionTest(  "aggExpr(dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast((dec + entry) as DECIMAL(38,18)) ), returnSum()) as agg" )

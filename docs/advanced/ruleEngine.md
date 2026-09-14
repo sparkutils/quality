@@ -3,6 +3,7 @@ tags: advanced
 ---
    
 Quality provides a basic rule engine for data quality rules the output of each rule however is always translated to RuleResult, encoded and persisted for audit reasons.
+If _any_ rule trigger matches the RuleSuiteResult.overallResult will be Passed otherwise Failed is returned.
 
 The ruleEngineRunner function however allows you to take an action based on the passing of a rule and, via salience, choose the most appropriate output for a given row.
 

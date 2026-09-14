@@ -11,16 +11,16 @@ import org.scalameter.api.Gen
 trait RowTools extends TestUtilsBase {
 
   val structWithColumnExpr = (rules: Int, cols: Int, df: DataFrame) =>
-    df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = false))
+    df.withColumn("DataQuality", classicFunctions.ruleRunner(genRules(rules, cols), compileEvals = false))
 
   val structWithColumnExprEvalCompiled = (rules: Int, cols: Int, df: DataFrame) =>
-    df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = true))
+    df.withColumn("DataQuality", classicFunctions.ruleRunner(genRules(rules, cols), compileEvals = true))
 
   val structWithColumnExprButRunnerEval = (rules: Int, cols: Int, df: DataFrame) =>
-    df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = false, forceRunnerEval = true))
+    df.withColumn("DataQuality", classicFunctions.ruleRunner(genRules(rules, cols), compileEvals = false, forceRunnerEval = true))
 
   val structWithColumnExprEvalCompiledButRunnerEval = (rules: Int, cols: Int, df: DataFrame) =>
-    df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = true, forceRunnerEval = true))
+    df.withColumn("DataQuality", classicFunctions.ruleRunner(genRules(rules, cols), compileEvals = true, forceRunnerEval = true))
 
   val noRules = (rules: Int, cols: Int, df: DataFrame) =>
     df.withColumn("DataQuality", lit("place"))

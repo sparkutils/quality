@@ -24,4 +24,12 @@ class RoundTripClassicTest extends SharedConnectTests with RoundTripTestBase {
       }
     }
   }
+
+  test("RuleDefaultProcessorRoundTrippingToDF") {
+    evalCodeGens {
+      funNRewrites {
+        doRuleDefaultProcessorRoundTrippingToDF()
+      }
+    }
+  }
 }

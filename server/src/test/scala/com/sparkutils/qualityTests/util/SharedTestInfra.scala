@@ -1,14 +1,16 @@
 package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.{RuleSuite, ruleRunner}
+import com.sparkutils.quality.{RuleSuite, classicFunctions, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
-import org.apache.spark.sql.{Dataset, Row}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Dataset, Row, ShimUtils, SparkSession}
 import org.scalatest.{BeforeAndAfterAll, FunSuite, TestSuite}
 
 trait ClassicSharedTests extends FunSuite with TestSetup {
@@ -17,10 +19,12 @@ trait ClassicSharedTests extends FunSuite with TestSetup {
 
   override val runWith: ConnectionType = ClassicOnly
 
+  //override val loggingLevel = "DEBUG"
+
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */
-  def funNRewrites: Unit => Unit = (u:Unit) => {
+  def funNRewrites(u: => Unit): Unit = {
     if (!inConnect.get()) {
       testPlan(FunNRewrite)(u)
     } else {
@@ -30,7 +34,7 @@ trait ClassicSharedTests extends FunSuite with TestSetup {
   /**
    * enable funN rewrites for one test run only
    */
-  def justfunNRewrite: Unit => Unit = (u:Unit) => {
+  def justfunNRewrite(u: => Unit): Unit = {
     if (!inConnect.get()) {
       testPlan(FunNRewrite, secondRunWithoutPlan = false)(u)
     } else {
@@ -46,6 +50,9 @@ trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests 
 }
 
 trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { self: TestSuite =>
+
+  def v3_5_and_above(thunk: => Unit): Unit =
+    if (sparkVersionNumericMajor >= 35) thunk
 
   override def beforeAll(): Unit = {
     // no-op to force it to be created
@@ -66,7 +73,8 @@ trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { 
       scoverageClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", "com.sparkutils.quality.impl.extension.QualitySparkExtension")) + // text used for connect only tests in dbr
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
-      (("spark.sql.codegen.factoryMode", "NO_CODEGEN"))
+      (("spark.sql.codegen.factoryMode", "NO_CODEGEN")) /*+
+      (("spark.sql.queryExecutionListeners", "com.sparkutils.quality.impl.extension.EchoListener"))*/
 
 }
 
@@ -90,7 +98,12 @@ trait TestUtilsBase extends SparkTestSuite {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
+    val rr =
+      if (ShimUtils.isClassic(SparkSession.active))
+        Runners.ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false).get
+      else
+        ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(rules)))
+
     tdf.select(expr("*"), rr.as(name))
   }
 

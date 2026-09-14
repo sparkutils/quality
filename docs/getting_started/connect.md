@@ -1,25 +1,27 @@
-Starting with 0.2.0 and Spark 4 Quality leverages the new unified connect and classic APIs to enable connect friendly usage when used with the [SparkSessionExtension](../getting_started/#using-the-sql-functions-on-spark-thrift-hive-servers).
+Starting with 0.2.0 and Spark 4 Quality leverages the new unified connect and classic APIs to enable connect friendly usage when used with the [SparkSessionExtension](../#using-the-sql-functions-on-spark-thrift-hive-servers).
 
 This allows applications to use the quality_api with the stable Spark Connect interface and upgrade their server implementation of Quality without impacting others on the Shared Cluster (other than a restart of course). 
 In order to enable this, from 0.2.0 onwards, Quality's moves to a split jar and implementation model:
 
-* Core Scala types are present in quality_core, each - now source stable for years - are marked with @SerialVersionUID(1L)
-* quality_api provides the Connect friendly api, using these core types, with most complex logic taking place on the server
-* The quality server jar itself provides the implementation found in the Quality extension and serializes the core jvm types
+* Core Scala types are present in quality_core, each - now source stable for years - are marked with \@SerialVersionUID(1L)
+* quality_api_stub forces a 'connect first' approach and is excluded by both quality_api and quality 'server' 
+* quality_connect_api provides the Connect friendly api, using these core types, with most complex logic taking place on the server
+* quality_api provides an ideal compile time dependency, allowing the same artifacts to be published to different Connect (along with api_stub) or Classic runtimes (with the quality 'server' jar itself)
+* The quality 'server' jar itself provides the implementation found in the Quality extension and serializes the core jvm types
 
-Breaking binary compatibility of the core types is now identifiable via their @SerialVersionUID(1L) changes.  Changes to the core types will include increasing the version id.
+Breaking binary compatibility of the core types is now identifiable via their \@SerialVersionUID(1L) changes.  Changes to the core types will include increasing the version id.
 
 Given the stable Connect interface, and a suitable runtime, this _should_ allow for client applications to build against versions of Spark Connect for their Scala version only but enjoy running on multiple backends.
 
 Supported combinations:
 
-| Spark Runtime                 | Known Supported Version | Client application Library | 
-|-------------------------------|-------------------------|----------------------------| 
-| Databricks Shared Compute     | 17.3                    | quality_api_17.3           |
-| Databricks Shared Compute     | 17.3                    | quality_api_4.0.0.oss      |
-| Databricks Non Shared Compute | 17.3                    | quality_api_17.3           |
-| Databricks Non Shared Compute | 17.3                    | quality_api_4.0.0.oss      |
-| OSS Spark connect.local       | 4.0.*                   | quality_api_17.3           |
+| Spark Runtime                 | Known Supported Version | Client application Library      | 
+|-------------------------------|-------------------------|---------------------------------| 
+| Databricks Shared Compute     | 17.3 / 18               | quality_connect_api_17.3 / 18.3 |
+| Databricks Shared Compute     | 17.3 / 18               | quality_connect_api_4.0.0.oss   |
+| Databricks Non Shared Compute | 17.3 / 18               | quality_connect_api_17.3 / 18.3 |
+| Databricks Non Shared Compute | 17.3 / 18               | quality_connect_api_4.0.0.oss   |
+| OSS Spark connect.local       | 4.0.*                   | quality_connect_api_17.3 / 18.3 |
 
 This is also true for remote connect usage, for example running the QualityTestRunner in connect mode from the ide to Databricks with the following environment variables:
 
@@ -114,36 +116,41 @@ Spark Connect, combined with the Quality extension, opens the door for usage fro
 def readVersionedRuleRowsFromDF(df: DataFrame, ruleSuiteId: Column,....): DataFrame
 def readVersionedLambdaRowsFromDF(lambdaFunctionDF: DataFrame, lambdaFunctionName: Column,....): DataFrame
 def readVersionedOutputExpressionRowsFromDF(outputExpressionDF: DataFrame, outputExpression: Column,....): DataFrame
+def readVersionedRuleSuitesFromDF(ruleSuitesDF: DataFrame, ruleSuiteId, rulesSuiteVersion,....): DataFrame
 // combine and register functions, which can use either simple or versioned reads 
 def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
   outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
-  globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None): Dataset[CombinedRuleSuiteRows]
+  globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None,
+  ruleSuites: Option[Dataset[RuleSuiteRow]] = None): Dataset[CombinedRuleSuiteRows]
 def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String
 // version specific for lambdas
 QualitySparkUtils.registerLambdaFunctions(functions: Seq[LambdaFunction])
 ```
 
-with each function running on the server and connect using simple commands on global temp views (normal temp views do not exist on the server)/tables, after any necessary renames etc.:
+with each function running on the server and connect using simple commands on local non-global temp views, after any necessary renames etc.:
 
 ```sql
 -- versioned reads
 QUALITY VERSIONED RULES FROM DF viewName; -- With columns: ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleVersion, ruleExpr, ruleEngineSalience, ruleEngineId, ruleEngineVersion
-QUALITY VERSIONED LAMBDAS FROM DF viewName; -- With columns: name, ruleExpr, functionId, functionVersion, functionVersion, ruleSuiteId, ruleSuiteVersion
-QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName; -- With columns: ruleExpr, functionId, functionVersion, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED LAMBDAS FROM DF viewName; -- With columns: name, ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName; -- With columns: ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED RULESUITES FROM DF viewName; -- With columns: functionId, functionVersion, probablePass, ruleSuiteId, ruleSuiteVersion
 -- combine
 QUALITY COMBINE RULESUITES ruleRowsName, lambdaFunctionRowsName | `None`,
-  outputExpressionRowsName | `None`, probablePass Double | `None`,
-  globalLambdaSuitesName | `None`, globalOutputExpressionSuitesName | `None`
+  outputExpressionRowsName | `None`, globalLambdaSuitesName | `None`, 
+  globalOutputExpressionSuitesName | `None`, ruleSuitesName | `None`
 QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion Int, stableName
 -- lambdas
 CREATE QUALITY FUNCTION simplename _WITH_IMPL_ simpleExpression _END_OF_USER_FUNCTION_ 
     singleParamName _WITH_IMPL_ p1 -> simpleExpression _END_OF_USER_FUNCTION_
     multiParamsName _WITH_IMPL_ (p1, p2) -> simpleExpression _END_OF_USER_FUNCTION_
+-- maps
+QUALITY MAP BROADCAST mapVariable -- optional, but recommended, broadcast of map data to speed up planning, map_lookup then must use mapVariable as a string not the variable name
 ```
 
 The loading and serialising functions register ruleSuites as Spark SQL Variables (via [DECLARE VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html)/[SET VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-aux-set-var.html)) with all actual ruleSuite handling taking place on the server. 
 
-The other non-loading functionality is represented as Spark Connect compatible sql function calls that require the [SparkSessionExtension](../getting_started/#using-the-sql-functions-on-spark-thrift-hive-servers).
+The other non-loading functionality is represented as Spark Connect compatible sql function calls that require the [SparkSessionExtension](../#using-the-sql-functions-on-spark-thrift-hive-servers).
 
 This includes the runners themselves, which also get dsl equivalents:
 
@@ -184,6 +191,10 @@ ruleSuiteId INT NOT NULL,ruleSuiteVersion INT NOT NULL,
         ruleSuiteId: INT NOT NULL, ruleSuiteVersion: INT NOT NULL
     >
  >,
- probablePass DOUBLE
+ probablePass DOUBLE,
+ defaultProcessor STRUCT<
+   ruleExpr: STRING, functionId: INT NOT NULL, functionVersion: INT NOT NULL, 
+   ruleSuiteId: INT NOT NULL, ruleSuiteVersion: INT NOT NULL
+ >
 ```
 

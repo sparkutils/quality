@@ -18,7 +18,7 @@ trait VariableTestShims {
   }
 
   def map_lookupSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapLookup('$mapLookupName', $lookupKey, $currentLookups)"
+    s"mapLookup('$mapLookupName', $lookupKey, '$currentLookups')"
 
   def map_lookup(mapLookupName: String, lookupKey: Column, mapLookups: MapLookups): Column =
     ogml(mapLookupName, lookupKey, mapLookups)
@@ -34,11 +34,21 @@ trait VariableTestShims {
     ogmc(mapLookupName, lookupKey, mapLookups)
 
   def map_containsSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapContains('$mapLookupName', $lookupKey, $currentLookups)"
+    s"mapContains('$mapLookupName', $lookupKey, '$currentLookups')"
 
   val mapFactor = 10 // 200 is too large on connect
 
   val idRange = 500 // 6000 was original, but it takes a while, connect has to drag everything to the client
 
   val aggregatesTestSTooFastBuffer = 20 // no issue on classic, so we need to make it more expensive for connect due to SPARK-53900
+}
+
+trait VariableTestShimsMapOpt extends VariableTestShims {
+
+  override def map_lookupSQL(mapLookupName: String, lookupKey: String): String =
+    s"mapLookup('$mapLookupName', $lookupKey, $currentLookups)"
+
+  override def map_containsSQL(mapLookupName: String, lookupKey: String): String =
+    s"mapContains('$mapLookupName', $lookupKey, $currentLookups)"
+
 }

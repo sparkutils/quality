@@ -1,17 +1,16 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.util.TSLocal
 import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
-import com.sparkutils.testing.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
-import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, BooleanType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable
@@ -65,12 +64,60 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 }
 
-trait RefCodeGen {
+trait CacheApproach {
+  def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode
+}
+
+case class MapBasedCacheApproach() extends CacheApproach {
+  @transient
+  var map = mutable.Map[CodegenContext, ExprCode]()
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (map == null) {
+      map = mutable.Map[CodegenContext, ExprCode]()
+    }
+    val cached = map.get(ctx)
+    if (cached.isEmpty) {
+      val toCache = genCode(ctx)
+      map.put(ctx, toCache)
+      toCache
+    } else {
+      cached.get
+    }
+  }
+}
+
+case class OptionCacheApproach() extends CacheApproach {
+  @transient
+  var opt: Option[ExprCode] = None
+
+  override def getOrBuild(ctx: CodegenContext)(genCode: CodegenContext => ExprCode): ExprCode = {
+    if (opt == null) {
+      opt = None
+    }
+    if (opt.isEmpty) {
+      val toCache = genCode(ctx)
+      opt = Some(toCache)
+      toCache
+    } else {
+      opt.get
+    }
+  }
+}
+
+object RefCodeGen {
+  private val cacheApproach = TSLocal[() => CacheApproach]( () => () => MapBasedCacheApproach() )
+  def withCacheApproach[R](t: () => CacheApproach)(thunk: => R): R = {
+    cacheApproach.withT( t )(thunk)
+  }
+}
+
+trait RefCodeGen extends LambdaVariablePattern {
   def dataType: DataType
 
   // never return a different object from this gen code
   @transient
-  var _generated: mutable.Map[CodegenContext, ExprCode] = _
+  var _generated: CacheApproach = null
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     if (ExpressionCompiler.inExpressionCompiler) {
@@ -89,22 +136,20 @@ trait RefCodeGen {
       """)
     } else {
       if (_generated == null){
-        _generated = mutable.Map.empty
+        _generated = RefCodeGen.cacheApproach.get().apply()
       }
-      val cached = _generated.get(ctx)
-      if (cached.isEmpty) {
+
+      _generated.getOrBuild(ctx) { ctx =>
         val javaType = CodeGenerator.javaType(dataType)
         val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
         val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
 
         val toCache = ev.copy(code = code"",
-          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
-          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
+          isNull = VariableValue(theNull, CodeGenerator.javaClass(BooleanType)),
+          value = VariableValue(theVar, CodeGenerator.javaClass(dataType))
         )
-        _generated.put(ctx, toCache)
         toCache
-      } else
-        cached.get
+      }
     }
 }
 
@@ -202,6 +247,113 @@ case class FunForward(children: Seq[Expression])
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
+trait Binder extends HigherOrderFunctionLike {
+
+  def arguments: Seq[Expression]
+
+  def function: Expression
+
+  override def children: Seq[Expression] = arguments ++ functions
+
+  def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
+
+  def functions: Seq[Expression] = Seq(function)
+
+  def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
+
+  def withFunction(function: Expression): HigherOrderFunction with Binder
+  def argsToBind: Seq[Expression]
+
+  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
+  @transient lazy val elementVars = elementNamedVariables
+
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
+    // subqueries aren't being replaced correctly
+    val res = withFunction(function = f(function,
+      argsToBind.map(e => (e.dataType, e.nullable))))
+
+    if (RuleLogicUtils.hasSubQuery(res.function)) {
+      // only possible on > 3.4 (and DBR 12.2),
+      // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
+      // unless it's re-enabled
+      // given XX below reject this occurrence directly.
+      if (!argsToBind.forall(_.collect{case u: UnresolvedNamedLambdaVariable => u}.isEmpty)) {
+        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and parameters containing lambdavariables " + this)
+      }
+
+      val converted = SubQueryLambda.convertLambdaFunction(res.function)(function, argsToBind)
+
+      res.withFunction(function = converted)
+    } else
+      res
+
+  }
+
+}
+
+/**
+ * Swapped out for FunN during SeparateCompilation to ensure pre 4 OSS and up to DBR 18 do not create
+ * subexpressions for usedAsLambda FunNs (e.g. collector processing or any folder output expression).
+ *
+ * Importantly, we _do_ want children to be subexpr eliminated where possible, hence throwaway code.
+ * @param funN
+ */
+case class FunNLambda(funN: FunN) extends Expression {
+
+  override def children: Seq[Expression] = funN.children
+
+  override def nullable: Boolean = funN.nullable
+
+  override def dataType: DataType = funN.dataType
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(funN.withNewChildren(newChildren).asInstanceOf[FunN])
+
+  override def eval(input: InternalRow): Any = ???
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    ev.copy(isNull = TrueLiteral,
+      code =
+        code"""
+          // FunNLambda subExpr
+          ${CodeGenerator.javaType(dataType)} ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+        """)
+
+}
+
+object FunNLambda {
+
+  def allAsLambdaChildrenAreAlsoLambdas(funNL: FunNLambda): FunNLambda =
+    funNL.copy(funNL.funN.transform{
+      case f: FunN => FunNLambda(f)
+    }.asInstanceOf[FunNLambda].funN)
+
+  def swap(expr: Expression): Expression = {
+    val nexpr =
+      expr match {
+        case f: FunN if f.usedAsLambda => FunNLambda(f)
+        case _ =>
+          expr.transform{
+            case f: FunN if f.usedAsLambda => FunNLambda(f)
+          }
+      }
+
+    nexpr match {
+      case f: FunNLambda => allAsLambdaChildrenAreAlsoLambdas(f)
+      case _ => nexpr
+    }
+  }
+
+  def swapBack(expr: Expression): Expression =
+    expr match {
+      case f: FunNLambda => f.funN
+      case _ =>
+        expr.transform{
+          case f: FunNLambda => f.funN
+        }
+    }
+}
+
 /**
  * Lambda function with multiple args, typically created with a placeholder AtomicRefExpression args
  *
@@ -211,7 +363,7 @@ case class FunForward(children: Seq[Expression])
  */
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
                 processed: Boolean = false, attemptCodeGen: Boolean = false, usedAsLambda: Boolean = false)
-  extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
+  extends Binder with CodegenFallback with SeqArgs with FunDoGenCode {
 
   /* #71 - default just checks arguments, but FunNRewrite will take the actual function so it's possible
       it is nullable. ArrayAggregate for example (hit on Databricks) argument.nullable || finish.nullable
@@ -220,37 +372,6 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
   override def nullable: Boolean = super.nullable || function.nullable
 
   override def prettyName: String = name.getOrElse(super.prettyName)
-
-  override def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
-
-  override def functions: Seq[Expression] = Seq(function)
-
-  override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
-
-  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
-    // subqueries aren't being replaced correctly
-    val res = copy(function = f(function,
-        arguments.map(e => (e.dataType, e.nullable))))
-
-    if (RuleLogicUtils.hasSubQuery(res.function)) {
-      // only possible on > 3.4 (and DBR 12.2),
-      // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
-      // unless it's re-enabled
-      // given XX below reject this occurrence directly.
-      if (!arguments.forall(_.collect{case u: UnresolvedNamedLambdaVariable => u}.isEmpty)) {
-        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and parameters containing lambdavariables " + this)
-      }
-
-      val converted = SubQueryLambda.convertLambdaFunction(res.function)(function, arguments)
-
-      res.copy(function = converted)
-    } else
-      res
-
-  }
-
-  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
-  @transient lazy val elementVars = elementNamedVariables//.map(_.asInstanceOf[NamedLambdaVariable])
 
   override def eval(inputRow: InternalRow): Any = {
     // set up the variable to be evaluated
@@ -269,7 +390,6 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 
   override def dataType: DataType = function.dataType
 
-  override def children: Seq[Expression] = arguments ++ functions
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren.dropRight(1), newChildren.last)
 
@@ -339,6 +459,10 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
          // End FunN - $lambdaName
           """)
   }
+
+  override def withFunction(function: Expression): HigherOrderFunction with Binder = copy(function = function)
+
+  override def argsToBind: Seq[Expression] = arguments
 }
 
 object SubQueryLambda {

@@ -2,11 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.manual.RowId
 import com.sparkutils.quality
-import com.sparkutils.quality._
+import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
-import com.sparkutils.quality.impl.YamlDecoder
-import com.sparkutils.quality.impl.types._
-import functions._
+import com.sparkutils.quality.impl.RuleLogicUtils.TRUE_INT
+import com.sparkutils.quality.impl.types.ruleSuiteResultType
+import functions.{ignored_rule, _}
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
@@ -101,7 +101,14 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
         .selectExpr("rr.*")
         .as[GeneralExpressionResult].head()
 
+    val gres2 =
+      processed.selectExpr("rule_result(expressionResults, 10,2, 20,1, 31,3) rr")
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head()
+
     assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
+
+    assert(gres2 == gres)
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
     val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
@@ -121,7 +128,50 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     }
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
+
+    val strippedGres2 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), lit(10),lit(2), lit(20),lit(1), lit(31),lit(3)))
+        .as[String].head()
+    }
+
+    assert(strippedGres2 == strippedGres)
+
+    val strippedGres3 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), 10,2, 20,1, 31,3))
+        .as[String].head()
+    }
+
+    assert(strippedGres3 == strippedGres)
+
     res
+  }
+
+  val resultCheckerCodeGenSize = 1000
+
+  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), expected: Seq[RuleResult],
+                    seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq): Unit = evalCodeGens {
+    import quality.implicits._
+
+    val base = sparkSession.range(resultCheckerCodeGenSize)
+
+    val processed = (
+      if (inCodegen) {
+        base.repartition(2).write.mode(SaveMode.Overwrite).parquet(outputDir + "/baseResultChecker")
+        base.sparkSession.read.parquet(outputDir + "/baseResultChecker")
+      } else
+        base
+    ).select(ruleRunner(rs).as("res"))
+
+    val res = processed.selectExpr("res.*").as[RuleSuiteResult].collect().head
+    assert(res.overallResult == overalls._1)
+    val rsres = res.ruleSetResults.head._2
+    assert(rsres.overallResult == overalls._2)
+
+    seqF(rsres.ruleResults.toSeq.sortBy(_._1.id).map(_._2)) shouldBe expected
   }
 
 }
@@ -180,9 +230,9 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
   } } }
 
   test("verifyResultExprDSL") {  evalCodeGens {
-    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
-      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
-      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count() == 1)
+    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f", "ignored_rule() i")
+      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1", ignored_rule as "i1")
+      .filter("p1 = p and s1 = s and d1 = d and f1 = f and i1 = i").count() == 1)
   }}
 
   test("longPairEqual") { evalCodeGens {
@@ -209,7 +259,8 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     val id = Id(1024, 9084)
     val Packed = packId(id)
 
-    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
+    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a",
+      "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis", "ignored_rule() as ignored")
     val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "cast(softFail( (1 * id) > 2 ) as int) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
@@ -225,12 +276,12 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
-      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
+      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, IgnoredRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
     val revres = re.as[SimpleRes].orderBy(col("id").desc).head()
     assert(revres match {
-      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _) => true
+      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _, _) => true
       case _ => false
     })
   }}
@@ -662,58 +713,98 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
 
   test("softFail") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-    )))), (Passed,Passed), _.forall(_ == SoftFailed))
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize )"))
+    )))), (Passed,Passed), Seq.fill(3)(SoftFailed))
   }
 
   test("failedOnOne") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("id > 5")),
-        Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-        Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-      )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+        Rule(Id(30, 3), ExpressionRule(s"id > 5 * $resultCheckerCodeGenSize")),
+        Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+        Rule(Id(32, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)"))
+      )))), (Failed, Failed), Seq(Failed, SoftFailed, SoftFailed))
   }
 
   test("probabilityOnThree") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(30, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
+      Rule(Id(31, 3), ExpressionRule(s"softFail(id > 5 * $resultCheckerCodeGenSize)")),
       Rule(Id(32, 3), ExpressionRule("85.0"))
-    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+    )))), (Passed, Passed), Seq(SoftFailed, SoftFailed, Probability(85)))
   }
 
   test("disabled") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
         Rule(Id(30, 3), ExpressionRule("'disabled'")),
-        Rule(Id(31, 3), ExpressionRule("'disabled'")),
-        Rule(Id(32, 3), ExpressionRule("'disabled'"))
-      )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+        Rule(Id(31, 3), ExpressionRule("'disabledrule'")),
+        Rule(Id(32, 3), ExpressionRule("-2"))
+      )))), (Passed, Passed), Seq(DisabledRule, DisabledRule, DisabledRule))
+  }
+
+  test("ignored") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("'ignored'")),
+        Rule(Id(31, 3), ExpressionRule("'ignoredrule'")),
+        Rule(Id(32, 3), ExpressionRule("-3"))
+      )))), (Passed, Passed), Seq(IgnoredRule, IgnoredRule, IgnoredRule))
+  }
+
+  test("if_relevant") {
+    // #136 - if_relevant(filter, cond) => if(filter, if(cond, passed, failed), ignored)
+    // resultChecker asserts on a single (arbitrary, due to repartition) row, so each
+    // rule must produce the same result for every id in 0..999
+    // Rule 30: filter=false for all ids -> IgnoredRule
+    // Rule 31: filter=true, cond=true for all ids -> Passed
+    // Rule 32: filter=true, cond=false for all ids -> Failed
+    // Rule 33: filter null -> Failed
+    // Rule 34: filter=true, cond null -> Failed
+    // Rules 35-38 cover non-boolean inputs: both filter and cond go through
+    // anyToRuleResultInt, so the string/int encodings accepted there must work
+    // in either position (one of each kind is enough).
+    // Rule 35: cond='true' string -> Passed
+    // Rule 36: cond='passed' string -> Passed
+    // Rule 37: filter='true' string, cond='failed' string -> Failed
+    // Rule 38: cond='ignored' string -> passes the rule result through -> IgnoredRule
+    // Rule 39: other conds should flow through
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule(s"if_relevant(id > 5 * $resultCheckerCodeGenSize, id > 0)")),
+        Rule(Id(31, 3), ExpressionRule("if_relevant(id >= 0, id >= 0)")),
+        Rule(Id(32, 3), ExpressionRule("if_relevant(id >= 0, id < 0)")),
+        Rule(Id(33, 3), ExpressionRule("if_relevant(cast(null as boolean), id > 0)")),
+        Rule(Id(34, 3), ExpressionRule("if_relevant(true, cast(null as boolean))")),
+        Rule(Id(35, 3), ExpressionRule("if_relevant(id >= 0, 'true')")),
+        Rule(Id(36, 3), ExpressionRule("if_relevant(id >= 0, 'passed')")),
+        Rule(Id(37, 3), ExpressionRule("if_relevant('true', 'failed')")),
+        Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')")),
+        Rule(Id(39, 3), ExpressionRule("if_relevant(id >= 0, disabled_rule())"))
+      )))), (Failed, Failed), Seq(IgnoredRule, Passed, Failed, Failed, Failed,
+        Passed, Passed, Failed, IgnoredRule, DisabledRule))
+
+    evalCodeGens {
+      val s = sparkSession
+      import s.implicits._
+      val res = s.sql("select 1 id").select(
+        if_relevant(col("id") >= 0, col("id") >= 0),
+        if_relevant(col("id") >= 0, disabled_rule)
+      ).as[(Int, Int)].head()
+
+      res shouldBe (TRUE_INT, DisabledRuleInt)
+    }
   }
 
   test("mixedIgnore") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-        Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+        Rule(Id(30, 3), ExpressionRule(s"softFail(id > 6 * $resultCheckerCodeGenSize)")),
         Rule(Id(31, 3), ExpressionRule("'Passed'")),
         Rule(Id(32, 3), ExpressionRule("'disabled'"))
-      )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
-  }
-
-  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
-    import quality.implicits._
-
-    val processed = sparkSession.sql("select 4 id").select(
-      ruleRunner(rs).as("res"))
-
-    val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
-    assert(res.overallResult == overalls._1)
-    val rsres = res.ruleSetResults.head._2
-    assert(rsres.overallResult == overalls._2)
-    assert(comparison(rsres.ruleResults.values))
+      )))), (Passed, Passed), Seq(SoftFailed, Passed, DisabledRule))
   }
 
   test("softShouldShowPassed") { evalCodeGens {
@@ -794,6 +885,18 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     ))
   } }
 
+  // would pass is covered by BooleanGrouperTest for compilation only, this test covers evals
+  test("would_pass behaviour should make sense") {
+    forceInterpreted {
+      val s = sparkSession
+      import s.implicits._
+      s.sql("select would_pass(1)").as[Boolean].head() shouldBe true
+      s.sql("select would_pass(null)").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('failed')").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('ignored')").as[Boolean].head() shouldBe false
+    }
+  }
+
 }
 
 object Holder {
@@ -810,4 +913,4 @@ case class NestedMapStruct( nested: NestedStruct)
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)
 
-case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)
+case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, ignored: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)

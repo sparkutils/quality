@@ -40,3 +40,7 @@ trait VariableTestShims {
 
   val aggregatesTestSTooFastBuffer = 20 // no issue on classic
 }
+
+trait VariableTestShimsMapOpt extends VariableTestShims {
+
+}

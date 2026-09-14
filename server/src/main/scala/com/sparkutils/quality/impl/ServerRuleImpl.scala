@@ -1,22 +1,26 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
+import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.RuleSuite.mapRules
+import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, Not, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
@@ -27,6 +31,8 @@ import scala.collection.mutable
  */
 case class ExpressionRule( rule: String ) extends quality.ExpressionRule with ExprLogic with HasRuleText[ExpressionRule] {
   override def reset(): ExpressionRule = super[HasRuleText].reset()
+
+  override def updateRule(rule: String): quality.ExpressionRule = copy(rule)
 }
 
 /**
@@ -84,6 +90,11 @@ object RuleLogicUtils {
       case h: RuleLogic[_] => h.reset()
       case _ => ()
     }
+
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      ruleSuite.defaultProcessor.toImpl.outputExpression.reset()
+    }
+
     mapRules(ruleSuite){
       f =>
         val e = f.expression.toImpl.reset()
@@ -175,6 +186,9 @@ object RuleLogicUtils {
       case 1 | 1.0 | 1L => Passed
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
+      case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRule
+      case -4  | -4.0 | -4L => DefaultRule
+      case -5  | -5.0 | -5L => UnevaluatedRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
@@ -188,9 +202,12 @@ object RuleLogicUtils {
     any match {
       case b: Boolean => if (b) PassedInt else FailedInt
       case 0 | 0.0 | 0L => FailedInt
-      case 1 | 1.0 | 1L => PassedInt
+      case TRUE_INT | 1.0 | 1L => PassedInt
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
+      case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
+      case -4  | -4.0 | -4L => DefaultRuleInt
+      case -5  | -5.0 | -5L => UnevaluatedRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
@@ -199,6 +216,43 @@ object RuleLogicUtils {
       case _ => FailedInt // anything else is a fail
     }
 
+  /**
+   * The small-int encoding for Passed that anyToRuleResultInt(Gen) accepts.
+   *
+   * anyToRuleResultInt(Gen) only treats values in [UnevaluatedRuleInt, TRUE_INT]
+   * as rule results, mapping TRUE_INT to PassedInt. Expressions whose result is
+   * re-mapped by the runners must therefore emit TRUE_INT for Passed rather than
+   * PassedInt (100000), which would fall outside the range and coerce to Failed.
+   * See SoftFailedUtils.softFail, which returns 1/-1 for the same reason.
+   */
+  val TRUE_INT = 1
+
+  def anyToRuleResultIntGen(code: ExprCode): String = anyToRuleResultIntGen(code.value, code.isNull)
+
+  // used during compilation code gen
+  def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
+    // auto boxing on Databricks doesn't work due to old Janino see #82
+    val edt = code.javaType
+    val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+    val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
+
+    val res =
+      if (code.javaType.isPrimitive)
+        code.javaType match {
+          case java.lang.Boolean.TYPE =>
+            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+          case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
+            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+          case _ =>
+            default
+        }
+      else
+        default
+
+    res
+  }
 }
 
 /**
@@ -287,6 +341,8 @@ case class ExpressionRuleExpr( rule: String, override val expr: Expression ) ext
   override def reset(): ExpressionRuleExpr = super[HasRuleText].reset()
 
   override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
+
+  override def updateRule(rule: String): quality.ExpressionRule = copy(rule, RuleLogicUtils.expr(rule))
 }
 
 object ExpressionRuleExpr {
@@ -370,6 +426,9 @@ case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) ext
     else
       super.internalEval(internalRow)
   }
+
+  override def updateRule(rule: String): quality.ExpressionRule =
+    qualityException("ExpressionWrapper updateRule likely called from reincorporateExpressions - this is not possible after plan resolution has started")
 }
 
 trait OutputExprLogic extends quality.OutputExpression with HasExpr {
@@ -381,8 +440,6 @@ trait OutputExprLogic extends quality.OutputExpression with HasExpr {
    */
   def reset(): OutputExprLogic = this
 }
-
-// TODO convert api into ExprLogics !!!!
 
 object UpdateFolderExpression {
   val currentResult = "currentResult"
@@ -409,7 +466,7 @@ object UpdateFolderExpression {
 }
 
 /**
- * Used in post serializing processing to keep the rule around
+ * Used in post serializing processing to keep the rule around, processCoalesce only
  * @param expr
  */
 @SerialVersionUID(1L)
@@ -460,7 +517,44 @@ object RunOnPassProcessorImpl {
   }
 }
 
+
+trait DefaultProcessor extends quality.DefaultProcessor with Serializable {
+  override val outputExpression: OutputExprLogic
+  def withExpr(expr: OutputExpression): DefaultProcessor
+  def withExpr(expr: OutputExprLogic): DefaultProcessor
+}
+
+/**
+ * Only run for folder and collector to provide defaults (engine can just use a low prio rule)
+ */
+@SerialVersionUID(1L)
+case class DefaultProcessorImpl(id: Id, rule: String, outputExpression: OutputExprLogic) extends DefaultProcessor with Serializable {
+  override def withExpr(expr: OutputExpression): DefaultProcessor =
+    copy(rule = expr.rule, outputExpression = expr)
+
+  def withExpr(expr: OutputExprLogic): DefaultProcessor =
+    copy(outputExpression = expr)
+
+  override def withExpr(e: quality.OutputExpression): quality.DefaultProcessor = copy(outputExpression =
+    e match {
+      case o: OutputExprLogic => o
+      case h: quality.HasRuleText => OutputExpression(h.rule)
+    }
+  )
+}
+
+object DefaultProcessorImpl {
+  implicit class DefaultProcessorImplOps(defaultProcessor: quality.DefaultProcessor) {
+    def toImpl: DefaultProcessor = defaultProcessor match {
+      case r: DefaultProcessorImpl => r
+      case q: quality.DefaultProcessor => DefaultProcessorImpl(q.id, q.rule, OutputExpression(q.rule))
+    }
+  }
+}
+
+
 object RuleSuiteFunctions {
+
   def eval(ruleSuite: RuleSuite, internalRow: InternalRow): RuleSuiteResult = {
     import ruleSuite._
 
@@ -470,13 +564,13 @@ object RuleSuiteFunctions {
           val ruleResult = r.expression.toImpl.eval(internalRow)
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
           (ov, pair) =>
             ov.process(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass)){
       (ov, pair) =>
         ov.process(pair._2.overallResult)
     }
@@ -520,15 +614,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     val (rule, result) =
@@ -588,15 +682,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
@@ -607,7 +701,16 @@ object RuleSuiteFunctions {
     val res = sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =>
       // only accept row - should probably throw something specific when it's not
       // get the lambda's variable to set the current struct
-      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = rule.expr
+      val arg: RefExpressionLazyType =
+        rule.expr match {
+          case FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) => arg
+          // only possible on OSS pre #145, but given DBR doesn't behave the same way it's here for safety but not expected to be called
+          // $COVERAGE-OFF$
+          case e: ExpressionProxy =>
+            val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = e.child
+            arg
+          // $COVERAGE-ON$
+        }
 
       arg.value = row
       row =  rule.eval(
@@ -615,7 +718,7 @@ object RuleSuiteFunctions {
       ).asInstanceOf[InternalRow]
 
       if (row == null || inputRow == null) {
-        println()
+        //println()
       }
 
       seq :+ (salience, if (debugMode)
@@ -624,23 +727,55 @@ object RuleSuiteFunctions {
         row)
     }
 
-    val result =
-      if (debugMode)
-        new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
-          InternalRow(p._1, p._2)
-        ).toArray)
-      else {
-        if (res.isEmpty)
-          null
-        else
-          res.last._2
+    val (result, overallResult) =
+      if (overall.currentResult != Passed) {
+        if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+          val e @ FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+          arg.value = row
+          row = e.eval(
+            inputRow
+          ).asInstanceOf[InternalRow]
+          (if (debugMode)
+              new org.apache.spark.sql.catalyst.util.GenericArrayData(Array(
+                InternalRow(DefaultRuleSalience, row)
+              ))
+            else
+              row, DefaultRule)
+        } else {
+          (if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else
+            null, Failed)
+        }
+      } else {
+        val result =
+          if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else {
+            if (res.isEmpty)
+              null
+            else
+              res.last._2
+          }
+
+        (result, overall.currentResult)
       }
 
-    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
+
+    def getType(expr: Expression) =
+      expr match {
+        case e if e.children.nonEmpty => e.children.head.dataType.sql
+        case e => e.dataType.sql
+      }
 
     val rawRuleSets =
       ruleSets.map { rs =>
@@ -654,8 +789,10 @@ object RuleSuiteFunctions {
               val resultType = r.expression match {
                 case expr: HasExpr =>
                   expr.expr match {
-                    case e if e.children.nonEmpty => e.children.head.dataType.sql
-                    case e => e.dataType.sql
+                    case p: ExpressionProxy =>
+                      // cse proxy will return the yaml type, we need the underlying
+                      getType(p.child)
+                    case e => getType(e)
                   }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
@@ -667,6 +804,94 @@ object RuleSuiteFunctions {
       }
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
+  }
+
+  def collect(ruleSuite: RuleSuite, inputRow: InternalRow, flatten: Boolean,
+              includeNulls: Boolean, arrayElementType: DataType, starterSize: Int): (RuleSuiteResult, Any) = {
+    import ruleSuite._
+
+    val runOnPassProcessors =
+      mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]
+
+    val rawRuleSets =
+      ruleSets.map { rs =>
+        val ruleSetRawRes = rs.rules.map { r =>
+          val ruleResult = r.expression.toImpl.eval(inputRow)
+
+          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
+            case r: RunOnPassProcessor => r.returnIfPassed
+          })
+
+          // only add passed
+          if (ruleResult == Passed){
+            runOnPassProcessors += (onPass)
+          }
+
+          r.id -> ruleResult
+        }
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
+          (ov, pair) =>
+            ov.processForDefault(pair._2)
+        }
+        rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
+      }
+
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
+      (ov, pair) =>
+        ov.processForDefault(pair._2.overallResult)
+    }
+
+    def addResult(buffer: mutable.ArrayBuffer[Any], o: Any) = {
+      if ((o != null) || includeNulls) {
+        if ((o == null) || !flatten) {
+          buffer.+=(o)
+        } else {
+          // flatten case
+          val ar = o.asInstanceOf[ArrayData]
+          ar.foreach(arrayElementType,
+            (_, o) =>
+              if ((o != null) || includeNulls) {
+                buffer.+=(o)
+              }
+          )
+        }
+      }
+    }
+
+    val (buffer, overallResult)  =
+      if (overall.currentResult != Passed) { // not a single rule triggered, this should be revisited - does the status for overall make sense on engine/folder/collector to be failed, perhaps softFailed instead?
+        val buffer = new mutable.ArrayBuffer[Any](1)
+        (buffer,
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+            val o = ruleSuite.defaultProcessor.toImpl.outputExpression.eval(inputRow)
+            addResult(buffer, o)
+            DefaultRule
+          } else
+            Failed
+        )
+      } else {
+        // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
+        val sorted = runOnPassProcessors.sortBy(_._2)
+
+        val buffer = new mutable.ArrayBuffer[Any](starterSize)
+
+        // for each of the output
+        // debug copys, non-debug does not
+        sorted.foreach { case (_, salience, rule) =>
+
+          val o = rule.eval(
+            inputRow
+          )
+
+          addResult(buffer, o)
+        }
+
+        (buffer, overall.currentResult)
+      }
+
+    val result = new GenericArrayData(buffer)
+
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 }
 
