@@ -325,7 +325,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    val r = copy(children = newChildren)
+    val r = copy(children = processNewChildren(newChildren))
     if (!r.audited) {
       if (r.performGroupingAuditDump())
         r.copy(audited = true)
