@@ -432,7 +432,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
     val eval = group.groupFilter.genCode(ctx)
 
-    val comp = anyToRuleResultIntGen(eval)
+    val comp = anyToRuleResultIntGen(eval, compareToPassedInt = true)
 
     // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
     (
@@ -440,7 +440,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
         shouldReturn, s"filter ${group.groupFilter.toString}", group,
         code"""
         ${eval.code}
-        if ((!${eval.isNull}) && ( ($comp) == $PassedInt ) ) {
+        if ((!${eval.isNull}) && $comp ) {
           ${expr.code}
         }
         """

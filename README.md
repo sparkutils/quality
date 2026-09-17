@@ -21,7 +21,7 @@ For oss with Spark 4.1.0 use properties:
     <qualityRuntime>4.1.0.oss_</qualityRuntime>
     <scalaCompatVersion>2.13</scalaCompatVersion>
     <sparkShortVersion>4.1</sparkShortVersion>
-    <qualityVersion>0.2.0</qualityVersion>
+    <qualityVersion>0.2.1</qualityVersion>
     <snakeVersion>2.0</snakeVersion>
 </properties>
 ```

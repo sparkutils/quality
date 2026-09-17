@@ -4,6 +4,8 @@ This small feature release adds the if_relevant function.
 
 #136 - if_relevant added, allowing a filter to choose which rules should trigger for a given row
 
+> Special thanks to Ievgenii Korniichuk for this contribution 
+
 #148 - integrate if_relevant and 'if' optimisations into TopLevelBooleanGrouper
 
 > if_relevant is converted to a test of both filter and condition, 'if' however gets both paths treated as two distinct rules.

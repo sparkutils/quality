@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGenValues
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
@@ -303,7 +303,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
         val (res, triggerRes) =
           nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
             (code: ExprValue, isNull: ExprValue, idx: Int) =>
-              anyToRuleResultIntGen(code, isNull),
+              anyToRuleResultIntGenValues(code, isNull),
             ruleRunnerExpressionIdx
           )
 
