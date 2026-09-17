@@ -633,6 +633,40 @@ functions:
       It does not process debug, expression or DQ results and will fail these in the analysis phase.
     tags:
       - rule
+  if_relevant:
+    description: |
+      if_relevant(filter, cond) - returns Quality's RuleResult of cond when filter can be evaluated to true.
+
+      Use 'if_relevant' if you wish to signal that a rule cond should only be treated as relevant when filter passes e.g.
+      'only evaluate if settlement currency is USD if it's an fx trade and the buy currency is USD'
+        
+      Filter also applies Quality's result handling logic, so 'true' or 'passed' in filter will cause cond to be evaluated.
+        
+      * returns 1 when both filter and cond are passed,
+      * ignored_rule() when filter is can not be evaluated to passed and
+      * Quality's RuleResult from cond otherwise, e.g.
+      
+      ```sql
+        if_relevant(true, disabled_rule())
+      ```
+        
+      will have the result of disabled_rule() but
+      
+      ```sql
+        if_relevant(true, true)
+      ```
+        
+      will have the result of 1.
+      
+      ??? note "TopLevelBooleanGrouper behaviour"
+          When using TopLevelBooleanGrouper the audited result will be different on rule engines with the result being converted to a simple boolean.
+          Only the Passed case (both filter and condition are passed) will trigger outputs on rule engines.
+
+          As such, rather than ignored_rule(), the default Unevaluated will instead be used as the underlying rules will never trigger.          
+    tags:
+      - rule
+  would_pass:
+    description: would_pass(cond) evaluates any condition and tests if it would store Passed in the Quality results
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

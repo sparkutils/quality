@@ -318,7 +318,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         } else {
           val eval = exp.genCode(ctx)
 
-          (eval.code, anyToRuleResultIntGen(eval.value, eval.isNull))
+          (eval.code, anyToRuleResultIntGen(eval))
         }
 
       val converted =
@@ -630,11 +630,14 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], use
   extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    val r = copy(children = newChildren, audited = true)
-    if (!audited) {
-      r.performGroupingAuditDump()
-    }
-    r
+    val r = copy(children = newChildren)
+    if (!r.audited) {
+      if (r.performGroupingAuditDump())
+        r.copy(audited = true)
+      else
+        r
+    } else
+      r
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)

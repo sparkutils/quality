@@ -4,6 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
+import com.sparkutils.quality.impl.RuleLogicUtils.TRUE_INT
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import functions.{ignored_rule, _}
 import impl.PackId.packId
@@ -753,6 +754,54 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       )))), (Passed, Passed), Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
+  test("if_relevant") {
+    // #136 - if_relevant(filter, cond) => if(filter, if(cond, passed, failed), ignored)
+    // resultChecker asserts on a single (arbitrary, due to repartition) row, so each
+    // rule must produce the same result for every id in 0..999
+    // Rule 30: filter=false for all ids -> IgnoredRule
+    // Rule 31: filter=true, cond=true for all ids -> Passed
+    // Rule 32: filter=true, cond=false for all ids -> Failed
+    // Rule 33: filter null -> Failed
+    // Rule 34: filter=true, cond null -> Failed
+    // Rules 35-38 cover non-boolean inputs: both filter and cond go through
+    // anyToRuleResultInt, so the string/int encodings accepted there must work
+    // in either position (one of each kind is enough).
+    // Rule 35: cond='true' string -> Passed
+    // Rule 36: cond='passed' string -> Passed
+    // Rule 37: filter='true' string, cond='failed' string -> Failed
+    // Rule 38: cond='ignored' string -> passes the rule result through -> IgnoredRule
+    // Rule 39: other conds should flow through
+    // Rule 40: numeric value check
+    // Rule 41: numeric negative check
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule(s"if_relevant(id > 5 * $resultCheckerCodeGenSize, id > 0)")),
+        Rule(Id(31, 3), ExpressionRule("if_relevant(id >= 0, id >= 0)")),
+        Rule(Id(32, 3), ExpressionRule("if_relevant(id >= 0, id < 0)")),
+        Rule(Id(33, 3), ExpressionRule("if_relevant(cast(null as boolean), id > 0)")),
+        Rule(Id(34, 3), ExpressionRule("if_relevant(true, cast(null as boolean))")),
+        Rule(Id(35, 3), ExpressionRule("if_relevant(id >= 0, 'true')")),
+        Rule(Id(36, 3), ExpressionRule("if_relevant(id >= 0, 'passed')")),
+        Rule(Id(37, 3), ExpressionRule("if_relevant('true', 'failed')")),
+        Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')")),
+        Rule(Id(39, 3), ExpressionRule("if_relevant(id >= 0, disabled_rule())")),
+        Rule(Id(40, 3), ExpressionRule("if_relevant(1, id >= 0)")),// use id to force evaluation
+        Rule(Id(41, 3), ExpressionRule("if_relevant(0, id >= 0)")),
+      )))), (Failed, Failed), Seq(IgnoredRule, Passed, Failed, Failed, Failed,
+        Passed, Passed, Failed, IgnoredRule, DisabledRule, Passed, IgnoredRule))
+
+    evalCodeGens {
+      val s = sparkSession
+      import s.implicits._
+      val res = s.sql("select 1 id").select(
+        if_relevant(col("id") >= 0, col("id") >= 0),
+        if_relevant(col("id") >= 0, disabled_rule)
+      ).as[(Int, Int)].head()
+
+      res shouldBe (TRUE_INT, DisabledRuleInt)
+    }
+  }
+
   test("mixedIgnore") {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -839,6 +888,18 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       Map(Passed -> 6, SoftFailed -> 2)
     ))
   } }
+
+  // would pass is covered by BooleanGrouperTest for compilation only, this test covers evals
+  test("would_pass behaviour should make sense") {
+    forceInterpreted {
+      val s = sparkSession
+      import s.implicits._
+      s.sql("select would_pass(1)").as[Boolean].head() shouldBe true
+      s.sql("select would_pass(null)").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('failed')").as[Boolean].head() shouldBe false
+      s.sql("select would_pass('ignored')").as[Boolean].head() shouldBe false
+    }
+  }
 
 }
 

@@ -1,3 +1,16 @@
+### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>16th September, 2026</small>
+
+This small feature release adds the if_relevant function.
+
+#136 - if_relevant added, allowing a filter to choose which rules should trigger for a given row
+
+> Special thanks to Ievgenii Korniichuk for this contribution 
+
+#148 - integrate if_relevant and 'if' optimisations into TopLevelBooleanGrouper
+
+> if_relevant is converted to a test of both filter and condition, 'if' however gets both paths treated as two distinct rules.
+> Any nested 'if' branches are left -as-is- and only the first two branches are processed.
+
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/11?closed=1) <small>1st August, 2026</small>
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4, 3 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  

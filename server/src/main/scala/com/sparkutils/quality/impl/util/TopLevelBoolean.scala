@@ -2,8 +2,8 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{groupProcessorAuditBucketStep, groupProcessorAuditMaxBucket, groupProcessorAuditMinBucket, groupProcessorBucketSizeKey, groupProcessorPercentFilter}
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
-import com.sparkutils.quality.impl.{Group, Groups, Runner, Trigger, Triggers}
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
+import com.sparkutils.quality.impl.{Group, Groups, IfRelevantExpr, PassedTestExpr, Runner, Trigger, Triggers}
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, If, Literal, Murmur3Hash, Not, Or, Remainder}
 import org.apache.spark.sql.types.{BooleanType, IntegerType, StringType}
 
 import scala.collection.mutable.ArrayBuffer
@@ -131,10 +131,12 @@ object TopLevelBoolean {
     def bucketer(bucket: Int, bucketSize: Int) =
       exprs match {
         case s if s.size == 1 => s.head
-        case _ => exprs.reduce(And)
+        //case s if s.isEmpty => Literal(true) // e.g. Not
+        //case _ => exprs.reduce(And)
+        case _ => Literal(true) // e.g. Not
       }
 
-    override def bucket(trigger: Expression, bucketSize: Int): Int = 0
+    override def bucket(trigger: Expression, bucketSize: Int): Int = exprs.indexOf(trigger)
   }
   // $COVERAGE-ON$
 
@@ -151,7 +153,7 @@ object TopLevelBoolean {
       else
         EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
-      System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
+      //System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
       NoIdeaDiff(expressions.toSeq)
   }
 
@@ -227,8 +229,28 @@ object TopLevelBoolean {
   }
   // $COVERAGE-ON$
 
+  def topLevelRewrite(triggers: Seq[Trigger]): Seq[Trigger] =
+    triggers flatMap {
+      case t@ Trigger(i: IfRelevantExpr, _, _, _) if (i.left.dataType == BooleanType && i.right.dataType == BooleanType) =>
+        Seq(t.copy(expression = And( i.left, i.right) ))
+      case t@ Trigger(i: IfRelevantExpr, _, _, _) =>
+        // positive case is covered by anyToRuleResultIntGen, negative case is ignored
+        Seq(t.copy(expression = And( PassedTestExpr.passed(i.left), PassedTestExpr.passed(i.right)) ))
+      case t@ Trigger(i: If, _, _, _) if (i.trueValue.dataType == BooleanType && i.falseValue.dataType == BooleanType) =>
+        // rewrite if, although predicate is boolean, the others could be convertible to PassedInt
+        Seq(t.copy(expression = And(i.predicate, i.trueValue)),
+          t.copy(expression = And(Not(i.predicate), i.falseValue)))
+      case t@ Trigger(i: If, _, _, _) =>
+        // rewrite if, although predicate is boolean, the others could be convertible to PassedInt
+        Seq(t.copy(expression = And(i.predicate, PassedTestExpr.passed(i.trueValue))),
+          t.copy(expression = And(Not(i.predicate), PassedTestExpr.passed(i.falseValue))))
+      case t => Seq(t)
+    }
+
   def bucket(triggers: Seq[Trigger], targetParams: (Int, Double) = (130, 0.12)): Seq[Group] = {
-    val expressions = MultiCommutativeOpOps.origin(triggers)
+    val expressions = topLevelRewrite(
+      MultiCommutativeOpOps.origin(triggers)
+    )
     val (orderedLarger, subs) = sorted(expressions, targetParams._2)
     val targetBucket = targetParams._1
 
@@ -255,7 +277,8 @@ object TopLevelBoolean {
 
             triggers.foreach {
               trigger =>
-                val theseParts = differentiate(differentiateFrom(trigger.expression, i => subs(i).isEmpty))
+                val s = differentiateFrom(trigger.expression, i => subs(i).isEmpty)
+                val theseParts = differentiate(s)
 
                 addToMap(differentiatingBooleans, theseParts, trigger)
             }
@@ -331,6 +354,8 @@ object TopLevelBoolean {
   def differentiateFromParts(expression: Expression): Set[Expression] = expression match {
     case And(left, right) => differentiateFromParts(left) ++ differentiateFromParts(right)
     case e: EqualTo => Set(e)
+    case p: PassedTestExpr => Set(p)
+    case n: Not => Set(n)
     case _ => Set.empty
   }
 

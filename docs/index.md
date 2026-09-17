@@ -18,7 +18,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
 Version 0.2.0 represents a major milestone with almost 8,440 net new lines of code across 31 issues,
-please check the [changelog](background/changelog.md) for more details.
+please check the [changelog](background/changelog.md) for more details.  0.2.1 adds the if_relevant function.
 
 * :new:{.pulseABit} Spark 4.1, 4.2 and 4.x [Connect Support](getting_started/connect.md)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic

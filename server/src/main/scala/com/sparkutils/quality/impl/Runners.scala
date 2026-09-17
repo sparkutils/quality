@@ -217,12 +217,14 @@ trait HasOutput extends Runner {
 
   val audited: Boolean
 
-  def performGroupingAuditDump(): Unit = {
+  def performGroupingAuditDump(): Boolean = {
     if (shouldAudit && canAudit) {
 
       Triggers.loadTriggerGrouper(extraConfig).dumpAudit(this)
+      true
 
-    }
+    } else
+      false
   }
 }
 

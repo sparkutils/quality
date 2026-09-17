@@ -9,13 +9,14 @@ import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, Not, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -215,24 +216,70 @@ object RuleLogicUtils {
       case _ => FailedInt // anything else is a fail
     }
 
-  private val TRUE_INT = 1
+  /**
+   * The small-int encoding for Passed that anyToRuleResultInt(Gen) accepts.
+   *
+   * anyToRuleResultInt(Gen) only treats values in [UnevaluatedRuleInt, TRUE_INT]
+   * as rule results, mapping TRUE_INT to PassedInt. Expressions whose result is
+   * re-mapped by the runners must therefore emit TRUE_INT for Passed rather than
+   * PassedInt (100000), which would fall outside the range and coerce to Failed.
+   * See SoftFailedUtils.softFail, which returns 1/-1 for the same reason.
+   */
+  val TRUE_INT = 1
+
+  def anyToRuleResultIntGen(code: ExprCode, compareToPassedInt: Boolean = false, compareNotEqual: Boolean = false): String =
+    anyToRuleResultIntGenValues(code.value, code.isNull, compareToPassedInt, compareNotEqual)
 
   // used during compilation code gen
-  def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
+  def anyToRuleResultIntGenValues(code: ExprValue, isNull: ExprValue, compareToPassedInt: Boolean = false,
+                            compareNotEqual: Boolean = false): String = {
     // auto boxing on Databricks doesn't work due to old Janino see #82
     val edt = code.javaType
     val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-    val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
+    val comp =
+      if (compareNotEqual)
+        " != "
+      else
+        " == "
+
+    val compareToTest =
+      if (compareToPassedInt)
+        s"$comp $PassedInt"
+      else
+        ""
+
+    val default =
+      if (compareToPassedInt)
+        s"($isNull ? false : (com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) ) $compareToTest ))"
+      else
+        s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
 
     val res =
       if (code.javaType.isPrimitive)
         code.javaType match {
           case java.lang.Boolean.TYPE =>
-            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+            val test = s"(${isNull} ? false : $code)"
+            if (compareToPassedInt)
+              if (compareNotEqual)
+                s"!$test"
+              else
+                test
+            else
+              s"$test ? $PassedInt : $FailedInt"
           case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
-            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
-              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+            val trueOrFalse =
+              if (compareNotEqual)
+                "false"
+              else
+                "true"
+
+            if (compareToPassedInt)
+              s"(( ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+                s" ( ($code == $TRUE_INT) ? $trueOrFalse : (int) $code $compareToTest) : !$trueOrFalse ) )"
+            else
+              s"(( ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+                s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt ) )"
           case _ =>
             default
         }

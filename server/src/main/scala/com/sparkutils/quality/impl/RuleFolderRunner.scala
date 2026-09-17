@@ -325,11 +325,14 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    val r = copy(children = processNewChildren(newChildren), audited = true)
-    if (!audited) {
-      r.performGroupingAuditDump()
-    }
-    r
+    val r = copy(children = processNewChildren(newChildren))
+    if (!r.audited) {
+      if (r.performGroupingAuditDump())
+        r.copy(audited = true)
+      else
+        r
+    } else
+      r
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)

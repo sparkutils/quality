@@ -32,7 +32,7 @@ object StatisticsThroughputBenchmarkTestSetup extends TestUtils {
 
   val data = Seq(("a", r))
 
-  val partitions = Gen.range("partitions")(10, 50, 10)
+  val partitions = Gen.range("partitions")(50, 50, 50)
   val rows = Gen.range("rulesetCount")(100000, 1000000, 100000)
   // for memory usage, hardly any difference, most time likely in shuffling
   // val rows = Gen.range("rulesetCount")(100000, 1000000, 100000)
