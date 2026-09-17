@@ -40,7 +40,6 @@ case class IfRelevantExpr(left: Expression, right: Expression) extends BinaryExp
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     val leftCode = left.genCode(ctx)
     val rightCode = right.genCode(ctx)
-    val ifRelevantFilterRes = ctx.freshName("ifRelevantFilterRes")
     val ifRelevantCondRes = ctx.freshName("ifRelevantCondRes")
 
     ev.copy(isNull = FalseLiteral, code =
@@ -48,8 +47,7 @@ case class IfRelevantExpr(left: Expression, right: Expression) extends BinaryExp
          |${leftCode.code}
          |int ${ev.value} = $FailedInt;
          |if (!${leftCode.isNull}) {
-         |  int $ifRelevantFilterRes = ${anyToRuleResultIntGen(leftCode)};
-         |  if ($ifRelevantFilterRes != $PassedInt) {
+         |  if (${anyToRuleResultIntGen(leftCode, compareToPassedInt = true, compareNotEqual = true)}) {
          |    ${ev.value} = $IgnoredRuleInt;
          |  } else {
          |    ${rightCode.code}

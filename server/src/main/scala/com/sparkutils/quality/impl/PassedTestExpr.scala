@@ -32,7 +32,7 @@ case class PassedTestExpr(child: Expression) extends UnaryExpression {
       code"""
          |${childCode.code}
          |boolean ${ev.value} = false;
-         |if (!${childCode.isNull} && ((${anyToRuleResultIntGen(childCode)}) == $PassedInt)) {
+         |if (!${childCode.isNull} && ${anyToRuleResultIntGen(childCode, compareToPassedInt = true)}) {
          |  ${ev.value} = true;
          |}
          |""".stripMargin

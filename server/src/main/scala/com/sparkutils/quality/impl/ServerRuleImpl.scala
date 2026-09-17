@@ -227,24 +227,59 @@ object RuleLogicUtils {
    */
   val TRUE_INT = 1
 
-  def anyToRuleResultIntGen(code: ExprCode): String = anyToRuleResultIntGen(code.value, code.isNull)
+  def anyToRuleResultIntGen(code: ExprCode, compareToPassedInt: Boolean = false, compareNotEqual: Boolean = false): String =
+    anyToRuleResultIntGenValues(code.value, code.isNull, compareToPassedInt, compareNotEqual)
 
   // used during compilation code gen
-  def anyToRuleResultIntGen(code: ExprValue, isNull: ExprValue): String = {
+  def anyToRuleResultIntGenValues(code: ExprValue, isNull: ExprValue, compareToPassedInt: Boolean = false,
+                            compareNotEqual: Boolean = false): String = {
     // auto boxing on Databricks doesn't work due to old Janino see #82
     val edt = code.javaType
     val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-    val default = s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
+    val comp =
+      if (compareNotEqual)
+        " != "
+      else
+        " == "
+
+    val compareToTest =
+      if (compareToPassedInt)
+        s"$comp $PassedInt"
+      else
+        ""
+
+    val default =
+      if (compareToPassedInt)
+        s"($isNull ? false : (com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) ) $compareToTest ))"
+      else
+        s"$isNull ? $FailedInt : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt( ($theCast) ( $code ) )"
 
     val res =
       if (code.javaType.isPrimitive)
         code.javaType match {
           case java.lang.Boolean.TYPE =>
-            s"(${isNull} ? false : $code) ? $PassedInt : $FailedInt"
+            val test = s"(${isNull} ? false : $code)"
+            if (compareToPassedInt)
+              if (compareNotEqual)
+                s"!$test"
+              else
+                test
+            else
+              s"$test ? $PassedInt : $FailedInt"
           case java.lang.Integer.TYPE | java.lang.Long.TYPE =>
-            s" ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
-              s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt"
+            val trueOrFalse =
+              if (compareNotEqual)
+                "false"
+              else
+                "true"
+
+            if (compareToPassedInt)
+              s"(( ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+                s" ( ($code == $TRUE_INT) ? $trueOrFalse : (int) $code $compareToTest) : !$trueOrFalse ) )"
+            else
+              s"(( ((!(${isNull}) && ($code >= $UnevaluatedRuleInt && $code <= $TRUE_INT) ) ? true: false) ?" +
+                s" ( ($code == $TRUE_INT) ? $PassedInt : (int) $code ) : $FailedInt ) )"
           case _ =>
             default
         }
