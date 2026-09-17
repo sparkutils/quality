@@ -771,6 +771,8 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     // Rule 37: filter='true' string, cond='failed' string -> Failed
     // Rule 38: cond='ignored' string -> passes the rule result through -> IgnoredRule
     // Rule 39: other conds should flow through
+    // Rule 40: numeric value check
+    // Rule 41: numeric negative check
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
         Rule(Id(30, 3), ExpressionRule(s"if_relevant(id > 5 * $resultCheckerCodeGenSize, id > 0)")),
@@ -782,9 +784,11 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
         Rule(Id(36, 3), ExpressionRule("if_relevant(id >= 0, 'passed')")),
         Rule(Id(37, 3), ExpressionRule("if_relevant('true', 'failed')")),
         Rule(Id(38, 3), ExpressionRule("if_relevant(id >= 0, 'ignored')")),
-        Rule(Id(39, 3), ExpressionRule("if_relevant(id >= 0, disabled_rule())"))
+        Rule(Id(39, 3), ExpressionRule("if_relevant(id >= 0, disabled_rule())")),
+        Rule(Id(40, 3), ExpressionRule("if_relevant(1, id >= 0)")),// use id to force evaluation
+        Rule(Id(41, 3), ExpressionRule("if_relevant(0, id >= 0)")),
       )))), (Failed, Failed), Seq(IgnoredRule, Passed, Failed, Failed, Failed,
-        Passed, Passed, Failed, IgnoredRule, DisabledRule))
+        Passed, Passed, Failed, IgnoredRule, DisabledRule, Passed, IgnoredRule))
 
     evalCodeGens {
       val s = sparkSession
