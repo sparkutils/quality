@@ -19,15 +19,6 @@ trait GenericLongBasedImports {
     callFunction("rng_id", lit(prefix), lit(randomSource.name()), lit(seed))
 
   /**
-   * Creates a hash based ID based on an upstream compatible long generator, in line with sql functions please migrate to provided_id
-   * @param prefix
-   * @return
-   */
-  @deprecated(message = "migrate to provided_id, providedID will be removed in 0.3.0", since = "0.1.0")
-  def providedID(prefix: String, child: Column): Column =
-    provided_id(prefix, child)
-
-  /**
    * Creates a hash based ID based on an upstream compatible long generator
    *
    * @param prefix

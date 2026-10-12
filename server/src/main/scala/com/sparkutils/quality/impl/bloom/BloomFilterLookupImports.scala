@@ -31,19 +31,6 @@ trait BloomFilterRegistration {
 trait BloomFilterLookupFunctionImport {
 
   /**
-   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName.  In line with the sql functions please migrate to probability_in
-   *
-   * @param bloomFilterName
-   * @param lookupValue
-   * @param bloomMap
-   * @return
-   */
-  @deprecated(since="0.1.0", message="Please migrate to bloom_lookup, bloomFilterLookup will be removed in 0.2.0")
-  @ClassicOnly
-  def bloomFilterLookup(lookupValue: Column, bloomFilterName: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
-    BloomFilterLookup(lookupValue, bloomFilterName, bloomMap)
-
-  /**
    * Lookup the value against a bloom filter from bloomMap with name filterName.
    *
    * @param filterName
@@ -54,6 +41,7 @@ trait BloomFilterLookupFunctionImport {
   @ClassicOnly
   def probability_in(lookupValue: Column, filterName: String, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
     BloomFilterLookup(lookupValue, lit(filterName), bloomMap)
+
 }
 
 trait BloomFilterLookupImports {

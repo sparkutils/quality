@@ -42,19 +42,6 @@ trait HashRelatedFunctionImports {
   def field_based_id(prefix: String, digestImpl: String, cols: Column*): Column =
     fieldBasedIDF("field_based_id", prefix, digestImpl, cols :_*)
 
-
-  /**
-   * Creates an id from fields using MessageDigests, in line with SQL naming please use field_based_id
-   *
-   * @param prefix
-   * @param digestImpl
-   * @param children
-   * @return
-   */
-  @deprecated(message = "migrate to field_based_id", since = "0.1.0")
-  def fieldBasedID(prefix: String, digestImpl: String, children: Column *): Column =
-    field_based_id(prefix, digestImpl, children:_*)
-
   /**
    * Creates an id from fields using ZeroAllocation LongTuple Factory (128-bit)
    *

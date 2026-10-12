@@ -4,7 +4,6 @@ import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.functions.rng_bytes
-import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.quality.impl.types._
 import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, SparkTestUtils}
@@ -217,7 +216,7 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
       using(rows) in evaluate(_.withColumn("uuid", rng_bytes(RandomSource.PCG_RXS_M_XS_64) ), "writeWithPCG")
     }
     measure method "writeWithXOR128" in {
-      using(rows) in evaluate(_.withColumn("uuid", RandomBytes(RandomSource.XO_RO_SHI_RO_128_PP) ), "writeWithXOR")
+      using(rows) in evaluate(_.withColumn("uuid", rng_bytes(RandomSource.XO_RO_SHI_RO_128_PP) ), "writeWithXOR")
     }
     measure method "writeWithoutUUID" in {
       using(rows) in evaluate(_.withColumn("uuid", col("id")), "writeWithoutUUID")

@@ -71,8 +71,8 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFields[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
-                                                   debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                   maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
+                                               debugMode: Boolean = false, maintainOrder: Boolean = true,
+                                               alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Left(fields), foldFieldName,
       debugMode, maintainOrder, alias = alias)
 
@@ -88,8 +88,8 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldPairs[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[(String, Column)], foldFieldName: String = "foldedFields",
-                                                   debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                   maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
+                                                   debugMode: Boolean = false, maintainOrder: Boolean = true,
+                                                   alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, maintainOrder, alias = alias)
 
@@ -108,8 +108,7 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldsWithStruct[P[R] >: Dataset[R]](rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields",
-      debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-      maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
+      debugMode: Boolean = false, maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Left(struct.fields.map(_.name)), foldFieldName,
       debugMode, maintainOrder, useType = Some(struct), alias = alias)
 
@@ -129,8 +128,8 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldPairsWithStruct[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[(String, Column)], struct: StructType, foldFieldName: String = "foldedFields",
-                                                             debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                             maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
+                                                             debugMode: Boolean = false, maintainOrder: Boolean = true,
+                                                             alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, maintainOrder, useType = Some(struct), alias = alias)
 
