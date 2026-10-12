@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.classicFunctions._
 import com.sparkutils.quality.impl.CollectRunner.collectRunnerClassic
-import com.sparkutils.quality.impl.ReWriteConstants.{INC_REWRITE_GENEXP_ERR_MSG, RULE_SUITE_GROUPS_MISSING_ERR_MSG}
+import com.sparkutils.quality.impl.ReWriteConstants.RULE_SUITE_GROUPS_MISSING_ERR_MSG
 import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
 import com.sparkutils.quality.impl.aggregates.{AggregateExpressions, StatisticsDeclarative}
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
@@ -292,12 +292,7 @@ object RuleRegistrationFunctions {
               }
             (typ, exps(0), exps(1), exps(2))
           case 4 =>
-            val Literal(str: UTF8String, StringType) = exps(0) // only accept type as string
-            if (str.toString == "NO_REWRITE")
-            // signal not to replace types
-            (null, exps(1), exps(2), exps(3))
-              else
-              (parse(exps(0)), exps(1), exps(2), exps(3))
+            (parse(exps(0)), exps(1), exps(2), exps(3))
         }
       AggregateExpressions(sumType, filter, sum, count, zero, add)
     }
@@ -317,7 +312,7 @@ object RuleRegistrationFunctions {
       val (sumType, exp) =
         exps.size match {
           case 1 => (LongType, exps(0))
-          case 2 => (parse(exps(0)), exps(1)) // support the NO_REWRITE override case
+          case 2 => (parse(exps(0)), exps(1))
         }
 
       FunN(Seq(RefExpression(sumType), RefExpression(LongType)), exp, Some("results_With"), usedAsLambda = true)
@@ -358,8 +353,6 @@ object RuleRegistrationFunctions {
       case Seq(Literal(str: UTF8String, StringType), x: AttributeReference) =>
         val name = x.qualifier.mkString(".") + x.name
         sumWith(s"sum -> sum + $name")(Seq(exps(0))) // keep the type, drop the attr
-      case Seq(Literal(str: UTF8String, StringType), y) =>
-        qualityException(INC_REWRITE_GENEXP_ERR_MSG)
       case Seq( y ) =>
         val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = expression(functions.expr("sumWith(sum -> sum + 1)")).children(0)
         import ShimUtils.{add => addf}

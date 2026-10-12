@@ -13,8 +13,6 @@ Support OSS Spark 3.4 and Databricks 14.3 is now deprecated and will be removed 
 
 #119 - Remove rule_suite_statistics_aggregator
 
-#135 - Remove NO_REWRITE logic
-
 #134 - Remove sparkless
 
 #150 - Rule suite templates - 'derive' and override rule suites from an existing template rule suite

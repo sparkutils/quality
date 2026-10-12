@@ -1,9 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.functions.{agg_expr, inc, return_sum}
-import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DecimalType
@@ -42,20 +41,6 @@ class AggregatesClassicTest extends SharedConnectTests with AggregatesTestBase {
   test("decimalPrecisionIncExprDSLTest") {
     funNRewrites {
       doDecimalPrecisionTestF(df => agg_expr(DecimalType(37, 18), df("dec").isNotNull, inc(df("dec") + 0), return_sum) as "agg")
-    }
-  }
-
-  test("decimalPrecisionNO_REWRITEIncTest") {
-    funNRewrites {
-      try {
-        doDecimalPrecisionTest(expr("aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(37,18)', cast( dec as DECIMAL(37,18))), returnSum('DECIMAL(37,18)')) as agg"))
-        fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG)
-      } catch {
-        case t: Throwable if t.getMessage.contains(INC_REWRITE_GENEXP_ERR_MSG) =>
-        // passed
-        case t: Throwable =>
-          fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG + " but threw ", t)
-      }
     }
   }
 

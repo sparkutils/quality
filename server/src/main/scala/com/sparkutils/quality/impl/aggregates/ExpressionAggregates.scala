@@ -60,12 +60,7 @@ object AggregateExpressions {
         correctEvaluate(sumType, evaluate)
 
     val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
-      if (sumType eq null)
-        (sum, evaluate, sum, evaluate)
-      else {
-        val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
-        temp
-      }
+      (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
 
     ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, sumType).toAggregateExpression()
   }
