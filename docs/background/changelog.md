@@ -1,3 +1,28 @@
+### [0.3.0](https://github.com/sparkutils/quality/milestone/13?closed=1) <small>31th December, 2026</small>
+
+This release removes a swathe of deprecated functionality, including DBR 13.x,
+all OSS < 3.4, the rule_suite_statistics_aggregator and the experimental sparkless approach.
+
+Support OSS Spark 3.4 and Databricks 14.3 is now deprecated and will be removed in subsequent releases.
+
+0.3.0 introduces two new features, named projector and rule suite templates, and an experimental optimisation with lazy CSE. 
+
+#102 - Remove all below 3.4.1, DBR 14.3
+
+#105 - Remove deprecated functions / parameters
+
+#119 - Remove rule_suite_statistics_aggregator
+
+#135 - Remove NO_REWRITE logic
+
+#134 - Remove sparkless
+
+#150 - Rule suite templates - 'derive' and override rule suites from an existing template rule suite
+
+#151 - Named projector - use RuleSuite configuration to manage projections
+
+#152 - Experimental Lazy CSE - only calculate common subexpressions on demand, this reduces the cost for code paths using CSEs that are never used for a given row 
+
 ### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>16th September, 2026</small>
 
 This small feature release adds the if_relevant function.

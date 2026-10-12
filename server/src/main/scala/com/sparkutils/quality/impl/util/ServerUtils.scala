@@ -2,23 +2,13 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.ParameterInformation.isCodeGenParameter
-import com.sparkutils.quality.impl.util.Params.{prepFields, stripBrackets}
-import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
-import net.jpountz.lz4.{LZ4BlockInputStream, LZ4BlockOutputStream, LZ4Factory}
-import net.jpountz.xxhash.XXHashFactory
-import org.apache.spark.SparkConf
-import org.apache.spark.internal.config.IO_COMPRESSION_LZ4_BLOCKSIZE
-import org.apache.spark.io.CompressionCodec
+import com.sparkutils.quality.impl.util.Params.prepFields
+import com.sparkutils.quality.impl.RuleLogicUtils
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.{isProbablyLocalCompilationScope, isProbablyLocalScope}
 import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, Literal, UnaryExpression, Unevaluable, UnsafeArrayData}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, Literal, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
-
-import java.io.{InputStream, OutputStream}
-import scala.reflect.ClassTag
 
 sealed trait LookupType {
   val name: String
