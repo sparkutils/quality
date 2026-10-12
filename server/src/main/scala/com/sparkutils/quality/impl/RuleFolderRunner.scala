@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{impl, _}
-import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.Triggers.defaultGrouper
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}

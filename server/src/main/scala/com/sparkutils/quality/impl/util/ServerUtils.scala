@@ -106,7 +106,7 @@ case class PassThroughCompileEvals(child: Expression) extends UnaryExpression wi
  * Should not be used in queryplanning  TODO verify if this still needs to be unevaluable, it did under spark 2.4
  * @param rules should be hidden from plans
  */
-case class NonPassThrough(rule: Expression) extends UnaryExpression with ThreeOnlyNonFoldable with Unevaluable {
+case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevaluable {
 
   override def nullable: Boolean = true
 
