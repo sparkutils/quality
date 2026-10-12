@@ -210,7 +210,7 @@ As there are many compatibility issues that Quality works around between the var
 
 <dependencies>
     <dependency>
-        <groupId>com.sparkutils.</groupId>
+        <groupId>com.sparkutils</groupId>
         <artifactId>quality_${qualityTestPrefix}${sparkShortVersion}_${scalaCompatVersion}</artifactId>
         <version>${qualityVersion}</version>
         <scope>test</scope>
@@ -223,8 +223,6 @@ As there are many compatibility issues that Quality works around between the var
     </dependency>
 </dependencies>
 ```
-
-That horrific looking "." on the test groupId is required to get Maven 3 to use different versions [many thanks for finding this Zheng](https://stackoverflow.com/a/67743309).
 
 It's safe to assume better build tools like gradle / sbt do not need such hackery. 
 
