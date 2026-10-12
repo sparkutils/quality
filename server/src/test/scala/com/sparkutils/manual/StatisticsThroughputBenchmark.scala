@@ -2,7 +2,7 @@ package com.sparkutils.manual
 
 import com.sparkutils.manual.StatisticsThroughputBenchmarkTestSetup.generator
 import com.sparkutils.quality
-import com.sparkutils.quality.functions.{rule_suite_statistics, rule_suite_statistics_aggregator}
+import com.sparkutils.quality.functions.rule_suite_statistics
 import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSuiteResult, SoftFailed, registerQualityFunctions}
 import com.sparkutils.testing.{ClassicOnly, Sessions, TestUtils}
 import org.apache.spark.sql.SaveMode.Overwrite
@@ -120,11 +120,6 @@ object StatisticsThroughputBenchmark extends Bench.OfflineReport with TestUtils 
       using(generator) in evaluate( rule_suite_statistics )
     }
 
-    measure method "aggregator" in {
-      val s = sparkSession
-
-      using(generator) in evaluate( rule_suite_statistics_aggregator )
-    }
   }
 
   override def sessions: Sessions =  createSparkSessions(ClassicOnly)

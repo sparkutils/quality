@@ -2,10 +2,9 @@ package com.sparkutils.qualityTests
 
 import org.apache.spark.sql.functions.{col, expr}
 import com.sparkutils.quality.{RuleSuiteGroupStatistics, _}
-import com.sparkutils.quality.functions.{rule_suite_statistics, rule_suite_statistics_aggregator}
+import com.sparkutils.quality.functions.rule_suite_statistics
 import org.scalatest.Matchers
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
-import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import org.apache.spark.sql.Column
 
 class StatisticsTest extends SharedPureConnectTests with Matchers {
@@ -14,12 +13,6 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
   test("default declarative stats function") {
     aggTest("rule_suite_statistics", rule_suite_statistics)
   }
-
-  // #117 - shouldn't be used, but kept in case the default implementation has issues, this is easier to prove correctness
-  // and far easier to reason about
-  test("aggregator based stats function") { not_Databricks {
-    aggTest("rule_suite_statistics_aggregator", rule_suite_statistics_aggregator)
-  } }
 
   def aggTest(func: String, statF: Column => Column): Unit = {
     val rsr = Seq(
