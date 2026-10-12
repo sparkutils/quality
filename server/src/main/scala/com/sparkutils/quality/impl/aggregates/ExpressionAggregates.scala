@@ -181,12 +181,7 @@ case class ExpressionAggregates(override val children: Seq[Expression], zero: Da
     val correctedSum = correctSum(sumType, sumWith, wrapCastOnly = true)
 
     val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
-      if (sumType eq null)
-        (sumWith, evaluate, sumWith, evaluate)
-      else {
-        val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
-        temp
-      }
+      (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
 
     Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate)
   }
