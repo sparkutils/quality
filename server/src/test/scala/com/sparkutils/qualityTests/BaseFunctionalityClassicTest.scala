@@ -189,6 +189,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
       Rule(Id(31, 3), ExpressionRule("(a > 1) and (a between b and c)")),
       Rule(Id(32, 3), ExpressionRule("(a > 1) and (a between b and c)")), // to force ExpressionProxy in interpreted
       Rule(Id(33, 3), ExpressionRule("true")), // to force ConstantFolding handling
+      Rule(Id(34, 3), ExpressionRule("rand() < 2")), // to force Stateful test in ZeroCodeGen
     ))))
 
     import quality.implicits._

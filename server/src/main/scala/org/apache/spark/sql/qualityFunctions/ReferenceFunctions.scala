@@ -298,6 +298,8 @@ trait Binder extends HigherOrderFunctionLike {
  * Importantly, we _do_ want children to be subexpr eliminated where possible, hence throwaway code.
  * @param funN
  */
+// designed not to be called and swapped out, children may be called, everything else would fail.
+// $COVERAGE-OFF$
 case class FunNLambda(funN: FunN) extends Expression {
 
   override def children: Seq[Expression] = funN.children
@@ -320,6 +322,7 @@ case class FunNLambda(funN: FunN) extends Expression {
         """)
 
 }
+// $COVERAGE-ON$
 
 object FunNLambda {
 

@@ -9,15 +9,13 @@ import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
-import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, Not, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, ExpressionProxy, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -926,10 +924,4 @@ object RuleSuiteFunctions {
 
     (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
-}
-
-case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
-  extends LazyRuleSuiteResultDetails with Serializable {
-
-  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
 }

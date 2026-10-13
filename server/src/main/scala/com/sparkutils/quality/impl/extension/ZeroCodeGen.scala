@@ -44,13 +44,14 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
     }.nonEmpty) || on32) // remove in 0.3.0 when we drop 3.2, 3.2 puts the apply call into a subexpression and doesn't pass params as well Literal doesn't have any
       copy(child = newChild, realChild = newChild)
     else  // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
-      if (wrapped) {
-        // $COVERAGE-OFF$
+      if (wrapped)
+      // $COVERAGE-OFF$
+      {
         logTrace("ZeroCodeGen doesn't expect another expression optimisation after Unevaluable's are removed but got "+newChild)
         copy(child = newChild)
-        // $COVERAGE-ON$
-      } else {
-        copy(child = Literal(null, newChild.dataType), realChild = newChild, wrapped = true)
       }
+      // $COVERAGE-ON$
+      else
+        copy(child = Literal(null, newChild.dataType), realChild = newChild, wrapped = true)
 
 }
