@@ -88,9 +88,17 @@ private[quality] object ExpressionRunnerUtils {
       )
     )
 
+  def getType(expr: Expression): String =
+    expr match {
+      case e: YamlEncoderExpr => e.child.dataType.sql
+      // it's been folded e.g. expression was 'true'
+      case e => e.dataType.sql
+    }
+
+  // used by compilation
   def fillDDLs(ar: Array[Any], children: Seq[Expression]): Unit = {
     for( i <- 0 until children.size) {
-      ar(i) = UTF8String.fromString(children(i).children.head.dataType.sql)
+      ar(i) = UTF8String.fromString(getType(children(i)))
     }
   }
 

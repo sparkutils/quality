@@ -10,6 +10,7 @@ import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr
+import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils.{arguments, newParser}
@@ -809,12 +810,6 @@ object RuleSuiteFunctions {
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
 
-    def getType(expr: Expression) =
-      expr match {
-        case e if e.children.nonEmpty => e.children.head.dataType.sql
-        case e => e.dataType.sql
-      }
-
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
@@ -829,8 +824,8 @@ object RuleSuiteFunctions {
                   expr.expr match {
                     case p: ExpressionProxy =>
                       // cse proxy will return the yaml type, we need the underlying
-                      getType(p.child)
-                    case e => getType(e)
+                      ExpressionRunnerUtils.getType(p.child)
+                    case e => ExpressionRunnerUtils.getType(e)
                   }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
