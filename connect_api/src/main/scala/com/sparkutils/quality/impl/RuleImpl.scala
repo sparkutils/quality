@@ -14,6 +14,17 @@ object RuleSuiteHelpers {
   def getContextOrSparkClassLoader: ClassLoader =
     Option(Thread.currentThread().getContextClassLoader).getOrElse(getSparkClassLoader)
 
+  /**
+   * The small-int encoding for Passed that anyToRuleResultInt(Gen) accepts.
+   *
+   * anyToRuleResultInt(Gen) only treats values in [UnevaluatedRuleInt, TRUE_INT]
+   * as rule results, mapping TRUE_INT to PassedInt. Expressions whose result is
+   * re-mapped by the runners must therefore emit TRUE_INT for Passed rather than
+   * PassedInt (100000), which would fall outside the range and coerce to Failed.
+   * See SoftFailedUtils.softFail, which returns 1/-1 for the same reason.
+   */
+  protected[sparkutils] val TRUE_INT = 1
+
   protected[quality] def deserializeImpl[T](in: Array[Byte]): T = {
     val os = new ObjectInputStream(new ByteArrayInputStream(in)) {
       override def resolveClass(desc: ObjectStreamClass): Class[_] =

@@ -1,12 +1,12 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleLogicUtils.{TRUE_INT, anyToRuleResultIntGen}
-import com.sparkutils.quality.impl.imports.RuleResultsImports.{FailedInt, IgnoredRuleInt, PassedInt}
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
+import com.sparkutils.quality.impl.imports.RuleResultsImports.PassedInt
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode, FalseLiteral}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Not, UnaryExpression}
-import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}
+import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
+import org.apache.spark.sql.types.{BooleanType, DataType}
 
 /**
  * When the value is compatible with PassedInt (or TRUE_INT) true, otherwise false

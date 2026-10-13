@@ -4,7 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
-import com.sparkutils.quality.impl.RuleLogicUtils.TRUE_INT
+import com.sparkutils.quality.impl.RuleSuiteHelpers.TRUE_INT
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import functions.{ignored_rule, _}
 import impl.PackId.packId
@@ -116,7 +116,7 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
 
     val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
-    val expected: Map[VersionedId, Map[VersionedId, MapLookups]] =
+    val expected: Map[VersionedId, Map[VersionedId, String]] =
       Map(Id(20, 1) -> Map(
         Id(30, 3) -> "!!java.lang.Long '499500'\n",
         Id(31, 3) -> "!!java.lang.Long '500'\n")
@@ -171,6 +171,7 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     ).select(ruleRunner(rs).as("res"))
 
     val res = processed.selectExpr("res.*").as[RuleSuiteResult].collect().head
+    res.getRuleSetResults.asScala shouldBe res.ruleSetResults
     assert(res.overallResult == overalls._1)
     val rsres = res.ruleSetResults.head._2
     assert(rsres.overallResult == overalls._2)
@@ -396,6 +397,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     val res2 = df.transform(taddOverallResultsAndDetailsF(ruleSuite)).select("DQ_overallResult", "DQ_Details").as[(RuleResult, RuleSuiteResultDetails)].collect()
     assert(res2.head._1 == res.head.overallResult)
     assert(res2.head._2 == res.head.details)
+    res.head.details.getRuleSetResults.asScala shouldBe res.head.details.ruleSetResults
   }
 
   test("testComparableResults") { evalCodeGensNoResolve {

@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleLogicUtils.{TRUE_INT, anyToRuleResultIntGen}
+import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
+import com.sparkutils.quality.impl.RuleSuiteHelpers.TRUE_INT
 import com.sparkutils.quality.impl.imports.RuleResultsImports.{FailedInt, IgnoredRuleInt, PassedInt}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription}

@@ -336,6 +336,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
 
     val res = outdf.select("together.*").as[RuleFolderResult[NewPosting]].collect()
 
+    Option(res.head.getResult.orElse(null)) shouldBe res.head.result
+
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
     assert(res(0).result.contains( NewPosting("from", "4201", "edt", 1234)))
     // #112 - overall should make sense

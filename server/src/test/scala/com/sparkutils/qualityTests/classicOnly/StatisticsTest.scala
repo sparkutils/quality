@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import com.sparkutils.quality.impl.aggregates.StatsRowOps
-import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed}
+import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed, UnevaluatedRule}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
@@ -55,7 +55,8 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
         Id(5,0) -> SoftFailed,
         Id(6,0) -> DisabledRule,
         Id(7,0) -> Probability(0.4),
-        Id(8,0) -> Probability(0.9)
+        Id(8,0) -> Probability(0.9),
+        Id(9,0) -> UnevaluatedRule
       )))
 
     updated shouldBe RuleSetStatistics(Id(1,0), failed = 3, passed = 3, ignored = 3, defaulted = 3, softFailed = 3,
@@ -67,7 +68,8 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
         Id(5,0) -> RuleStatistics(Id(5,0), softFailed = 4),
         Id(6,0) -> RuleStatistics(Id(6,0), disabled = 4),
         Id(7,0) -> RuleStatistics(Id(7,0), probabilityFailed = 4),
-        Id(8,0) -> RuleStatistics(Id(8,0), probabilityPassed = 4)
+        Id(8,0) -> RuleStatistics(Id(8,0), probabilityPassed = 4),
+        Id(9,0) -> RuleStatistics(Id(9,0), unevaluated = 1),
       ))
 
     // choose a rando to update...

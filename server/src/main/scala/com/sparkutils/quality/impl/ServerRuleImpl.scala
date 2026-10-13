@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
+import com.sparkutils.quality.impl.RuleSuiteHelpers.TRUE_INT
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
@@ -214,17 +215,6 @@ object RuleLogicUtils {
       case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => FailedInt
       case _ => FailedInt // anything else is a fail
     }
-
-  /**
-   * The small-int encoding for Passed that anyToRuleResultInt(Gen) accepts.
-   *
-   * anyToRuleResultInt(Gen) only treats values in [UnevaluatedRuleInt, TRUE_INT]
-   * as rule results, mapping TRUE_INT to PassedInt. Expressions whose result is
-   * re-mapped by the runners must therefore emit TRUE_INT for Passed rather than
-   * PassedInt (100000), which would fall outside the range and coerce to Failed.
-   * See SoftFailedUtils.softFail, which returns 1/-1 for the same reason.
-   */
-  val TRUE_INT = 1
 
   def anyToRuleResultIntGen(code: ExprCode, compareToPassedInt: Boolean = false, compareNotEqual: Boolean = false): String =
     anyToRuleResultIntGenValues(code.value, code.isNull, compareToPassedInt, compareNotEqual)
