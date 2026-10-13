@@ -1,17 +1,20 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{ExpressionRule, Failed, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite}
+import com.sparkutils.quality
+import com.sparkutils.quality.{ExpressionRule, Failed, GeneralExpressionsResult, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite, expressionRunner}
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
 import com.sparkutils.testing.SparkVersions
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, Encoder, SaveMode, functions}
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.IntegerType
 import org.scalatest.Matchers
+
+import scala.collection.immutable.Seq
 
 class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with BaseFunctionalityShared with Matchers {
 
@@ -178,5 +181,32 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
         )))), (Failed, Failed), Seq(IgnoredRule, IgnoredRule, IgnoredRule, IgnoredRule, Probability(-3.0), Failed), _.toSeq.dropRight(1))
     }
   }
+
+  // fails on encoding 4.2
+  test("testExpressions with CSE Proxy an no children") { forceInterpreted {
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("a > 1")),
+      Rule(Id(31, 3), ExpressionRule("(a > 1) and (a between b and c)")),
+      Rule(Id(32, 3), ExpressionRule("(a > 1) and (a between b and c)")),
+      Rule(Id(32, 3), ExpressionRule("true")),
+    ))))
+
+    import quality.implicits._
+/* 4.1 breaks in mysterious ways, like to_yaml is broke
+    sparkSession.range(1000).selectExpr("'a' a"," 'b' b", "cast(null as string) c").select(
+        expressionRunner(rs)).write.
+      mode(SaveMode.Overwrite).parquet(outputDir + "/testCSE")
+    val processed = sparkSession.read.parquet(outputDir + "/testCSE") */
+
+    val processed = sparkSession.range(2, 1000).selectExpr("id a"," (id - 50) b", "(id + 50) c").select(
+      expressionRunner(rs), functions.col("*"))
+
+    val enc = implicitly[Encoder[GeneralExpressionsResult[String]]]
+
+    val res = processed.selectExpr("expressionResults.*").as(enc).head()
+    res.id shouldBe Id(10, 2)
+    res.ruleSetResults.contains(Id(20, 1)) shouldBe true
+    res.ruleSetResults(Id(20, 1)).forall(_._2.contains("true")) shouldBe true
+  }}
 
 }

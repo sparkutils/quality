@@ -752,9 +752,12 @@ object RuleSuiteFunctions {
         inputRow
       ).asInstanceOf[InternalRow]
 
+      // for debugging only
+      // $COVERAGE-OFF$
       if (row == null || inputRow == null) {
         //println()
       }
+      // $COVERAGE-ON$
 
       seq :+ (salience, if (debugMode)
         row.copy()

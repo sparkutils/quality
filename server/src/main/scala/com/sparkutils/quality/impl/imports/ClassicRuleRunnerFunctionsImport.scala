@@ -40,6 +40,9 @@ trait ClassicRuleRunnerFunctionsImport {
     else
       ()
 
+  // below was only testable directly with sparkless, all other usage is funNRewrites in SharedTestInfra
+  // $COVERAGE-OFF$
+
   /**
    * Enables the FunNRewrite optimisation. Where a user configured LambdaFunction does not have nested
    * HigherOrderFunctions, or declares the `/* USED_AS_LAMBDA */` comment, the lambda function will be expanded,
@@ -63,5 +66,7 @@ trait ClassicRuleRunnerFunctionsImport {
   def enableOptimizations(extraOptimizations: Seq[Rule[LogicalPlan]]): Unit = extraOptimizations.foreach(
     addOptimisation
   )
+
+  // $COVERAGE-ON$
 
 }
