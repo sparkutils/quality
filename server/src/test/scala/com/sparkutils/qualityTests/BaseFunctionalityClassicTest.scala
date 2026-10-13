@@ -14,6 +14,7 @@ import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.IntegerType
 import org.scalatest.Matchers
 
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 import scala.collection.immutable.Seq
 
 class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with BaseFunctionalityShared with Matchers {
@@ -202,6 +203,8 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     val res = processed.selectExpr("expressionResults.*").as(enc).head()
     res.id shouldBe Id(10, 2)
     res.ruleSetResults.contains(Id(20, 1)) shouldBe true
+
+    res.getRuleSetResults.asScala shouldBe res.ruleSetResults
     res.ruleSetResults(Id(20, 1)).forall(_._2.result.contains("true")) shouldBe true
   } }
 

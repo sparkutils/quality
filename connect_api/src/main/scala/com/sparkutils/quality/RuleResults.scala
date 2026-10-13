@@ -92,14 +92,6 @@ object RuleSuiteResultDetails {
 }
 
 /**
- * A lazy proxy for RuleSuiteResultDetails
- */
-@SerialVersionUID(1L)
-trait LazyRuleSuiteResultDetails extends Serializable {
-  def ruleSuiteResultDetails: RuleSuiteResultDetails
-}
-
-/**
   * Results for all rules run against a dataframe
   * @param id - the Id of the suite, all other content is mapped
   * @param overallResult

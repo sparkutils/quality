@@ -17,6 +17,7 @@ import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
 import com.sparkutils.testing.TestUtils.debug
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 import scala.language.postfixOps
 
 trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
@@ -115,10 +116,13 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
 
     val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
-    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "!!java.lang.Long '499500'\n",
-      Id(31, 3) -> "!!java.lang.Long '500'\n")
-    )))
+    val expected: Map[VersionedId, Map[VersionedId, MapLookups]] =
+      Map(Id(20, 1) -> Map(
+        Id(30, 3) -> "!!java.lang.Long '499500'\n",
+        Id(31, 3) -> "!!java.lang.Long '500'\n")
+      )
+    strippedRes.getRuleSetResults.asScala shouldBe expected
+    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), expected))
 
     val strippedGres = {
       val s = sparkSession
@@ -878,6 +882,14 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     import implicits._
 
     val res = rdf.selectExpr("dq.*").as[RuleSuiteResult].collect()
+    res.foreach{
+      r =>
+        r.ruleSetResults.foreach {
+          case (v,r) =>
+            r.getRuleResults.asScala shouldBe r.ruleResults
+        }
+    }
+
     assert(res.forall(_.overallResult == Passed))
     res.forall(_.ruleSetResults.head._2.overallResult == Passed)
     val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size).toMap).toSeq

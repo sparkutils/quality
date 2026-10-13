@@ -4,11 +4,11 @@ import com.sparkutils.quality._
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
 import com.sparkutils.quality.impl.types._
 import com.sparkutils.testing.TestUtils.anyCauseHas
-
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType
 import com.sparkutils.quality.implicits._
+import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 /**
  * Attempts to force wholestagecodegen with enough rules to force the 64k hit, then prove the codegen options resolve them.
@@ -113,7 +113,14 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
     import com.sparkutils.quality.implicits._
 
     val res = ndf.as[RuleEngineResult[Long]].collect()
+    res foreach {
+      r =>
 
+        Option(r.getResult.orElse(-1L)) shouldBe r.result
+
+        Option(r.getSalientRule.orElse(null)) shouldBe r.salientRule
+
+    }
     //res
   }
 
