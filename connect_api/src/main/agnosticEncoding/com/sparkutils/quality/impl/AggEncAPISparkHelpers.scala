@@ -113,11 +113,4 @@ object VariableHelper {
 
 object Encoders extends EncodersImplicits {
 
-  def rowTypedEnc(rowType: DataType): TypedEncoder[Row] =
-    new TypedEncoder[Row]()(ClassTag(classOf[Row])) {
-      override def nullable: Boolean = agnosticEncoder.nullable
-
-      override val agnosticEncoder: AgnosticEncoder[Row] = ShimUtils.rowEncoder(rowType.asInstanceOf[StructType])
-    }
-
 }

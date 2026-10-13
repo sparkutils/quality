@@ -536,9 +536,9 @@ object Params {
  * @param right actual code to use, typically a processor
  */
 case class InputWrapper(left: Expression, right: Expression) extends BinaryExpression {
-
+  // $COVERAGE-OFF$ // not needed to test
   override def nullable: Boolean = right.nullable
-
+  // $COVERAGE-ON$
   override def eval(input: InternalRow): Any = right.eval(input)
 
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = InputWrapper(newLeft, newRight)
