@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.{column, expressionEncoder}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{ ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
@@ -73,35 +73,6 @@ object ClassicQualitySparkUtils {
     }(expressionToExpression)
 
   type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
-
-  /**
-   * Provides a starting plan for a dataframe, resolves the
-   *
-   * @param fields input types
-   * @param dataFrameF
-   * @return
-   */
-  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] =
-    throw new Exception("Not supported on Databricks runtimes")
-
-  /**
-   * Provides a starting plan for a dataframe, resolves the
-   *
-   * @param encFrom starting data type to encode from
-   * @param dataFrameF
-   * @return
-   */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection, dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) =
-    throw new Exception("Not supported on Databricks runtimes")
-
-  /**
-   * Creates a projection from InputRow to InputRow.
-   * @param exprs expressions from resolveExpressions, already resolved without
-   * @param compile
-   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
-   */
-  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection =
-    throw new Exception("Not supported on Databricks runtimes")
 
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.

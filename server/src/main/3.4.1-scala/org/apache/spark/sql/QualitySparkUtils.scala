@@ -2,7 +2,7 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{ ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
@@ -122,112 +122,6 @@ object ClassicQualitySparkUtils {
     ReplaceUpdateFieldsExpression,
     ReplaceExpressions
   )
-
-  /**
-   * Provides a starting plan for a dataframe, resolves the
-   *
-   * @param fields input types
-   * @param dataFrameF
-   * @return
-   */
-  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
-
-    val plan = LocalRelation(fields.fields.map(_.toAttribute))
-    val ag = RowEncoder.encoderFor(fields)
-
-    // this constructor stops execute plan being called too early
-    val df = dataFrameF(
-      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
-    )
-
-    // force an optimize
-    val aplan =
-      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
-        foldLeft(df.queryExecution.analyzed){
-          (p, b) =>
-            b.apply(p)
-        }
-
-    // lookup the actual expressions
-    val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(aplan).expressions
-    }
-
-    // folder introduces multiple projections, these are the ones we explicitly use
-    val fres = debugTime("bindReferences") {
-      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
-        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
-        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
-    }
-
-    fres
-  }
-
-  /**
-   * Provides a starting plan for a dataframe, resolves the
-   *
-   * @param encFrom starting data type to encode from
-   * @param dataFrameF
-   * @return
-   */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
-                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
-    val enc = ShimUtils.expressionEncoder[T](encFrom)
-
-    val plan = LocalRelation(enc.schema.fields.map(_.toAttribute))
-
-    // this constructor stops execute plan being called too early
-    val df = dataFrameF(
-      new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
-    )
-
-    // force an optimize
-    val aplan =
-      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
-        foldLeft(df.queryExecution.analyzed){
-          (p, b) =>
-            b.apply(p)
-        }
-
-    // lookup the actual expressions
-    val res =
-      debugTime("find underlying expressions") {
-        EvaluableExpressions(aplan).expressions
-      }
-
-    val oEnc = implicitly[Encoder[R]]
-    // original enc has possbly incorrect paths
-    val oExprEnc = ShimUtils.expressionEncoder(oEnc)
-
-    val adjustedEnc = oExprEnc.copy(objDeserializer =
-      embeddedTypeCorrection.correctDeserializer(oExprEnc.objDeserializer, aplan)
-    )
-
-    val dec = adjustedEnc.resolveAndBind(
-      aplan.output, df.sparkSession.sessionState.analyzer)
-
-    // folder introduces multiple projections, these are the ones we explicitly use
-    val fres = debugTime("bindReferences") {
-      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
-        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
-        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
-    }
-
-    (fres, dec.deserializer)
-  }
-
-  /**
-   * Creates a projection from InputRow to InputRow.
-   * @param exprs expressions from resolveExpressions, already resolved without
-   * @param compile
-   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
-   */
-  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection  = {
-    if (compile)
-      GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
-    else
-      InterpretedMutableProjection.createProjection(exprs)
-  }
 
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
