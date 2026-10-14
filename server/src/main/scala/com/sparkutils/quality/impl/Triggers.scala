@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
-import com.sparkutils.quality.{PassedInt, QualityException, groupProcessorKey}
+import com.sparkutils.quality.{PassedInt, QualityException, groupProcessorKey, useLazyCSE}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParamsForNested
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -199,7 +199,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
     }
 
     val ((funNames, extraClasses, widerAdditionalParams), subExpressionCode) =
-      QualityCodeGenUtils.produceCode(ctx, groupExprs){
+      QualityCodeGenUtils.produceCode(ctx, groupExprs, runner.extraConfig.boolean(useLazyCSE, false)){
         (children, subExprCode, _) =>
           val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
           (builder(childParams), subExprCode)

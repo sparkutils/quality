@@ -89,4 +89,11 @@ trait RuleProcessingConstants {
    * larger datastructures)
    */
   val useEvaluatedOnlyRuleSetResults = "quality.useEvaluatedOnlyRuleSetResults"
+
+  /**
+   * By default, Spark uses eager CSE, on large rule suites this can dominate evaluation as all common subexpresions
+   * are evaluated irrespective of the need for a given row.  The lazy evaluation defers running the subexpressions
+   * until they are actually used.
+   */
+  val useLazyCSE = "quality.useLazyCSE"
 }

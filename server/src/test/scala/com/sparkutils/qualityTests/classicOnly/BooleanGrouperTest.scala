@@ -157,6 +157,18 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     )
   } }
 
+  test("test if 1:1 lazy"){ not3_0_or_3_1 {
+    doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
+      showSplitCompilationTime -> "true",
+      "statsEvery" -> "100",
+      useLazyCSE -> "true"
+    )))(
+      i => s"if((((a + b) % 20) < 15), a = $i, false)",
+      i => s"if((((a + b) % 20) < 5), a = $i, false)",
+      i => s"if((((a + b) % 20) < 20), a = $i, false)"
+    )
+  } }
+
   test("test if_relevant 1:1"){ not3_0_or_3_1 {
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",

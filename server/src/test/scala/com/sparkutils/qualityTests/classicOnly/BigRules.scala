@@ -193,7 +193,7 @@ var start = System.nanoTime()
   }
 
   // runs 12gb 1m15s. 0.12 ms / row, grouping takes 3s
-  def doGrouped129ViaTopLevelBooleanGrouping(s: SparkSession): Unit = {
+  def doGrouped129ViaTopLevelBooleanGrouping(s: SparkSession, runConfig: Map[String, String] = Map.empty): Unit = {
     import s.implicits._
     val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       "1:1 loaded but should group via TopLevelBooleanGrouper",
@@ -203,7 +203,7 @@ var start = System.nanoTime()
         showGroupingTime -> "true",
         "statsEvery" -> "1000",
         groupProcessorPercentFilter -> "0.0012"
-      ))
+      ) ++ runConfig)
 
     val play = res.persist(StorageLevel.OFF_HEAP)
 
@@ -230,7 +230,7 @@ var start = System.nanoTime()
       count() shouldBe 0
   }
 
-  def do1to1RulesOnly(s: SparkSession): Unit = {
+  def do1to1RulesOnly(s: SparkSession, runConfig: Map[String, String] = Map.empty): Unit = {
     import s.implicits._
 /*    val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       "1:1 loaded direct cost",
@@ -252,7 +252,7 @@ var start = System.nanoTime()
       extraConfig = Map(
         showSplitCompilationTime -> "true",
         "statsEvery" -> "1000"
-      )).
+      ) ++ runConfig).
       as("runner")).select(expr("*"), expr("runner.result.*"))
     var end = System.nanoTime()
     val typ ="1:1"
@@ -325,6 +325,10 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
   } }
 
+  test("grouped 129 via top level boolean grouping lazy") { not3_0_or_3_1 { // 13% slower than just grouping
+    doGrouped129ViaTopLevelBooleanGrouping(sparkSession, Map(useLazyCSE -> "true"))
+  } }
+
   test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 1.5m. 0.04 ms / row (i9-9900), grouping takes 3s
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
@@ -336,6 +340,10 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
   // not_Databricks for the same reason as not 3_1, it cannot model the parameter sizes properly
   ignore("1:1 rules only") { not3_0_or_3_1 { not_Databricks {
     do1to1RulesOnly(sparkSession)
+  } } }
+
+  ignore("1:1 rules with lazy") { not3_0_or_3_1 { not_Databricks {
+    do1to1RulesOnly(sparkSession, Map(useLazyCSE -> "true")) // runs in 45% of the time of 1:1 eager
   } } }
 
   test("dumpAudit should work") { not3_0_or_3_1 {

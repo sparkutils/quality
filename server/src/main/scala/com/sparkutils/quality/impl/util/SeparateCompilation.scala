@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.VersionedId
+import com.sparkutils.quality.{VersionedId, useLazyCSE}
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.Runner
@@ -192,7 +192,7 @@ object SeparateCompilation {
         genParams(ctx, theThis, extraParams)
 
     val (genResult, (subExpressionCode, childParams)) =
-      QualityCodeGenUtils.produceCode(ctx, children){
+      QualityCodeGenUtils.produceCode(ctx, children, theThis.extraConfig.boolean(useLazyCSE, false)){
         (children, subExprCode, _) =>
           val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
 

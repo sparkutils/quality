@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.util
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 
 object SubExprs {
+
   def apply(expressions: Seq[Expression]): Expression => Option[(Int, Expression)] = {
     val eq = new EquivalentExpressions
 
