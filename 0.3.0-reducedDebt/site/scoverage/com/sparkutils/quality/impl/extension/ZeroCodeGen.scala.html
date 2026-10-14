@@ -1,0 +1,657 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/extension/ZeroCodeGen.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.extension
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.shim.expressions.NondeterministicLike
+</span>4 <span style=''>import org.apache.spark.internal.Logging
+</span>5 <span style=''>import org.apache.spark.sql.ShimUtils
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Nondeterministic, UnaryExpression, Unevaluable}
+</span>9 <span style=''>import org.apache.spark.sql.types.DataType
+</span>10 <span style=''>
+</span>11 <span style=''>/**
+</span>12 <span style=''> * Cannot be used as part of the initial expression trees, but can be used to swap out a runner to reduce
+</span>13 <span style=''> * compilation time and size.  Added as part of #129 as Databricks could not generate a 20k rulesuite, despite #131's
+</span>14 <span style=''> * separate compilation, the common subexpressions were already too much for databricks.
+</span>15 <span style=''> */
+</span>16 <span style=''>case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false)
+</span>17 <span style=''>  extends UnaryExpression with Logging {
+</span>18 <span style=''>
+</span>19 <span style=''>  // will always be false from #145
+</span>20 <span style=''>  override lazy val deterministic: Boolean = realChild.deterministic
+</span>21 <span style=''>
+</span>22 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>realChild.nullable</span><span style=''>
+</span>23 <span style=''>
+</span>24 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>realChild.eval(input)</span><span style=''>
+</span>25 <span style=''>
+</span>26 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>27 <span style=''>    </span><span style='background: #AEF1AE'>realChild.genCode(ctx)</span><span style=''>
+</span>28 <span style=''>  }
+</span>29 <span style=''>
+</span>30 <span style=''>  override lazy val canonicalized: Expression =
+</span>31 <span style=''>    if (on32)
+</span>32 <span style=''>      realChild.canonicalized
+</span>33 <span style=''>    else {
+</span>34 <span style=''>      val r = realChild.canonicalized
+</span>35 <span style=''>      copy(child = child.canonicalized, realChild = r)
+</span>36 <span style=''>    }
+</span>37 <span style=''>
+</span>38 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>realChild.dataType</span><span style=''>
+</span>39 <span style=''>
+</span>40 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression =
+</span>41 <span style=''>    if (</span><span style='background: #AEF1AE'>(!wrapped &amp;&amp; newChild.collect{
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      case u: Unevaluable =&gt; u
+</span>43 <span style=''></span><span style='background: #AEF1AE'>      case s if ShimUtils.isStateful(s) =&gt; s  // stateful can't be known in advance so it must be handled here
+</span>44 <span style=''></span><span style='background: #AEF1AE'>    }.nonEmpty) || on32</span><span style=''>) // remove in 0.3.0 when we drop 3.2, 3.2 puts the apply call into a subexpression and doesn't pass params as well Literal doesn't have any
+</span>45 <span style=''>      </span><span style='background: #AEF1AE'>copy(child = newChild, realChild = newChild)</span><span style=''>
+</span>46 <span style=''>    else  // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
+</span>47 <span style=''>      </span><span style='background: #AEF1AE'>if (wrapped)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      // $COVERAGE-OFF$
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      {
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        logTrace(&quot;ZeroCodeGen doesn't expect another expression optimisation after Unevaluable's are removed but got &quot;+newChild)
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        copy(child = newChild)
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      // $COVERAGE-ON$
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        copy(child = Literal(null, newChild.dataType), realChild = newChild, wrapped = true)</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          9245
+        </td>
+        <td>
+          1121
+          -
+          1139
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.nullable
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          9246
+        </td>
+        <td>
+          1190
+          -
+          1211
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          9247
+        </td>
+        <td>
+          1304
+          -
+          1326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9248
+        </td>
+        <td>
+          1582
+          -
+          1600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.dataType
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          9252
+        </td>
+        <td>
+          1715
+          -
+          1715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          9249
+        </td>
+        <td>
+          1747
+          -
+          1748
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.$anonfun.u
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          u
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          9250
+        </td>
+        <td>
+          1766
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.isStateful
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.isStateful(s)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          9251
+        </td>
+        <td>
+          1793
+          -
+          1794
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.$anonfun.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          9253
+        </td>
+        <td>
+          1699
+          -
+          1876
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChild.collect[org.apache.spark.sql.catalyst.expressions.Expression](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (u @ (_: org.apache.spark.sql.catalyst.expressions.Unevaluable)) =&gt; u
+      case (s @ _) if org.apache.spark.sql.ShimUtils.isStateful(s) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (u @ (_: org.apache.spark.sql.catalyst.expressions.Unevaluable)) =&gt; true
+      case (s @ _) if org.apache.spark.sql.ShimUtils.isStateful(s) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression])).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          9254
+        </td>
+        <td>
+          1881
+          -
+          1885
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.on32
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.on32
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          9255
+        </td>
+        <td>
+          1686
+          -
+          1885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.wrapped.unary_!.&amp;&amp;(newChild.collect[org.apache.spark.sql.catalyst.expressions.Expression](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (u @ (_: org.apache.spark.sql.catalyst.expressions.Unevaluable)) =&gt; u
+      case (s @ _) if org.apache.spark.sql.ShimUtils.isStateful(s) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (u @ (_: org.apache.spark.sql.catalyst.expressions.Unevaluable)) =&gt; true
+      case (s @ _) if org.apache.spark.sql.ShimUtils.isStateful(s) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression])).nonEmpty).||(ZeroCodeGen.this.on32)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9256
+        </td>
+        <td>
+          2033
+          -
+          2077
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(newChild, newChild, ZeroCodeGen.this.copy$default$3, ZeroCodeGen.this.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9257
+        </td>
+        <td>
+          2033
+          -
+          2077
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(newChild, newChild, ZeroCodeGen.this.copy$default$3, ZeroCodeGen.this.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          9258
+        </td>
+        <td>
+          2195
+          -
+          2202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.wrapped
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.wrapped
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          9265
+        </td>
+        <td>
+          2191
+          -
+          2538
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (ZeroCodeGen.this.wrapped)
+  {
+    ZeroCodeGen.this.logTrace(&quot;ZeroCodeGen doesn\'t expect another expression optimisation after Unevaluable\'s are removed but got &quot;.+(newChild));
+    ZeroCodeGen.this.copy(newChild, ZeroCodeGen.this.copy$default$2, ZeroCodeGen.this.copy$default$3, ZeroCodeGen.this.copy$default$4)
+  }
+else
+  {
+    &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Literal = org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType);
+    &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.expressions.Expression = newChild;
+    &lt;artifact&gt; val x$3: Boolean(true) = true;
+    &lt;artifact&gt; val x$4: Boolean = ZeroCodeGen.this.copy$default$3;
+    ZeroCodeGen.this.copy(x$1, x$2, x$4, true)
+  }
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9259
+        </td>
+        <td>
+          2475
+          -
+          2479
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9260
+        </td>
+        <td>
+          2481
+          -
+          2498
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChild.dataType
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9261
+        </td>
+        <td>
+          2467
+          -
+          2499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9262
+        </td>
+        <td>
+          2533
+          -
+          2537
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9263
+        </td>
+        <td>
+          2454
+          -
+          2538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(x$1, x$2, x$4, true)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9264
+        </td>
+        <td>
+          2454
+          -
+          2538
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Literal = org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType);
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.expressions.Expression = newChild;
+  &lt;artifact&gt; val x$3: Boolean(true) = true;
+  &lt;artifact&gt; val x$4: Boolean = ZeroCodeGen.this.copy$default$3;
+  ZeroCodeGen.this.copy(x$1, x$2, x$4, true)
+}
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
