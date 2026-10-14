@@ -1,0 +1,2944 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/LazySubExprCodeGen.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import org.apache.spark.SparkException
+</span>4 <span style=''>import org.apache.spark.internal.Logging
+</span>5 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{JAVA_BOOLEAN, MAX_JVM_METHOD_PARAMS_LENGTH, calculateParamLengthFromExprValues, getLocalInputVariableValues, isValidParamLength, javaType}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression, ExpressionEquals}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, JavaCode, ShimExprUtils, SimpleExprValue, SubExprCodes, SubExprEliminationState, TrueLiteral}
+</span>9 <span style=''>import org.apache.spark.sql.internal.SQLConf
+</span>10 <span style=''>import org.apache.spark.util.Utils
+</span>11 <span style=''>
+</span>12 <span style=''>import scala.collection.mutable
+</span>13 <span style=''>
+</span>14 <span style=''>object LazySubExprCodeGen extends Logging {
+</span>15 <span style=''>
+</span>16 <span style=''>  val initialisationArray = </span><span style='background: #AEF1AE'>&quot;lazySubExprIArray&quot;</span><span style=''>
+</span>17 <span style=''>  val isNullArray = </span><span style='background: #AEF1AE'>&quot;lazySubExprIsNullArray&quot;</span><span style=''>
+</span>18 <span style=''>
+</span>19 <span style=''>  /**
+</span>20 <span style=''>   * SPARK-18395 / apache/spark#15837 revival
+</span>21 <span style=''>   * @param ctx
+</span>22 <span style=''>   * @param expressions
+</span>23 <span style=''>   * @return
+</span>24 <span style=''>   */
+</span>25 <span style=''>  def lazySubexpressionEliminationForWholeStageCodegen(ctx: CodegenContext, expressions: Seq[Expression]): SubExprCodes = {
+</span>26 <span style=''>    // for oss ctx.subexpressionEliminationForWholeStageCodegen(expressions)
+</span>27 <span style=''>    // Create a clear EquivalentExpressions and SubExprEliminationState mapping
+</span>28 <span style=''>    val equivalentExpressions: EquivalentExpressions = </span><span style='background: #AEF1AE'>new EquivalentExpressions</span><span style=''>
+</span>29 <span style=''>    val localSubExprEliminationExprsForNonSplit =
+</span>30 <span style=''>      </span><span style='background: #AEF1AE'>mutable.HashMap.empty[ExpressionEquals, SubExprEliminationState]</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>    // Add each expression tree and compute the common subexpressions.
+</span>33 <span style=''>    </span><span style='background: #AEF1AE'>expressions.foreach(equivalentExpressions.addExprTree(_))</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>    // Get all the expressions that appear at least twice and set up the state for subexpression
+</span>36 <span style=''>    // elimination.
+</span>37 <span style=''>    val commonExprs = </span><span style='background: #AEF1AE'>equivalentExpressions.getCommonSubexpressions</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>    val nonSplitCode = {
+</span>40 <span style=''>      val allStates = </span><span style='background: #AEF1AE'>mutable.ArrayBuffer.empty[SubExprEliminationState]</span><span style=''>
+</span>41 <span style=''>      </span><span style='background: #AEF1AE'>commonExprs.map { expr =&gt;
+</span>42 <span style=''></span><span style='background: #AEF1AE'>        ctx.withSubExprEliminationExprs(localSubExprEliminationExprsForNonSplit.toMap) {
+</span>43 <span style=''></span><span style='background: #AEF1AE'>          val eval = expr.genCode(ctx)
+</span>44 <span style=''></span><span style='background: #AEF1AE'>          // Collects other subexpressions from the children.
+</span>45 <span style=''></span><span style='background: #AEF1AE'>          val childrenSubExprs = mutable.ArrayBuffer.empty[SubExprEliminationState]
+</span>46 <span style=''></span><span style='background: #AEF1AE'>          expr.foreach { e =&gt;
+</span>47 <span style=''></span><span style='background: #AEF1AE'>            ShimExprUtils.currentSubExprState(ctx).get(ExpressionEquals(e)) match {
+</span>48 <span style=''></span><span style='background: #AEF1AE'>              case Some(state) =&gt; childrenSubExprs += state
+</span>49 <span style=''></span><span style='background: #AEF1AE'>              case _ =&gt;
+</span>50 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>51 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>52 <span style=''></span><span style='background: #AEF1AE'>          val state = SubExprEliminationState(eval, childrenSubExprs.toSeq)
+</span>53 <span style=''></span><span style='background: #AEF1AE'>          localSubExprEliminationExprsForNonSplit.put(ExpressionEquals(expr), state)
+</span>54 <span style=''></span><span style='background: #AEF1AE'>          allStates += state
+</span>55 <span style=''></span><span style='background: #AEF1AE'>          Seq(eval)
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>57 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>58 <span style=''>      </span><span style='background: #AEF1AE'>allStates.toSeq</span><span style=''>
+</span>59 <span style=''>    }
+</span>60 <span style=''>
+</span>61 <span style=''>    // For some operators, they do not require all its child's outputs to be evaluated in advance.
+</span>62 <span style=''>    // Instead it only early evaluates part of outputs, for example, `ProjectExec` only early
+</span>63 <span style=''>    // evaluate the outputs used more than twice. So we need to extract these variables used by
+</span>64 <span style=''>    // subexpressions and evaluate them before subexpressions.
+</span>65 <span style=''>    val </span><span style='background: #AEF1AE'>(inputVarsForAllFuncs, exprCodesNeedEvaluate)</span><span style=''> = </span><span style='background: #AEF1AE'>commonExprs.map { expr =&gt;
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      val (inputVars, exprCodes) = getLocalInputVariableValues(ctx, expr)
+</span>67 <span style=''></span><span style='background: #AEF1AE'>      (inputVars.toSeq, exprCodes.toSeq)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>    }.unzip</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>    val needSplit = </span><span style='background: #AEF1AE'>true</span><span style=''>//nonSplitCode.map(_.eval.code.length).sum &gt; SQLConf.get.methodSplitThreshold
+</span>71 <span style=''>    val </span><span style='background: #AEF1AE'>(subExprsMap, exprCodes)</span><span style=''> = if (needSplit) {
+</span>72 <span style=''>      </span><span style='background: #AEF1AE'>if (inputVarsForAllFuncs.map(calculateParamLengthFromExprValues).forall(isValidParamLength)) {
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        val localSubExprEliminationExprs =
+</span>74 <span style=''></span><span style='background: #AEF1AE'>          mutable.HashMap.empty[ExpressionEquals, SubExprEliminationState]
+</span>75 <span style=''></span><span style='background: #AEF1AE'>
+</span>76 <span style=''></span><span style='background: #AEF1AE'>        // forceInline so it's type is not corrupted, must be handled in the SplitCompilation
+</span>77 <span style=''></span><span style='background: #AEF1AE'>        def isInitialised(i: Int) = s&quot;$initialisationArray[$i]&quot;
+</span>78 <span style=''></span><span style='background: #AEF1AE'>        def setInitialised(i: Int) = s&quot;$initialisationArray[$i] = true;&quot;
+</span>79 <span style=''></span><span style='background: #AEF1AE'>
+</span>80 <span style=''></span><span style='background: #AEF1AE'>        def isNull(i: Int) = s&quot;$isNullArray[$i]&quot;
+</span>81 <span style=''></span><span style='background: #AEF1AE'>
+</span>82 <span style=''></span><span style='background: #AEF1AE'>        commonExprs.zipWithIndex.foreach { case (expr, i) =&gt;
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          val eval = ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap) {
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            Seq(expr.genCode(ctx))
+</span>85 <span style=''></span><span style='background: #AEF1AE'>          }.head
+</span>86 <span style=''></span><span style='background: #AEF1AE'>
+</span>87 <span style=''></span><span style='background: #AEF1AE'>          // Generate the code for this expression tree and wrap it in a function.
+</span>88 <span style=''></span><span style='background: #AEF1AE'>          val fnName = ctx.freshName(&quot;subExpr&quot;)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>
+</span>90 <span style=''></span><span style='background: #AEF1AE'>          val realValue = ctx.addMutableState(javaType(expr.dataType), &quot;subExprValue&quot;)
+</span>91 <span style=''></span><span style='background: #AEF1AE'>
+</span>92 <span style=''></span><span style='background: #AEF1AE'>          val inputVars = inputVarsForAllFuncs(i)
+</span>93 <span style=''></span><span style='background: #AEF1AE'>          val argList =
+</span>94 <span style=''></span><span style='background: #AEF1AE'>            inputVars.map(v =&gt; s&quot;${CodeGenerator.typeName(v.javaType)} ${v.variableName}&quot;)
+</span>95 <span style=''></span><span style='background: #AEF1AE'>          val fn =
+</span>96 <span style=''></span><span style='background: #AEF1AE'>            s&quot;&quot;&quot;
+</span>97 <span style=''></span><span style='background: #AEF1AE'>               |private ${javaType(expr.dataType)} $fnName(${argList.mkString(&quot;, &quot;)}) {
+</span>98 <span style=''></span><span style='background: #AEF1AE'>               |  if (!${isInitialised(i)}) {
+</span>99 <span style=''></span><span style='background: #AEF1AE'>               |    ${eval.code}
+</span>100 <span style=''></span><span style='background: #AEF1AE'>               |    ${isNull(i)} = ${eval.isNull};
+</span>101 <span style=''></span><span style='background: #AEF1AE'>               |    $realValue = ${eval.value};
+</span>102 <span style=''></span><span style='background: #AEF1AE'>               |    ${setInitialised(i)}
+</span>103 <span style=''></span><span style='background: #AEF1AE'>               |  }
+</span>104 <span style=''></span><span style='background: #AEF1AE'>               |  return $realValue;
+</span>105 <span style=''></span><span style='background: #AEF1AE'>               |}
+</span>106 <span style=''></span><span style='background: #AEF1AE'>               &quot;&quot;&quot;.stripMargin
+</span>107 <span style=''></span><span style='background: #AEF1AE'>
+</span>108 <span style=''></span><span style='background: #AEF1AE'>          val inputVariables = inputVars.map(_.variableName).mkString(&quot;, &quot;)
+</span>109 <span style=''></span><span style='background: #AEF1AE'>
+</span>110 <span style=''></span><span style='background: #AEF1AE'>          val fnCallName = ctx.addNewFunction(fnName, fn)
+</span>111 <span style=''></span><span style='background: #AEF1AE'>          val value = s&quot;${fnCallName}($inputVariables)&quot;
+</span>112 <span style=''></span><span style='background: #AEF1AE'>
+</span>113 <span style=''></span><span style='background: #AEF1AE'>          val isNullFnName = s&quot;${fnName}ForIsNull&quot;
+</span>114 <span style=''></span><span style='background: #AEF1AE'>
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          val isNullFn =
+</span>116 <span style=''></span><span style='background: #AEF1AE'>            s&quot;&quot;&quot;
+</span>117 <span style=''></span><span style='background: #AEF1AE'>               |private boolean $isNullFnName(${argList.mkString(&quot;, &quot;)}) {
+</span>118 <span style=''></span><span style='background: #AEF1AE'>               |  if (!${isInitialised(i)}) {
+</span>119 <span style=''></span><span style='background: #AEF1AE'>               |    $value;
+</span>120 <span style=''></span><span style='background: #AEF1AE'>               |  }
+</span>121 <span style=''></span><span style='background: #AEF1AE'>               |  return ${isNull(i)};
+</span>122 <span style=''></span><span style='background: #AEF1AE'>               |}
+</span>123 <span style=''></span><span style='background: #AEF1AE'>           &quot;&quot;&quot;.stripMargin
+</span>124 <span style=''></span><span style='background: #AEF1AE'>
+</span>125 <span style=''></span><span style='background: #AEF1AE'>          val nullCallName = ctx.addNewFunction(isNullFnName, isNullFn)
+</span>126 <span style=''></span><span style='background: #AEF1AE'>          val isNullF = s&quot;${nullCallName}($inputVariables)&quot;
+</span>127 <span style=''></span><span style='background: #AEF1AE'>
+</span>128 <span style=''></span><span style='background: #AEF1AE'>          // Collects other subexpressions from the children.
+</span>129 <span style=''></span><span style='background: #AEF1AE'>          val childrenSubExprs = mutable.ArrayBuffer.empty[SubExprEliminationState]
+</span>130 <span style=''></span><span style='background: #AEF1AE'>          expr.foreach { e =&gt;
+</span>131 <span style=''></span><span style='background: #AEF1AE'>            localSubExprEliminationExprs.get(ExpressionEquals(e)) match {
+</span>132 <span style=''></span><span style='background: #AEF1AE'>              case Some(state) =&gt; childrenSubExprs += state
+</span>133 <span style=''></span><span style='background: #AEF1AE'>              case _ =&gt;
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>135 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>136 <span style=''></span><span style='background: #AEF1AE'>
+</span>137 <span style=''></span><span style='background: #AEF1AE'>          // initialisation code is done by the compilation
+</span>138 <span style=''></span><span style='background: #AEF1AE'>          val code = code&quot;&quot;
+</span>139 <span style=''></span><span style='background: #AEF1AE'>          val state = SubExprEliminationState(
+</span>140 <span style=''></span><span style='background: #AEF1AE'>            ExprCode(code, SimpleExprValue(isNullF, java.lang.Boolean.TYPE), JavaCode.global(value, expr.dataType)),
+</span>141 <span style=''></span><span style='background: #AEF1AE'>            childrenSubExprs.toSeq)
+</span>142 <span style=''></span><span style='background: #AEF1AE'>          localSubExprEliminationExprs.put(ExpressionEquals(expr), state)
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>144 <span style=''></span><span style='background: #AEF1AE'>        (localSubExprEliminationExprs, exprCodesNeedEvaluate)
+</span>145 <span style=''></span><span style='background: #AEF1AE'>      } else </span><span style='background: #F0ADAD'>{
+</span>146 <span style=''></span><span style='background: #F0ADAD'>        val errMsg = &quot;Failed to split subexpression code into small functions because &quot; +
+</span>147 <span style=''></span><span style='background: #F0ADAD'>          &quot;the parameter length of at least one split function went over the JVM limit: &quot; +
+</span>148 <span style=''></span><span style='background: #F0ADAD'>          MAX_JVM_METHOD_PARAMS_LENGTH
+</span>149 <span style=''></span><span style='background: #F0ADAD'>        if (ShimExprUtils.isTesting) {
+</span>150 <span style=''></span><span style='background: #F0ADAD'>          throw SparkException.internalError(errMsg)
+</span>151 <span style=''></span><span style='background: #F0ADAD'>        } else {
+</span>152 <span style=''></span><span style='background: #F0ADAD'>          logInfo(errMsg)
+</span>153 <span style=''></span><span style='background: #F0ADAD'>          (localSubExprEliminationExprsForNonSplit, Seq.empty)
+</span>154 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>155 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>156 <span style=''>    } else {
+</span>157 <span style=''>      </span><span style='background: #F0ADAD'>(localSubExprEliminationExprsForNonSplit, Seq.empty)</span><span style=''>
+</span>158 <span style=''>    }
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>SubExprCodes(subExprsMap.toMap, exprCodes.flatten)</span><span style=''>
+</span>160 <span style=''>  }
+</span>161 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          10827
+        </td>
+        <td>
+          920
+          -
+          939
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;lazySubExprIArray&quot;
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          10828
+        </td>
+        <td>
+          961
+          -
+          985
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;lazySubExprIsNullArray&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          10829
+        </td>
+        <td>
+          1445
+          -
+          1470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EquivalentExpressions.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.expressions.EquivalentExpressions(expressions.this.EquivalentExpressions.&lt;init&gt;$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          10830
+        </td>
+        <td>
+          1529
+          -
+          1593
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.HashMap.empty[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          10831
+        </td>
+        <td>
+          1693
+          -
+          1729
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EquivalentExpressions.addExprTree
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          equivalentExpressions.addExprTree(x$1, equivalentExpressions.addExprTree$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          10832
+        </td>
+        <td>
+          1673
+          -
+          1730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.foreach[Unit](((x$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; equivalentExpressions.addExprTree(x$1, equivalentExpressions.addExprTree$default$2)))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          10833
+        </td>
+        <td>
+          1875
+          -
+          1920
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EquivalentExpressions.getCommonSubexpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          equivalentExpressions.getCommonSubexpressions
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          10834
+        </td>
+        <td>
+          1972
+          -
+          2022
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          10852
+        </td>
+        <td>
+          2030
+          -
+          2797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          commonExprs.map[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; ctx.withSubExprEliminationExprs(localSubExprEliminationExprsForNonSplit.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))({
+  val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = expr.genCode(ctx);
+  val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+  expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.currentSubExprState(ctx).get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+    case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+      childrenSubExprs.+=(state);
+      ()
+    }
+    case _ =&gt; ()
+  }));
+  val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(eval, childrenSubExprs.toSeq);
+  localSubExprEliminationExprsForNonSplit.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state);
+  allStates.+=(state);
+  scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](eval)
+})))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          10835
+        </td>
+        <td>
+          2137
+          -
+          2137
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.&lt;:&lt;.refl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          10836
+        </td>
+        <td>
+          2097
+          -
+          2142
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          localSubExprEliminationExprsForNonSplit.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)])
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          10851
+        </td>
+        <td>
+          2065
+          -
+          2788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.withSubExprEliminationExprs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.withSubExprEliminationExprs(localSubExprEliminationExprsForNonSplit.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))({
+  val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = expr.genCode(ctx);
+  val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+  expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.currentSubExprState(ctx).get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+    case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+      childrenSubExprs.+=(state);
+      ()
+    }
+    case _ =&gt; ()
+  }));
+  val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(eval, childrenSubExprs.toSeq);
+  localSubExprEliminationExprsForNonSplit.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state);
+  allStates.+=(state);
+  scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](eval)
+})
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          10837
+        </td>
+        <td>
+          2168
+          -
+          2185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          10838
+        </td>
+        <td>
+          2283
+          -
+          2333
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          10844
+        </td>
+        <td>
+          2345
+          -
+          2563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.currentSubExprState(ctx).get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+  case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+    childrenSubExprs.+=(state);
+    ()
+  }
+  case _ =&gt; ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          10839
+        </td>
+        <td>
+          2485
+          -
+          2510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.Growable.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          childrenSubExprs.+=(state)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          10840
+        </td>
+        <td>
+          2502
+          -
+          2502
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          10841
+        </td>
+        <td>
+          2485
+          -
+          2510
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  childrenSubExprs.+=(state);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          10842
+        </td>
+        <td>
+          2533
+          -
+          2535
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          10843
+        </td>
+        <td>
+          2533
+          -
+          2535
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          10845
+        </td>
+        <td>
+          2617
+          -
+          2639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          childrenSubExprs.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          10846
+        </td>
+        <td>
+          2587
+          -
+          2640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(eval, childrenSubExprs.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          10847
+        </td>
+        <td>
+          2696
+          -
+          2718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          10848
+        </td>
+        <td>
+          2652
+          -
+          2726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          localSubExprEliminationExprsForNonSplit.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          10849
+        </td>
+        <td>
+          2738
+          -
+          2756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.Growable.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allStates.+=(state)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          10850
+        </td>
+        <td>
+          2768
+          -
+          2777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](eval)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          10853
+        </td>
+        <td>
+          2805
+          -
+          2820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allStates.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          10864
+        </td>
+        <td>
+          3195
+          -
+          3240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue]], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](inputVarsForAllFuncs, exprCodesNeedEvaluate)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          10865
+        </td>
+        <td>
+          3195
+          -
+          3240
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue]], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](inputVarsForAllFuncs, exprCodesNeedEvaluate)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          10866
+        </td>
+        <td>
+          3196
+          -
+          3196
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          10867
+        </td>
+        <td>
+          3218
+          -
+          3218
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          10854
+        </td>
+        <td>
+          3305
+          -
+          3343
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.getLocalInputVariableValues
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.getLocalInputVariableValues(ctx, expr, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.getLocalInputVariableValues$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          10855
+        </td>
+        <td>
+          3280
+          -
+          3302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](inputVars, exprCodes)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          10856
+        </td>
+        <td>
+          3280
+          -
+          3302
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](inputVars, exprCodes)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          10857
+        </td>
+        <td>
+          3281
+          -
+          3281
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          10858
+        </td>
+        <td>
+          3292
+          -
+          3292
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          10859
+        </td>
+        <td>
+          3352
+          -
+          3367
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          inputVars.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          10860
+        </td>
+        <td>
+          3369
+          -
+          3384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprCodes.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          10861
+        </td>
+        <td>
+          3351
+          -
+          3385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](inputVars.toSeq, exprCodes.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          10862
+        </td>
+        <td>
+          3393
+          -
+          3393
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode])]
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          10863
+        </td>
+        <td>
+          3243
+          -
+          3398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOps.unzip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          commonExprs.map[(Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode])](((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]) = (org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.getLocalInputVariableValues(ctx, expr, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.getLocalInputVariableValues$default$3): (Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]) @unchecked) match {
+    case (_1: Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], _2: Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]): (Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode])((inputVars @ _), (exprCodes @ _)) =&gt; scala.Tuple2.apply[Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](inputVars, exprCodes)
+  };
+  val inputVars: Set[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue] = x$2._1;
+  val exprCodes: Set[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode] = x$2._2;
+  scala.Tuple2.apply[Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](inputVars.toSeq, exprCodes.toSeq)
+})).unzip[Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]](scala.Predef.$conforms[(Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue], Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode])])
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          10868
+        </td>
+        <td>
+          3422
+          -
+          3426
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          10924
+        </td>
+        <td>
+          3513
+          -
+          3537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](subExprsMap, exprCodes)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          10925
+        </td>
+        <td>
+          3513
+          -
+          3537
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](subExprsMap, exprCodes)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          10926
+        </td>
+        <td>
+          3514
+          -
+          3514
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5._1
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          10927
+        </td>
+        <td>
+          3527
+          -
+          3527
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5._2
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          10869
+        </td>
+        <td>
+          3593
+          -
+          3627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.calculateParamLengthFromExprValues
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.calculateParamLengthFromExprValues(params)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          10870
+        </td>
+        <td>
+          3636
+          -
+          3654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.isValidParamLength
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.isValidParamLength(paramLength)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          10871
+        </td>
+        <td>
+          3568
+          -
+          3655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.forall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          inputVarsForAllFuncs.map[Int](((params: Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprValue]) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.calculateParamLengthFromExprValues(params))).forall(((paramLength: Int) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.isValidParamLength(paramLength)))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          10910
+        </td>
+        <td>
+          3657
+          -
+          6648
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val localSubExprEliminationExprs: scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.HashMap.empty[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+  def isInitialised(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.initialisationArray).+(&quot;[&quot;).+(i).+(&quot;]&quot;);
+  def setInitialised(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.initialisationArray).+(&quot;[&quot;).+(i).+(&quot;] = true;&quot;);
+  def isNull(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.isNullArray).+(&quot;[&quot;).+(i).+(&quot;]&quot;);
+  commonExprs.zipWithIndex.foreach[Option[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+    case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int): (org.apache.spark.sql.catalyst.expressions.Expression, Int)((expr @ _), (i @ _)) =&gt; {
+      val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))).head;
+      val fnName: String = ctx.freshName(&quot;subExpr&quot;);
+      val realValue: String = ctx.addMutableState(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType), &quot;subExprValue&quot;, ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5);
+      val inputVars: Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue] = inputVarsForAllFuncs.apply(i);
+      val argList: Seq[String] = inputVars.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; &quot;&quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.typeName(v.javaType)).+(&quot; &quot;).+(v.variableName)));
+      val fn: String = scala.Predef.augmentString(&quot;\r\n               |private &quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)).+(&quot; &quot;).+(fnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(eval.code).+(&quot;\r\n               |    &quot;).+(isNull(i)).+(&quot; = &quot;).+(eval.isNull).+(&quot;;\r\n               |    &quot;).+(realValue).+(&quot; = &quot;).+(eval.value).+(&quot;;\r\n               |    &quot;).+(setInitialised(i)).+(&quot;\r\n               |  }\r\n               |  return &quot;).+(realValue).+(&quot;;\r\n               |}\r\n               &quot;)).stripMargin;
+      val inputVariables: String = inputVars.map[String](((x$4: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; x$4.variableName)).mkString(&quot;, &quot;);
+      val fnCallName: String = ctx.addNewFunction(fnName, fn, ctx.addNewFunction$default$3);
+      val value: String = &quot;&quot;.+(fnCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+      val isNullFnName: String = &quot;&quot;.+(fnName).+(&quot;ForIsNull&quot;);
+      val isNullFn: String = scala.Predef.augmentString(&quot;\r\n               |private boolean &quot;.+(isNullFnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(value).+(&quot;;\r\n               |  }\r\n               |  return &quot;).+(isNull(i)).+(&quot;;\r\n               |}\r\n           &quot;)).stripMargin;
+      val nullCallName: String = ctx.addNewFunction(isNullFnName, isNullFn, ctx.addNewFunction$default$3);
+      val isNullF: String = &quot;&quot;.+(nullCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+      val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+      expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; localSubExprEliminationExprs.get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+        case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+          childrenSubExprs.+=(state);
+          ()
+        }
+        case _ =&gt; ()
+      }));
+      val code: org.apache.spark.sql.catalyst.expressions.codegen.Block = org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code();
+      val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)), childrenSubExprs.toSeq);
+      localSubExprEliminationExprs.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+    }
+  }));
+  scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](localSubExprEliminationExprs, exprCodesNeedEvaluate)
+}
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          10920
+        </td>
+        <td>
+          3564
+          -
+          7102
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (inputVarsForAllFuncs.map[Int](((params: Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprValue]) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.calculateParamLengthFromExprValues(params))).forall(((paramLength: Int) =&gt; org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.isValidParamLength(paramLength))))
+  {
+    val localSubExprEliminationExprs: scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.HashMap.empty[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+    def isInitialised(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.initialisationArray).+(&quot;[&quot;).+(i).+(&quot;]&quot;);
+    def setInitialised(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.initialisationArray).+(&quot;[&quot;).+(i).+(&quot;] = true;&quot;);
+    def isNull(i: Int): String = &quot;&quot;.+(LazySubExprCodeGen.this.isNullArray).+(&quot;[&quot;).+(i).+(&quot;]&quot;);
+    commonExprs.zipWithIndex.foreach[Option[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+      case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int): (org.apache.spark.sql.catalyst.expressions.Expression, Int)((expr @ _), (i @ _)) =&gt; {
+        val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))).head;
+        val fnName: String = ctx.freshName(&quot;subExpr&quot;);
+        val realValue: String = ctx.addMutableState(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType), &quot;subExprValue&quot;, ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5);
+        val inputVars: Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue] = inputVarsForAllFuncs.apply(i);
+        val argList: Seq[String] = inputVars.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; &quot;&quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.typeName(v.javaType)).+(&quot; &quot;).+(v.variableName)));
+        val fn: String = scala.Predef.augmentString(&quot;\r\n               |private &quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)).+(&quot; &quot;).+(fnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(eval.code).+(&quot;\r\n               |    &quot;).+(isNull(i)).+(&quot; = &quot;).+(eval.isNull).+(&quot;;\r\n               |    &quot;).+(realValue).+(&quot; = &quot;).+(eval.value).+(&quot;;\r\n               |    &quot;).+(setInitialised(i)).+(&quot;\r\n               |  }\r\n               |  return &quot;).+(realValue).+(&quot;;\r\n               |}\r\n               &quot;)).stripMargin;
+        val inputVariables: String = inputVars.map[String](((x$4: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; x$4.variableName)).mkString(&quot;, &quot;);
+        val fnCallName: String = ctx.addNewFunction(fnName, fn, ctx.addNewFunction$default$3);
+        val value: String = &quot;&quot;.+(fnCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+        val isNullFnName: String = &quot;&quot;.+(fnName).+(&quot;ForIsNull&quot;);
+        val isNullFn: String = scala.Predef.augmentString(&quot;\r\n               |private boolean &quot;.+(isNullFnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(value).+(&quot;;\r\n               |  }\r\n               |  return &quot;).+(isNull(i)).+(&quot;;\r\n               |}\r\n           &quot;)).stripMargin;
+        val nullCallName: String = ctx.addNewFunction(isNullFnName, isNullFn, ctx.addNewFunction$default$3);
+        val isNullF: String = &quot;&quot;.+(nullCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+        val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+        expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; localSubExprEliminationExprs.get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+          case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+            childrenSubExprs.+=(state);
+            ()
+          }
+          case _ =&gt; ()
+        }));
+        val code: org.apache.spark.sql.catalyst.expressions.codegen.Block = org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code();
+        val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)), childrenSubExprs.toSeq);
+        localSubExprEliminationExprs.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+      }
+    }));
+    scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](localSubExprEliminationExprs, exprCodesNeedEvaluate)
+  }
+else
+  {
+    val errMsg: String = &quot;Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: &quot;.+(255);
+    if (org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.isTesting)
+      throw org.apache.spark.SparkException.internalError(errMsg)
+    else
+      {
+        LazySubExprCodeGen.this.logInfo(errMsg);
+        scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+      }
+  }
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          10872
+        </td>
+        <td>
+          3714
+          -
+          3778
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.HashMap.empty[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          10907
+        </td>
+        <td>
+          4128
+          -
+          6565
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))).head;
+  val fnName: String = ctx.freshName(&quot;subExpr&quot;);
+  val realValue: String = ctx.addMutableState(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType), &quot;subExprValue&quot;, ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5);
+  val inputVars: Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue] = inputVarsForAllFuncs.apply(i);
+  val argList: Seq[String] = inputVars.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; &quot;&quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.typeName(v.javaType)).+(&quot; &quot;).+(v.variableName)));
+  val fn: String = scala.Predef.augmentString(&quot;\r\n               |private &quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)).+(&quot; &quot;).+(fnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(eval.code).+(&quot;\r\n               |    &quot;).+(isNull(i)).+(&quot; = &quot;).+(eval.isNull).+(&quot;;\r\n               |    &quot;).+(realValue).+(&quot; = &quot;).+(eval.value).+(&quot;;\r\n               |    &quot;).+(setInitialised(i)).+(&quot;\r\n               |  }\r\n               |  return &quot;).+(realValue).+(&quot;;\r\n               |}\r\n               &quot;)).stripMargin;
+  val inputVariables: String = inputVars.map[String](((x$4: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; x$4.variableName)).mkString(&quot;, &quot;);
+  val fnCallName: String = ctx.addNewFunction(fnName, fn, ctx.addNewFunction$default$3);
+  val value: String = &quot;&quot;.+(fnCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+  val isNullFnName: String = &quot;&quot;.+(fnName).+(&quot;ForIsNull&quot;);
+  val isNullFn: String = scala.Predef.augmentString(&quot;\r\n               |private boolean &quot;.+(isNullFnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(value).+(&quot;;\r\n               |  }\r\n               |  return &quot;).+(isNull(i)).+(&quot;;\r\n               |}\r\n           &quot;)).stripMargin;
+  val nullCallName: String = ctx.addNewFunction(isNullFnName, isNullFn, ctx.addNewFunction$default$3);
+  val isNullF: String = &quot;&quot;.+(nullCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+  val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+  expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; localSubExprEliminationExprs.get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+    case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+      childrenSubExprs.+=(state);
+      ()
+    }
+    case _ =&gt; ()
+  }));
+  val code: org.apache.spark.sql.catalyst.expressions.codegen.Block = org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code();
+  val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)), childrenSubExprs.toSeq);
+  localSubExprEliminationExprs.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+}
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          10908
+        </td>
+        <td>
+          4078
+          -
+          6576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          commonExprs.zipWithIndex.foreach[Option[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int): (org.apache.spark.sql.catalyst.expressions.Expression, Int)((expr @ _), (i @ _)) =&gt; {
+    val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))).head;
+    val fnName: String = ctx.freshName(&quot;subExpr&quot;);
+    val realValue: String = ctx.addMutableState(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType), &quot;subExprValue&quot;, ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5);
+    val inputVars: Seq[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue] = inputVarsForAllFuncs.apply(i);
+    val argList: Seq[String] = inputVars.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; &quot;&quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.typeName(v.javaType)).+(&quot; &quot;).+(v.variableName)));
+    val fn: String = scala.Predef.augmentString(&quot;\r\n               |private &quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)).+(&quot; &quot;).+(fnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(eval.code).+(&quot;\r\n               |    &quot;).+(isNull(i)).+(&quot; = &quot;).+(eval.isNull).+(&quot;;\r\n               |    &quot;).+(realValue).+(&quot; = &quot;).+(eval.value).+(&quot;;\r\n               |    &quot;).+(setInitialised(i)).+(&quot;\r\n               |  }\r\n               |  return &quot;).+(realValue).+(&quot;;\r\n               |}\r\n               &quot;)).stripMargin;
+    val inputVariables: String = inputVars.map[String](((x$4: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; x$4.variableName)).mkString(&quot;, &quot;);
+    val fnCallName: String = ctx.addNewFunction(fnName, fn, ctx.addNewFunction$default$3);
+    val value: String = &quot;&quot;.+(fnCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+    val isNullFnName: String = &quot;&quot;.+(fnName).+(&quot;ForIsNull&quot;);
+    val isNullFn: String = scala.Predef.augmentString(&quot;\r\n               |private boolean &quot;.+(isNullFnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(value).+(&quot;;\r\n               |  }\r\n               |  return &quot;).+(isNull(i)).+(&quot;;\r\n               |}\r\n           &quot;)).stripMargin;
+    val nullCallName: String = ctx.addNewFunction(isNullFnName, isNullFn, ctx.addNewFunction$default$3);
+    val isNullF: String = &quot;&quot;.+(nullCallName).+(&quot;(&quot;).+(inputVariables).+(&quot;)&quot;);
+    val childrenSubExprs: scala.collection.mutable.ArrayBuffer[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState] = scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState];
+    expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; localSubExprEliminationExprs.get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+      case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+        childrenSubExprs.+=(state);
+        ()
+      }
+      case _ =&gt; ()
+    }));
+    val code: org.apache.spark.sql.catalyst.expressions.codegen.Block = org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code();
+    val state: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState = org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)), childrenSubExprs.toSeq);
+    localSubExprEliminationExprs.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          10873
+        </td>
+        <td>
+          4214
+          -
+          4214
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.&lt;:&lt;.refl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          10874
+        </td>
+        <td>
+          4185
+          -
+          4219
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)])
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          10875
+        </td>
+        <td>
+          4240
+          -
+          4257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          10876
+        </td>
+        <td>
+          4236
+          -
+          4258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          10877
+        </td>
+        <td>
+          4153
+          -
+          4276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOps.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.withSubExprEliminationExprs(localSubExprEliminationExprs.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]))(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](expr.genCode(ctx))).head
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          10878
+        </td>
+        <td>
+          4387
+          -
+          4411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;subExpr&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          10879
+        </td>
+        <td>
+          4470
+          -
+          4483
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.dataType
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          10880
+        </td>
+        <td>
+          4461
+          -
+          4484
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          10881
+        </td>
+        <td>
+          4486
+          -
+          4500
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;subExprValue&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          10882
+        </td>
+        <td>
+          4441
+          -
+          4501
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType), &quot;subExprValue&quot;, ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          10883
+        </td>
+        <td>
+          4531
+          -
+          4554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          inputVarsForAllFuncs.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          10884
+        </td>
+        <td>
+          4593
+          -
+          4671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          inputVars.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; &quot;&quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.typeName(v.javaType)).+(&quot; &quot;).+(v.variableName)))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          10885
+        </td>
+        <td>
+          4705
+          -
+          5132
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.StringOps.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(&quot;\r\n               |private &quot;.+(org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.javaType(expr.dataType)).+(&quot; &quot;).+(fnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(eval.code).+(&quot;\r\n               |    &quot;).+(isNull(i)).+(&quot; = &quot;).+(eval.isNull).+(&quot;;\r\n               |    &quot;).+(realValue).+(&quot; = &quot;).+(eval.value).+(&quot;;\r\n               |    &quot;).+(setInitialised(i)).+(&quot;\r\n               |  }\r\n               |  return &quot;).+(realValue).+(&quot;;\r\n               |}\r\n               &quot;)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          10886
+        </td>
+        <td>
+          5167
+          -
+          5211
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          inputVars.map[String](((x$4: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; x$4.variableName)).mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          10887
+        </td>
+        <td>
+          5242
+          -
+          5272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(fnName, fn, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          10888
+        </td>
+        <td>
+          5425
+          -
+          5689
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.StringOps.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(&quot;\r\n               |private boolean &quot;.+(isNullFnName).+(&quot;(&quot;).+(argList.mkString(&quot;, &quot;)).+(&quot;) {\r\n               |  if (!&quot;).+(isInitialised(i)).+(&quot;) {\r\n               |    &quot;).+(value).+(&quot;;\r\n               |  }\r\n               |  return &quot;).+(isNull(i)).+(&quot;;\r\n               |}\r\n           &quot;)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          10889
+        </td>
+        <td>
+          5722
+          -
+          5764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(isNullFnName, isNullFn, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          10890
+        </td>
+        <td>
+          5925
+          -
+          5975
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ArrayBuffer.empty[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          10896
+        </td>
+        <td>
+          5987
+          -
+          6195
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.foreach(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; localSubExprEliminationExprs.get(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(e)) match {
+  case (value: org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState): Some[org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState]((state @ _)) =&gt; {
+    childrenSubExprs.+=(state);
+    ()
+  }
+  case _ =&gt; ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          10891
+        </td>
+        <td>
+          6117
+          -
+          6142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.Growable.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          childrenSubExprs.+=(state)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          10892
+        </td>
+        <td>
+          6134
+          -
+          6134
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          10893
+        </td>
+        <td>
+          6117
+          -
+          6142
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  childrenSubExprs.+=(state);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          10894
+        </td>
+        <td>
+          6165
+          -
+          6167
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          10895
+        </td>
+        <td>
+          6165
+          -
+          6167
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          10897
+        </td>
+        <td>
+          6281
+          -
+          6287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          10904
+        </td>
+        <td>
+          6311
+          -
+          6490
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState.apply(org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)), childrenSubExprs.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          10898
+        </td>
+        <td>
+          6389
+          -
+          6411
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.lang.Boolean.TYPE
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Boolean.TYPE
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          10899
+        </td>
+        <td>
+          6364
+          -
+          6412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          10900
+        </td>
+        <td>
+          6437
+          -
+          6450
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.dataType
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          10901
+        </td>
+        <td>
+          6414
+          -
+          6451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          10902
+        </td>
+        <td>
+          6349
+          -
+          6452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.apply(code, org.apache.spark.sql.catalyst.expressions.codegen.SimpleExprValue.apply(isNullF, java.lang.Boolean.TYPE), org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.global(value, expr.dataType))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          10903
+        </td>
+        <td>
+          6467
+          -
+          6489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          childrenSubExprs.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          10905
+        </td>
+        <td>
+          6535
+          -
+          6557
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          10906
+        </td>
+        <td>
+          6502
+          -
+          6565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          localSubExprEliminationExprs.put(org.apache.spark.sql.catalyst.expressions.ExpressionEquals.apply(expr), state)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          10909
+        </td>
+        <td>
+          6586
+          -
+          6639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]](localSubExprEliminationExprs, exprCodesNeedEvaluate)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          10919
+        </td>
+        <td>
+          6654
+          -
+          7102
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val errMsg: String = &quot;Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: &quot;.+(255);
+  if (org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.isTesting)
+    throw org.apache.spark.SparkException.internalError(errMsg)
+  else
+    {
+      LazySubExprCodeGen.this.logInfo(errMsg);
+      scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+    }
+}
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          10911
+        </td>
+        <td>
+          6678
+          -
+          6879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failed to split subexpression code into small functions because the parameter length of at least one split function went over the JVM limit: &quot;.+(255)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          10912
+        </td>
+        <td>
+          6893
+          -
+          6916
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.isTesting
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils.isTesting
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          10913
+        </td>
+        <td>
+          6931
+          -
+          6973
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw org.apache.spark.SparkException.internalError(errMsg)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          10914
+        </td>
+        <td>
+          6931
+          -
+          6973
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw org.apache.spark.SparkException.internalError(errMsg)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          10918
+        </td>
+        <td>
+          6990
+          -
+          7093
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  LazySubExprCodeGen.this.logInfo(errMsg);
+  scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+}
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          10915
+        </td>
+        <td>
+          7003
+          -
+          7018
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.internal.Logging.logInfo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          LazySubExprCodeGen.this.logInfo(errMsg)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          10916
+        </td>
+        <td>
+          7072
+          -
+          7081
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Seq.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          10917
+        </td>
+        <td>
+          7030
+          -
+          7082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          10921
+        </td>
+        <td>
+          7166
+          -
+          7175
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Seq.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          10922
+        </td>
+        <td>
+          7124
+          -
+          7176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          10923
+        </td>
+        <td>
+          7124
+          -
+          7176
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[scala.collection.mutable.HashMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals,org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState], Seq[Nothing]](localSubExprEliminationExprsForNonSplit, scala.`package`.Seq.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          10928
+        </td>
+        <td>
+          7214
+          -
+          7214
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.&lt;:&lt;.refl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          10929
+        </td>
+        <td>
+          7202
+          -
+          7219
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          subExprsMap.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)])
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          10930
+        </td>
+        <td>
+          7231
+          -
+          7231
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          10931
+        </td>
+        <td>
+          7221
+          -
+          7238
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOps.flatten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprCodes.flatten[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](scala.Predef.$conforms[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]])
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          10932
+        </td>
+        <td>
+          7189
+          -
+          7239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprCodes.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.SubExprCodes.apply(subExprsMap.toMap[org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.ExpressionEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)]), exprCodes.flatten[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode](scala.Predef.$conforms[Seq[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]]))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
