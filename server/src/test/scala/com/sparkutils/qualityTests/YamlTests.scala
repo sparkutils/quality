@@ -113,13 +113,11 @@ class YamlTests extends SharedConnectTests with RowTools {
 
     doSerDe("date('2016-07-30')", "date")
 
-    v3_2_and_above {
-      doSerDe("INTERVAL '10' MONTH", "INTERVAL MONTH")
+    doSerDe("INTERVAL '10' MONTH", "INTERVAL MONTH")
 
-      doSerDe("INTERVAL '10' DAY", "INTERVAL DAY")
+    doSerDe("INTERVAL '10' DAY", "INTERVAL DAY")
 
-      doSerDe("INTERVAL '10' YEAR", "INTERVAL YEAR")
-    }
+    doSerDe("INTERVAL '10' YEAR", "INTERVAL YEAR")
 
     def doSerDeGuess(original: String, ddl: String) = {
       doSerDeTestGuess(original, ddl)

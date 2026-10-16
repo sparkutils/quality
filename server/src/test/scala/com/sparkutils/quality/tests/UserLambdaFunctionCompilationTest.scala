@@ -127,30 +127,26 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
       doSimpleNested
     }
 
-    v3_2_and_above {
-      justfunNRewrite {
+    justfunNRewrite {
 
-        doIt()
+      doIt()
 
-        not_Cluster {
-          // the lambdas will not have been re-written due to the handler
-          calledShouldTransform.get shouldBe true
-          calledTransform.get shouldBe true
-        }
+      not_Cluster {
+        // the lambdas will not have been re-written due to the handler
+        calledShouldTransform.get shouldBe true
+        calledTransform.get shouldBe true
       }
     }
 
-    v3_2_and_above {
-      justfunNRewrite {
+    justfunNRewrite {
 
-        doIt(clearIt = true)
+      doIt(clearIt = true)
 
-        not_Cluster {
-          // the lambdas should have been re-written out of existence as we've specified a handler
-          // no FunN means no lambda to handle
-          calledShouldTransform.get shouldBe false
-          calledTransform.get shouldBe false
-        }
+      not_Cluster {
+        // the lambdas should have been re-written out of existence as we've specified a handler
+        // no FunN means no lambda to handle
+        calledShouldTransform.get shouldBe false
+        calledTransform.get shouldBe false
       }
     }
 

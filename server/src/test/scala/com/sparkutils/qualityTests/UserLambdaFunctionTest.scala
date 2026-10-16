@@ -339,39 +339,38 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     assert(!sparkSession.sql("SELECT forall(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
     assert(sparkSession.sql("SELECT forall(array(2, null, 8), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
 
-    not3_0_or_3_1 {
 
-      //  3.0 / 3.1 for transform_keys and transform_values
-      //@transient lazy val LambdaFunction(
-      //_, (keyVar: NamedLambdaVariable) :: (valueVar: NamedLambdaVariable) :: Nil, _) = function
-      // but map_zip_with is
-      //   @transient lazy val LambdaFunction(_, Seq(
-      //    keyVar: NamedLambdaVariable,
-      //    value1Var: NamedLambdaVariable,
-      //    value2Var: NamedLambdaVariable),
-      //    _) = function
-      // and the actual is:
-      // lambdafunction(plus(lambda x#146, 1, lambdafunction((lambda a#144 + lambda b#145), lambda a#144, lambda b#145, false), Some(plus), false, false), lambda x#146, lambda y#147, false)
-      // in 3.3.0 it's
-      //   @transient lazy val LambdaFunction(
-      //    _, Seq(keyVar: NamedLambdaVariable, valueVar: NamedLambdaVariable), _) = function
-      // so it only seems to match for List and not Seq, which is oddly specific
+    //  3.0 / 3.1 for transform_keys and transform_values
+    //@transient lazy val LambdaFunction(
+    //_, (keyVar: NamedLambdaVariable) :: (valueVar: NamedLambdaVariable) :: Nil, _) = function
+    // but map_zip_with is
+    //   @transient lazy val LambdaFunction(_, Seq(
+    //    keyVar: NamedLambdaVariable,
+    //    value1Var: NamedLambdaVariable,
+    //    value2Var: NamedLambdaVariable),
+    //    _) = function
+    // and the actual is:
+    // lambdafunction(plus(lambda x#146, 1, lambdafunction((lambda a#144 + lambda b#145), lambda a#144, lambda b#145, false), Some(plus), false, false), lambda x#146, lambda y#147, false)
+    // in 3.3.0 it's
+    //   @transient lazy val LambdaFunction(
+    //    _, Seq(keyVar: NamedLambdaVariable, valueVar: NamedLambdaVariable), _) = function
+    // so it only seems to match for List and not Seq, which is oddly specific
 
-      // > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1);
-      //       {2:1,3:2,4:3}
-      //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
-      //       {2:1,4:2,6:3}
-      //transform_keys
-      assert(Map(2 -> 1, 3 -> 2, 4 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
-      assert(Map(2 -> 1, 4 -> 2, 6 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+    // > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1);
+    //       {2:1,3:2,4:3}
+    //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
+    //       {2:1,4:2,6:3}
+    //transform_keys
+    assert(Map(2 -> 1, 3 -> 2, 4 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+    assert(Map(2 -> 1, 4 -> 2, 6 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
 
-      // > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1);
-      //       {1:2,2:3,3:4}
-      //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
-      //       {1:2,2:4,3:6}
-      assert(Map(1 -> 2, 2 -> 3, 3 -> 4) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
-      assert(Map(1 -> 2, 2 -> 4, 3 -> 6) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
-    }
+    // > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1);
+    //       {1:2,2:3,3:4}
+    //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
+    //       {1:2,2:4,3:6}
+    assert(Map(1 -> 2, 2 -> 3, 3 -> 4) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+    assert(Map(1 -> 2, 2 -> 4, 3 -> 6) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+
 
     // > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
     //       {1:"ax",2:"by"}

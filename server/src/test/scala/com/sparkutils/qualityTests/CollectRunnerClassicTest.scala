@@ -17,14 +17,12 @@ class CollectRunnerClassicGrouperTest extends CollectRunnerClassicTest {
 
   override def options: Map[String, String] = {
     var m = Map.empty[String, String]
-    not3_0_or_3_1 {
 
-      // just duplicates the test run on 3 and 3.1
-      m =
-        Map(
-          groupProcessorKey -> topLevelBooleanGrouper
-        )
-    }
+    // just duplicates the test run on 3 and 3.1
+    m =
+      Map(
+        groupProcessorKey -> topLevelBooleanGrouper
+      )
     m
   }
 

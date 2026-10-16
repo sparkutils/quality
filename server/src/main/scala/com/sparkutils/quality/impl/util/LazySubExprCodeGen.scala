@@ -95,12 +95,12 @@ object LazySubExprCodeGen extends Logging {
           val fn =
             s"""
                |private ${javaType(expr.dataType)} $fnName(${argList.mkString(", ")}) {
-               |  if (!${isInitialised(i)}) {
+               |  //if (!${isInitialised(i)}) {
                |    ${eval.code}
                |    ${isNull(i)} = ${eval.isNull};
                |    $realValue = ${eval.value};
                |    ${setInitialised(i)}
-               |  }
+               |  //}
                |  return $realValue;
                |}
                """.stripMargin
@@ -108,22 +108,23 @@ object LazySubExprCodeGen extends Logging {
           val inputVariables = inputVars.map(_.variableName).mkString(", ")
 
           val fnCallName = ctx.addNewFunction(fnName, fn)
-          val value = s"${fnCallName}($inputVariables)"
+          val iValue = s"${fnCallName}($inputVariables)"
+          val value = s"((${isInitialised(i)}) ? $realValue : $iValue)"
 
           val isNullFnName = s"${fnName}ForIsNull"
 
           val isNullFn =
             s"""
                |private boolean $isNullFnName(${argList.mkString(", ")}) {
-               |  if (!${isInitialised(i)}) {
-               |    $value;
-               |  }
+               |  //if (!${isInitialised(i)}) {
+               |    $iValue;
+               |  //}
                |  return ${isNull(i)};
                |}
            """.stripMargin
 
           val nullCallName = ctx.addNewFunction(isNullFnName, isNullFn)
-          val isNullF = s"${nullCallName}($inputVariables)"
+          val isNullF = s"((${isInitialised(i)}) ? ${isNull(i)} : ${nullCallName}($inputVariables) )"
 
           // Collects other subexpressions from the children.
           val childrenSubExprs = mutable.ArrayBuffer.empty[SubExprEliminationState]

@@ -71,28 +71,28 @@ class RuleFolderClassicWithTopLevelGrouperTest extends RuleFolderClassicTestBase
     groupProcessorKey -> topLevelBooleanGrouper
   )
 
-  test("testSimpleProductionRules") { not3_0_or_3_1 {
+  test("testSimpleProductionRules") {
     evalCodeGensNoResolve {
       funNRewrites {
         doTestSimpleProductionRules()
       }
     }
-  } }
+  }
 
-  test("default processor"){ not3_0_or_3_1 {
+  test("default processor"){
     evalCodeGensNoResolve {
       funNRewrites {
         doTestDefaultRules()
       }
     }
-  } }
+  }
 
-  test("default processor via debug"){ not3_0_or_3_1 {
+  test("default processor via debug"){
     evalCodeGensNoResolve {
       funNRewrites {
         doTestDefaultRulesWithDebug()
       }
     }
-  } }
+  }
 
 }

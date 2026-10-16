@@ -326,15 +326,32 @@ object QualityCodeGenUtils {
 
       val subExpressionCode =
         if (lazyGen) {
-          ctx.addMutableState("boolean[]", initialisationArray, forceInline = true, useFreshName = false)
-          ctx.addMutableState("boolean[]", isNullArray, forceInline = true, useFreshName = false)
+          val init = (v: String) => s"$v = new boolean[${subExprs.states.size}];"
+
+          ctx.addMutableState("boolean[]", initialisationArray, forceInline = true, useFreshName = false, initFunc = init)
+          ctx.addMutableState("boolean[]", isNullArray, forceInline = true, useFreshName = false, initFunc = init)
+
+          ctx.addMutableState("boolean[]", initialisationArray + "_default", forceInline = true, useFreshName = false, initFunc = init)
 
           // reset the state for the values
-          s"""
+          /*s"""
             $initialisationArray = new boolean[${subExprs.states.size}];
             $isNullArray = new boolean[${subExprs.states.size}];
             $subExpressionCodeRaw
           """
+          */
+
+          s"""
+            System.arraycopy(${initialisationArray}_default, 0, $initialisationArray, 0, ${subExprs.states.size});
+            System.arraycopy(${initialisationArray}_default, 0, $isNullArray, 0, ${subExprs.states.size});
+            $subExpressionCodeRaw
+          """
+/*
+          s"""
+            $initialisationArray = (boolean[]) ${initialisationArray}_default.clone();
+            $isNullArray = (boolean[]) ${initialisationArray}_default.clone();
+            $subExpressionCodeRaw
+          """ */
 
         } else
           subExpressionCodeRaw

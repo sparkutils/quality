@@ -48,33 +48,32 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     v4_1_and_below {
     classicOnly {
       not_Cluster {
-        v3_2_and_above {
 
-          val s = sparkSession
+        val s = sparkSession
 
-          // using eval we shouldn't get output
-          forceInterpreted {  {
-            doTestPrint(null, "my message is", null, null, "printCode")
-          } }
+        // using eval we shouldn't get output
+        forceInterpreted {  {
+          doTestPrint(null, "my message is", null, null, "printCode")
+        } }
 
-          // should generate output for code gen
-          forceCodeGen {
-            doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
-            // irrespective of version we are outputting the lambda variables
-            doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
-          }
+        // should generate output for code gen
+        forceCodeGen {
+          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+          // irrespective of version we are outputting the lambda variables
+          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
+        }
 
-          // rewrite can be Math or +
-          forceCodeGen {
-            justfunNRewrite {
-              if (sparkVersionNumericMajor >= 40) {
-                doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "MathUtils.addExact", "printCode")
-              } else {
-                doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
-              }
+        // rewrite can be Math or +
+        forceCodeGen {
+          justfunNRewrite {
+            if (sparkVersionNumericMajor >= 40) {
+              doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "MathUtils.addExact", "printCode")
+            } else {
+              doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
             }
           }
         }
+
       }
     }
     }

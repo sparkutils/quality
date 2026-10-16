@@ -80,14 +80,14 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
   }
 
   // ensure that salience wins
-  test("test grouping for overlapping ranges works 1:1"){ not3_0_or_3_1 {// 3.5ms per row with 3ms only in subexprs so 69s in total
+  test("test grouping for overlapping ranges works 1:1"){ // 3.5ms per row with 3ms only in subexprs so 69s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
     )))
-  } }
+  }
 
-  test("test grouping for overlapping ranges works grouped") { not3_0_or_3_1 { // 0.025ms per row 0.5s in total
+  test("test grouping for overlapping ranges works grouped") { // 0.025ms per row 0.5s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -96,10 +96,10 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       // default fails to group properly as it's too intolerant
       groupProcessorPercentFilter -> "0.1"
     )))
-  } }
+  }
 
   // as this generates a differentiator of mod 8 for a the (a+b) mod's don't work.
-  test("test grouping for overlapping ranges works grouped with too small buckets"){ not3_0_or_3_1 {// 0.04ms per row 0.78s in total
+  test("test grouping for overlapping ranges works grouped with too small buckets"){ // 0.04ms per row 0.78s in total
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -120,12 +120,12 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       case hasRuleText: HasRuleText => hasRuleText.rule == "(a = 8)"
       case _ => false
     }))) shouldBe true
-  } }
+  }
 
   // as it doesn't group it's a separate code path, which impact top level ctx vars as well due to predicate pushdown
   // you'll see all the time in this group, 0.44111285ms avg per row, 8.7s total
   // org.apache.spark.sql.catalyst.expressions.GeneratedClass$RunnerCompilationGroup0 - RunnerCompilationGroup0 avg 	48562300	14665000	 ns per every 	100	 rows
-  test("test grouping for overlapping ranges works with bad groups"){ not3_0_or_3_1 {
+  test("test grouping for overlapping ranges works with bad groups"){
     doTest(rs => ruleEngineRunner(rs, extraConfig = Map(
       groupProcessorKey -> topLevelBooleanGrouper,
       showSplitCompilationTime -> "true",
@@ -144,9 +144,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.head.toString.contains("rule_engine_runner(rule_suite_from(the_group, 1, 0))")) shouldBe true
     group.ruleSuites(Id(1,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("((((a + b) % 20) < 15) AND (a = 0))"))) shouldBe true
-  } }
+  }
 
-  test("test if 1:1"){ not3_0_or_3_1 {
+  test("test if 1:1"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
@@ -155,9 +155,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       i => s"if((((a + b) % 20) < 5), a = $i, false)",
       i => s"if((((a + b) % 20) < 20), a = $i, false)"
     )
-  } }
+  }
 
-  test("test if 1:1 lazy"){ not3_0_or_3_1 {
+  test("test if 1:1 lazy"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100",
@@ -167,9 +167,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       i => s"if((((a + b) % 20) < 5), a = $i, false)",
       i => s"if((((a + b) % 20) < 20), a = $i, false)"
     )
-  } }
+  }
 
-  test("test if_relevant 1:1"){ not3_0_or_3_1 {
+  test("test if_relevant 1:1"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       "statsEvery" -> "100"
@@ -178,9 +178,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
       i => s"if_relevant((((a + b) % 20) < 5), a = $i)",
       i => s"if_relevant((((a + b) % 20) < 20), a = $i)"
     )
-  } }
+  }
 
-  test("test if grouped"){ not3_0_or_3_1 {
+  test("test if grouped"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -198,9 +198,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
     group.ruleSuites.size shouldBe 5 // 4 groups
-  } }
+  }
 
-  test("test if grouped non boolean"){ not3_0_or_3_1 {
+  test("test if grouped non boolean"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -218,9 +218,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
     group.ruleSuites.size shouldBe 5 // 4 groups
-  } }
+  }
 
-  test("test if grouped on negatives"){ not3_0_or_3_1 {
+  test("test if grouped on negatives"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -238,9 +238,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
     group.ruleSuites.size shouldBe 5 // 4 groups
-  } }
+  }
 
-  test("test if_relevant grouped"){ not3_0_or_3_1 {
+  test("test if_relevant grouped"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -258,9 +258,9 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
     group.ruleSuites.size shouldBe 4 // the three test groups, there is no negative case for if_relevant
-  } }
+  }
 
-  test("test if_relevant grouped non-boolean"){ not3_0_or_3_1 {
+  test("test if_relevant grouped non-boolean"){
     doTestIf(rs => ruleEngineRunner(rs, extraConfig = Map(
       showSplitCompilationTime -> "true",
       groupProcessorKey -> topLevelBooleanGrouper,
@@ -278,6 +278,6 @@ class BooleanGrouperTest extends ClassicSharedTests with Matchers {
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
     group.ruleSuites.size shouldBe 4 // the three test groups, there is no negative case for if_relevant
-  } }
+  }
 
 }
