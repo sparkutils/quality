@@ -84,7 +84,8 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
 
     import quality.implicits._
 
-    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
+    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs,
+      renderOptions = Map("useFullScalarType" -> "true"), extraConfig = Map(useLazyCSE -> "true")))
 
     val firstId = Id(30,3)
     val firstRes = "!!java.lang.Long '499500'\n"

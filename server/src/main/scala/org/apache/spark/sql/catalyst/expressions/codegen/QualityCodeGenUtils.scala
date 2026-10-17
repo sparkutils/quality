@@ -290,6 +290,19 @@ object QualityCodeGenUtils {
     blocks.toSeq
   }
 
+  private def lazyInit(ctx: CodegenContext, size: Int): String = {
+    val init = (v: String) => s"$v = new boolean[$size];"
+
+    ctx.addMutableState("boolean[]", initialisationArray, forceInline = true, useFreshName = false, initFunc = init)
+    ctx.addMutableState("boolean[]", isNullArray, forceInline = true, useFreshName = false, initFunc = init)
+
+    ctx.addMutableState("boolean[]", initialisationArray + "_default", forceInline = true, useFreshName = false, initFunc = init)
+    s"""
+      System.arraycopy(${initialisationArray}_default, 0, $initialisationArray, 0, $size);
+      System.arraycopy(${initialisationArray}_default, 0, $isNullArray, 0, $size);
+    """
+  }
+
   /**
    * Manage project vs wholestage exec, lambdas and subexpr, the function f is responsible for using the results
    *
@@ -310,9 +323,14 @@ object QualityCodeGenUtils {
 
     if (ctx.currentVars eq null) {
       val subExpressionCode =
-        if (lazyGen)
-          LazySubExprCodeGen.lazyNonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
-        else
+        if (lazyGen) {
+          val direct = LazySubExprCodeGen.lazyNonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
+          val lazyCode = lazyInit(ctx, ShimExprUtils.currentSubExprState(ctx).size)
+          s"""
+            $lazyCode
+            $direct
+          """
+        } else
           QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
 
       // replace the original non-subExpr FunNs
@@ -330,16 +348,10 @@ object QualityCodeGenUtils {
 
       val subExpressionCode =
         if (lazyGen) {
-          val init = (v: String) => s"$v = new boolean[${subExprs.states.size}];"
 
-          ctx.addMutableState("boolean[]", initialisationArray, forceInline = true, useFreshName = false, initFunc = init)
-          ctx.addMutableState("boolean[]", isNullArray, forceInline = true, useFreshName = false, initFunc = init)
-
-          ctx.addMutableState("boolean[]", initialisationArray + "_default", forceInline = true, useFreshName = false, initFunc = init)
-
+          val lazyCode = lazyInit(ctx, subExprs.states.size)
           s"""
-            System.arraycopy(${initialisationArray}_default, 0, $initialisationArray, 0, ${subExprs.states.size});
-            System.arraycopy(${initialisationArray}_default, 0, $isNullArray, 0, ${subExprs.states.size});
+            $lazyCode
             $subExpressionCodeRaw
           """
 

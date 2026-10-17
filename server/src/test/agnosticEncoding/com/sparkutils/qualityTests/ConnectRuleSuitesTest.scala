@@ -174,7 +174,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     }
   }
 
-  def doRuleTest[T: RuleSuiteParam](colF: RuleSuite => T): Unit = {
+  def doRuleTest[T: RuleSuiteParam](colF: RuleSuite => T): Unit =
+    doRuleTestO(Map.empty)(colF)
+
+  def doRuleTestO[T: RuleSuiteParam](opts: Map[String,String])(colF: RuleSuite => T): Unit = {
     val rules = rulesRaw(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -199,7 +202,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     // the empty dataset but provided test
     defaultAndForceConnect {
       val outdf = testDataDF.withColumn("together",
-        generic.engine(colF(rules))
+        generic.engine[T](colF(rules), extraConfig = opts)
       )
       //outdf.show
       debug(outdf.select("together.*").show())
@@ -248,7 +251,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   }
 
   test("ruleRunner via spark var and provided empty dataset via group and id") {
-    doRuleTest{
+    doRuleTestO(Map(useLazyCSE -> "true")){
       (ruleSuite) =>
         val combinedRuleSuiteRows = combined_rows(ruleSuite)
         val name = register_rule_suite_group_variable(combinedRuleSuiteRows)
