@@ -96,4 +96,10 @@ trait RuleProcessingConstants {
    * until they are actually used.
    */
   val useLazyCSE = "quality.useLazyCSE"
+
+  /**
+   * By default, true, when useLazyCSE is enabled the generated code will use java ternary operator expressions in-lined
+   * with the calling code, if there is a code generation issue setting false will trigger function calls to always be used.
+   */
+  val useTernaryInLazyCSE = "quality.useTernaryInLazyCSE"
 }

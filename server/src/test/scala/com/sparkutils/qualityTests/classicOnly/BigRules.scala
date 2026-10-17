@@ -338,7 +338,7 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
   // pre 0.2.0 would require a 12gb heap and patience with > 5m runs, run on 0.2.0 takes sub 2m on 32g i9-9900 corsair with 12gb heap, sub 3 ms / row
   // running the same test on 0.1.3.1 is 2.5m minimum with > 6ms / row
   // not_Databricks for the same reason as not 3_1, it cannot model the parameter sizes properly
-  ignore("1:1 rules only") { not_Databricks {
+  test("1:1 rules only") { not_Databricks {
     do1to1RulesOnly(sparkSession)
   } }
 

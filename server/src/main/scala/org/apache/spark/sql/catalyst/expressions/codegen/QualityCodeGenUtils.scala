@@ -296,20 +296,26 @@ object QualityCodeGenUtils {
    * @param ctx
    * @param fullChildren
    * @param lazyGen when true sub expr code generation is lazy, suitable for large rulesuites
+   * @param useTernary when true, the faster default, ternary expressions are used instead of function calls when results are available.
+   *                   It could be expected they would be in-lined by JIT but testing didn't find that threshold
    * @param f children that have had FunNLambda.swap then swapBack applied, 2nd param is the subexpr 'pre' code, third
    *          signifies currentVars present rather than itr
    * @tparam R1
    * @tparam R2
    * @return
    */
-  def produceCode[R1,R2](ctx: CodegenContext, fullChildren: Seq[Expression], lazyGen: Boolean)
+  def produceCode[R1,R2](ctx: CodegenContext, fullChildren: Seq[Expression], lazyGen: Boolean, useTernary: Boolean)
                         (f: (Seq[Expression], String, Boolean) => (R1, R2)): (R1, R2) = {
 
     // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
     val lambdaSafeChildren = fullChildren.map(FunNLambda.swap)
 
     if (ctx.currentVars eq null) {
-      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
+      val subExpressionCode =
+        if (lazyGen)
+          LazySubExprCodeGen.lazyNonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren, useTernary)
+        else
+          QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
 
       // replace the original non-subExpr FunNs
       val children = lambdaSafeChildren.map(FunNLambda.swapBack)
@@ -318,7 +324,7 @@ object QualityCodeGenUtils {
     } else {
       val subExprs =
         if (lazyGen)
-          LazySubExprCodeGen.lazySubexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
+          LazySubExprCodeGen.lazySubexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren, useTernary)
         else
           SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
 
@@ -333,25 +339,11 @@ object QualityCodeGenUtils {
 
           ctx.addMutableState("boolean[]", initialisationArray + "_default", forceInline = true, useFreshName = false, initFunc = init)
 
-          // reset the state for the values
-          /*s"""
-            $initialisationArray = new boolean[${subExprs.states.size}];
-            $isNullArray = new boolean[${subExprs.states.size}];
-            $subExpressionCodeRaw
-          """
-          */
-
           s"""
             System.arraycopy(${initialisationArray}_default, 0, $initialisationArray, 0, ${subExprs.states.size});
             System.arraycopy(${initialisationArray}_default, 0, $isNullArray, 0, ${subExprs.states.size});
             $subExpressionCodeRaw
           """
-/*
-          s"""
-            $initialisationArray = (boolean[]) ${initialisationArray}_default.clone();
-            $isNullArray = (boolean[]) ${initialisationArray}_default.clone();
-            $subExpressionCodeRaw
-          """ */
 
         } else
           subExpressionCodeRaw
