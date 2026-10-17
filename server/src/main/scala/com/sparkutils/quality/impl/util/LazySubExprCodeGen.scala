@@ -4,11 +4,9 @@ import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{JAVA_BOOLEAN, MAX_JVM_METHOD_PARAMS_LENGTH, calculateParamLengthFromExprValues, getLocalInputVariableValues, isValidParamLength, javaType}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{ MAX_JVM_METHOD_PARAMS_LENGTH, calculateParamLengthFromExprValues, getLocalInputVariableValues, isValidParamLength, javaType}
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression, ExpressionEquals}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, JavaCode, ShimExprUtils, SimpleExprValue, SubExprCodes, SubExprEliminationState, TrueLiteral}
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.util.Utils
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, JavaCode, ShimExprUtils, SimpleExprValue, SubExprCodes, SubExprEliminationState}
 
 import scala.collection.mutable
 
@@ -19,12 +17,9 @@ object LazySubExprCodeGen extends Logging {
 
   /**
    * SPARK-18395 / apache/spark#15837 revival
-   * @param ctx
-   * @param expressions
    * @return
    */
-  def lazySubexpressionEliminationForWholeStageCodegen(ctx: CodegenContext, expressions: Seq[Expression],
-                                                       useTernary: Boolean): SubExprCodes = {
+  def lazySubexpressionEliminationForWholeStageCodegen(ctx: CodegenContext, expressions: Seq[Expression]): SubExprCodes = {
     // for oss ctx.subexpressionEliminationForWholeStageCodegen(expressions)
     // Create a clear EquivalentExpressions and SubExprEliminationState mapping
     val equivalentExpressions: EquivalentExpressions = new EquivalentExpressions
@@ -86,7 +81,7 @@ object LazySubExprCodeGen extends Logging {
           val callParameters = inputVars.map(_.variableName).mkString(", ")
 
           val (value: String, isNullF: String) =
-            generateFunctions(ctx,expr, i, eval, argList, callParameters, useTernary)
+            generateFunctions(ctx,expr, i, eval, argList, callParameters)
 
           // Collects other subexpressions from the children.
           val childrenSubExprs = mutable.ArrayBuffer.empty[SubExprEliminationState]
@@ -122,7 +117,7 @@ object LazySubExprCodeGen extends Logging {
 
 
   private def generateFunctions(ctx: CodegenContext, expr: Expression, i: Int, eval: ExprCode, argList: Seq[String],
-                                callParameters: String, useTernary: Boolean) = {
+                                callParameters: String) = {
 
     // forceInline so it's type is not corrupted, must be handled in the SplitCompilation
     def isInitialised(i: Int) = s"$initialisationArray[$i]"
@@ -141,40 +136,31 @@ object LazySubExprCodeGen extends Logging {
     val isNullFn =
       s"""
          |private boolean $isNullFnName(${argList.mkString(", ")}) {
-         |  ${if (useTernary) "" else s"if (!${isInitialised(i)}) {"}
+         |  if (!${isInitialised(i)}) {
          |    ${eval.code}
          |    ${isNull(i)} = ${eval.isNull};
          |    $realValue = ${eval.value};
          |    ${setInitialised(i)}
-         |  ${if (useTernary) "" else s"}"}
+         |  }
          |  return ${isNull(i)};
          |}
            """.stripMargin
 
     val nullCallName = ctx.addNewFunction(isNullFnName, isNullFn)
     val nullCall = s"$nullCallName($callParameters)"
-    val isNullF = s"(${if (useTernary) s"(${isInitialised(i)}) ? ${isNull(i)} :" else ""} $nullCall )"
 
-    val value =
-      if (useTernary)
-        // nest ternary to force gen
-        s"( (${isInitialised(i)}) ? $realValue : ( ($nullCall) ? $realValue : $realValue ) )"
-      else {
+    val fn =
+      s"""
+         |private ${javaType(expr.dataType)} $fnName(${argList.mkString(", ")}) {
+         |  $nullCall;
+         |  return $realValue;
+         |}
+       """.stripMargin
 
-        val fn =
-          s"""
-             |private ${javaType(expr.dataType)} $fnName(${argList.mkString(", ")}) {
-             |  $nullCall;
-             |  return $realValue;
-             |}
-           """.stripMargin
+    val fnCallName = ctx.addNewFunction(fnName, fn)
+    val initValueCall = s"$fnCallName($callParameters)"
 
-        val fnCallName = ctx.addNewFunction(fnName, fn)
-        val initValueCall = s"$fnCallName($callParameters)"
-        s"$initValueCall"
-      }
-
-    (value, isNullF)
+    (initValueCall, nullCall)
   }
 
   /**
@@ -183,8 +169,7 @@ object LazySubExprCodeGen extends Logging {
    * This, alongside forcing initialise to be called, as part of #131 require the test cases to change.
    */
   def lazyNonWholeStageSubexpressionElimination(ctx: CodegenContext,
-                                                dirtyExpressions: Seq[Expression],
-                                                useTernary: Boolean): String = {
+                                                dirtyExpressions: Seq[Expression]): String = {
     val expressions = ShimUtils.copyStateful(dirtyExpressions)
     import ctx._
     val equivalentExpressions: EquivalentExpressions = new EquivalentExpressions
@@ -201,7 +186,7 @@ object LazySubExprCodeGen extends Logging {
       val eval = expr.genCode(ctx)
 
       val (value: String, isNullF: String) =
-        generateFunctions(ctx,expr, i, eval, Seq(s"InternalRow $INPUT_ROW"), INPUT_ROW, useTernary)
+        generateFunctions(ctx,expr, i, eval, Seq(s"InternalRow $INPUT_ROW"), INPUT_ROW)
 
       // Add a state and a mapping of the common subexpressions that are associate with this
       // state. Adding this expression to subExprEliminationExprMap means it will call `fn`

@@ -98,8 +98,10 @@ trait RuleProcessingConstants {
   val useLazyCSE = "quality.useLazyCSE"
 
   /**
-   * By default, true, when useLazyCSE is enabled the generated code will use java ternary operator expressions in-lined
-   * with the calling code, if there is a code generation issue setting false will trigger function calls to always be used.
+   * Prints on the executors stdout the average time taken in total for a row, including eager common sub expression evaluation
+   * and the average processing cost after CSE has been run every X number of rows.
+   * On TriggerGrouped suites the times should be similar on large rulesuites without grouping it can have a significant gap.
+   * Evaluate useLazyCSE when the difference is large.
    */
-  val useTernaryInLazyCSE = "quality.useTernaryInLazyCSE"
+  val statsEvery = "quality.statsEvery"
 }

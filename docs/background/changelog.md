@@ -27,7 +27,7 @@ Support OSS Spark 3.4 and Databricks 14.3 is now deprecated and will be removed 
 >```
 > in your runner parameters, when WholeStageCodeGen is used, swaps Sparks Common Sub Expression Elimination
 > approach from Eager to Lazy.  With large rule suites, such as the BigRules test suite, speed up can be dramatic,
-> with lazy CSE being only 55% of the row evaluation time over the default Spark eager evaluation.
+> with lazy CSE being only 55% (1.8x faster) of the row evaluation time over the default Spark eager evaluation.
 > 
 > While this can be combined with TopLevelBooleanGrouper it may be slower depending on the grouping logic
 > testing throughput via statsEvery can help choose the right setting.

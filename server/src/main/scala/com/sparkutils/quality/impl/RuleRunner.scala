@@ -22,10 +22,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
-import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame}
 
 import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag

@@ -296,15 +296,13 @@ object QualityCodeGenUtils {
    * @param ctx
    * @param fullChildren
    * @param lazyGen when true sub expr code generation is lazy, suitable for large rulesuites
-   * @param useTernary when true, the faster default, ternary expressions are used instead of function calls when results are available.
-   *                   JIT *did* inline - removing ternary usage, it hits the compiler hard and slows things down
    * @param f children that have had FunNLambda.swap then swapBack applied, 2nd param is the subexpr 'pre' code, third
    *          signifies currentVars present rather than itr
    * @tparam R1
    * @tparam R2
    * @return
    */
-  def produceCode[R1,R2](ctx: CodegenContext, fullChildren: Seq[Expression], lazyGen: Boolean, useTernary: Boolean)
+  def produceCode[R1,R2](ctx: CodegenContext, fullChildren: Seq[Expression], lazyGen: Boolean)
                         (f: (Seq[Expression], String, Boolean) => (R1, R2)): (R1, R2) = {
 
     // replace all usedAsLambda FunNs to make sure they cannot be turned into subexprs
@@ -313,7 +311,7 @@ object QualityCodeGenUtils {
     if (ctx.currentVars eq null) {
       val subExpressionCode =
         if (lazyGen)
-          LazySubExprCodeGen.lazyNonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren, useTernary)
+          LazySubExprCodeGen.lazyNonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
         else
           QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, lambdaSafeChildren)
 
@@ -324,7 +322,7 @@ object QualityCodeGenUtils {
     } else {
       val subExprs =
         if (lazyGen)
-          LazySubExprCodeGen.lazySubexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren, useTernary)
+          LazySubExprCodeGen.lazySubexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
         else
           SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
 

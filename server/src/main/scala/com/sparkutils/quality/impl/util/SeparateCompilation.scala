@@ -1,12 +1,12 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{VersionedId, useLazyCSE, useTernaryInLazyCSE}
+import com.sparkutils.quality.{VersionedId, useLazyCSE}
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.Runner
 import org.apache.spark.sql.ClassicQualitySparkUtils.{genParams, genParamsForNested}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.types.DataType
 
@@ -192,8 +192,7 @@ object SeparateCompilation {
         genParams(ctx, theThis, extraParams)
 
     val (genResult, (subExpressionCode, childParams)) =
-      QualityCodeGenUtils.produceCode(ctx, children, theThis.extraConfig.boolean(useLazyCSE, false),
-        theThis.extraConfig.boolean(useTernaryInLazyCSE, true)){
+      QualityCodeGenUtils.produceCode(ctx, children, theThis.extraConfig.boolean(useLazyCSE, false)){
         (children, subExprCode, _) =>
           val childParams = genParamsForNested(ctx, children, Seq.empty).mergeParams(ctx, params, false)
 
