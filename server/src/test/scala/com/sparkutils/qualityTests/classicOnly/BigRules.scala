@@ -346,6 +346,10 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     do1to1RulesOnly(sparkSession, Map(useLazyCSE -> "true")) // runs in 45% of the time of 1:1 eager
   } }
 
+  test("1:1 rules with lazy non ternary") { not_Databricks {
+    do1to1RulesOnly(sparkSession, Map(useLazyCSE -> "true", useTernaryInLazyCSE -> "false")) // runs in 45% of the time of 1:1 eager
+  } }
+
   test("dumpAudit should work") {
     doDumpAuditShouldWork(sparkSession)
   }

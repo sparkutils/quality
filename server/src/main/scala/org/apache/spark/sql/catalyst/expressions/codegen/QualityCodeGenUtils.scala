@@ -297,7 +297,7 @@ object QualityCodeGenUtils {
    * @param fullChildren
    * @param lazyGen when true sub expr code generation is lazy, suitable for large rulesuites
    * @param useTernary when true, the faster default, ternary expressions are used instead of function calls when results are available.
-   *                   It could be expected they would be in-lined by JIT but testing didn't find that threshold
+   *                   JIT *did* inline - removing ternary usage, it hits the compiler hard and slows things down
    * @param f children that have had FunNLambda.swap then swapBack applied, 2nd param is the subexpr 'pre' code, third
    *          signifies currentVars present rather than itr
    * @tparam R1

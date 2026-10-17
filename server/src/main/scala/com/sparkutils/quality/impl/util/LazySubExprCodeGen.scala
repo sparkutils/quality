@@ -126,6 +126,7 @@ object LazySubExprCodeGen extends Logging {
 
     // forceInline so it's type is not corrupted, must be handled in the SplitCompilation
     def isInitialised(i: Int) = s"$initialisationArray[$i]"
+
     def setInitialised(i: Int) = s"$initialisationArray[$i] = true;"
 
     def isNull(i: Int) = s"$isNullArray[$i]"
@@ -135,37 +136,44 @@ object LazySubExprCodeGen extends Logging {
 
     val realValue = ctx.addMutableState(javaType(expr.dataType), "subExprValue")
 
-    val fn =
-      s"""
-         |private ${javaType(expr.dataType)} $fnName(${argList.mkString(", ")}) {
-         |  ${if (useTernary) "" else s"if (!${isInitialised(i)}) {"}
-         |    ${eval.code}
-         |    ${isNull(i)} = ${eval.isNull};
-         |    $realValue = ${eval.value};
-         |    ${setInitialised(i)}
-         |  ${if (useTernary) "" else s"}"}
-         |  return $realValue;
-         |}
-               """.stripMargin
-
-    val fnCallName = ctx.addNewFunction(fnName, fn)
-    val initValueCall = s"${fnCallName}($callParameters)"
-    val value = s"(${if (useTernary) s"(${isInitialised(i)}) ? $realValue :" else ""} $initValueCall)"
-
     val isNullFnName = s"${fnName}ForIsNull"
 
     val isNullFn =
       s"""
          |private boolean $isNullFnName(${argList.mkString(", ")}) {
          |  ${if (useTernary) "" else s"if (!${isInitialised(i)}) {"}
-         |    $initValueCall;
+         |    ${eval.code}
+         |    ${isNull(i)} = ${eval.isNull};
+         |    $realValue = ${eval.value};
+         |    ${setInitialised(i)}
          |  ${if (useTernary) "" else s"}"}
          |  return ${isNull(i)};
          |}
            """.stripMargin
 
     val nullCallName = ctx.addNewFunction(isNullFnName, isNullFn)
-    val isNullF = s"(${if (useTernary) s"(${isInitialised(i)}) ? ${isNull(i)} :" else ""} ${nullCallName}($callParameters) )"
+    val nullCall = s"$nullCallName($callParameters)"
+    val isNullF = s"(${if (useTernary) s"(${isInitialised(i)}) ? ${isNull(i)} :" else ""} $nullCall )"
+
+    val value =
+      if (useTernary)
+        // nest ternary to force gen
+        s"( (${isInitialised(i)}) ? $realValue : ( ($nullCall) ? $realValue : $realValue ) )"
+      else {
+
+        val fn =
+          s"""
+             |private ${javaType(expr.dataType)} $fnName(${argList.mkString(", ")}) {
+             |  $nullCall;
+             |  return $realValue;
+             |}
+           """.stripMargin
+
+        val fnCallName = ctx.addNewFunction(fnName, fn)
+        val initValueCall = s"$fnCallName($callParameters)"
+        s"$initValueCall"
+      }
+
     (value, isNullF)
   }
 
