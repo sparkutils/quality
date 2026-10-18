@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
-import com.sparkutils.quality.{ExpressionRule, Failed, GeneralExpressionResult, GeneralExpressionsResult, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite, expressionRunner}
+import com.sparkutils.quality.{ExpressionRule, Failed, GeneralExpressionResult, GeneralExpressionsResult, Id, IgnoredRule, Passed, Probability, Rule, RuleSet, RuleSuite, expressionRunner, useLazyCSE}
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.impl.types.ruleSuiteResultType
@@ -182,8 +182,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     }
   }
 
-  // fails on encoding 4.2
-  test("testExpressions with CSE Proxy an no children") { evalCodeGensNoResolve {
+  def doTestExpresionCSE(options: Map[String, String] = Map.empty): Unit = {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("a > 1")),
       Rule(Id(31, 3), ExpressionRule("(a > 1) and (a between b and c)")),
@@ -195,7 +194,8 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     import quality.implicits._
 
     val processed = sparkSession.range(2, 1000).selectExpr("id a"," (id - 50) b", "(id + 50) c").select(
-      expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")), functions.col("*"))
+      expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true"),
+        extraConfig = options), functions.col("*"))
 
     val enc = implicitly[Encoder[GeneralExpressionsResult[GeneralExpressionResult]]]
 
@@ -205,6 +205,12 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
 
     res.getRuleSetResults.asScala shouldBe res.ruleSetResults
     res.ruleSetResults(Id(20, 1)).forall(_._2.result.contains("true")) shouldBe true
+  }
+
+  // fails on encoding 4.2
+  test("testExpressions with CSE Proxy an no children") { evalCodeGensNoResolve {
+    doTestExpresionCSE()
+    doTestExpresionCSE(Map(useLazyCSE -> "true"))
   } }
 
 }

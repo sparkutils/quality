@@ -344,7 +344,7 @@ object QualityCodeGenUtils {
         else
           SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, lambdaSafeChildren)
 
-      val subExpressionCodeRaw = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+      val subExpressionCodeRaw = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs).trim
 
       val subExpressionCode =
         if (lazyGen) {

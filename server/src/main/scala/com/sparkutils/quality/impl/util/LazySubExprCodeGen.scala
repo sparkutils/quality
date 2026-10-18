@@ -100,8 +100,9 @@ object LazySubExprCodeGen extends Logging {
           localSubExprEliminationExprs.put(ExpressionEquals(expr), state)
         }
         (localSubExprEliminationExprs, exprCodesNeedEvaluate)
-      } else {
+      } else
         // $COVERAGE-OFF$
+        {
         // c+p from spark
         val errMsg = "Failed to split subexpression code into small functions because " +
           "the parameter length of at least one split function went over the JVM limit: " +
@@ -112,8 +113,8 @@ object LazySubExprCodeGen extends Logging {
           logInfo(errMsg)
           (localSubExprEliminationExprsForNonSplit, Seq.empty)
         }
+        }
         // $COVERAGE-ON$
-      }
 
     SubExprCodes(subExprsMap.toMap, exprCodes.flatten)
   }
