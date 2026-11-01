@@ -365,13 +365,13 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
     aritySafe.map { p =>
       val (arrayExtraDecl, arrayExtraDim) =
-        if (p.isExtraDimensionArray)
+        if (p.isExtraDimensionArray && !isBinaryType(p))
           (p.name, "[]") // s" = new ${p._3.componentType().getName}[1][]
         else
           (p.name, "")
 
       val typ =
-        if (p.isBoxed && p.classType.isArray)
+        if (p.isBoxed && p.classType.isArray && !isBinaryType(p))
           CodeGenerator.boxedType(p.classType.getComponentType.getSimpleName) + "[]"
         else
           CodeGenerator.typeName(p.classType)
@@ -379,6 +379,10 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       ctx.addMutableState(typ+arrayExtraDim, p.name, forceInline = true, useFreshName = false)
     }
   }
+
+  // #156 - BinaryType is the only actual array type
+  private def isBinaryType(p: ParamType) =
+    Params.isBinaryType(p.classType)
 
   def aritySafeParamConversion(ctx: CodegenContext): String =
     if (arity <= 22)
@@ -393,11 +397,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
             else
               p.typeDecl
 
-        val (arrayExtraDim) =
-          if (p.classType.isArray)
-            ("[]")//
+        val arrayExtraDim =
+          if (p.classType.isArray && !isBinaryType(p))
+            "[]"
           else
-            ("")
+            ""
 
         s"${p.name} = ($cast$arrayExtraDim) ${p.name}_ppp;"
       }.mkString("\n")
@@ -413,11 +417,12 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
               CodeGenerator.boxedType(p.classType.getSimpleName)
             else
               p.typeDecl
-          val (arrayExtraDim) =
-            if (p.classType.isArray)
-              ("[]")// [0]
+
+          val arrayExtraDim =
+            if (p.classType.isArray && !isBinaryType(p))
+              "[]"
             else
-              ("")
+              ""
 
           s"${p.name} = ($cast$arrayExtraDim) $pp[$index];"
       }.mkString("\n")
@@ -453,6 +458,8 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 }
 
 object Params {
+  private[quality] def isBinaryType(c: Class[_]) =
+    c.isArray && c.getComponentType == java.lang.Byte.TYPE
 
   def stripBrackets(v: VariableValue): (String, String) = {
     val openb = v.toString().indexOf("[")
