@@ -339,11 +339,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     s"$prefix$useArity<$returnTyp${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
-          aritySafe.map { p => "Object"
-/*            if (p._3.isPrimitive)
-              CodeGenerator.boxedType(p._3.getSimpleName)
-            else
-              p._1*/
+          aritySafe.map { _ => "Object"
           }.mkString(",")
         else
           "Object"
@@ -364,11 +360,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     aritySafe = (params ++ preppedTopLevel).distinct
 
     aritySafe.map { p =>
-      val (arrayExtraDecl, arrayExtraDim) =
+      val arrayExtraDim =
         if (p.isExtraDimensionArray && !isBinaryType(p))
-          (p.name, "[]") // s" = new ${p._3.componentType().getName}[1][]
+          "[]"
         else
-          (p.name, "")
+          ""
 
       val typ =
         if (p.isBoxed && p.classType.isArray && !isBinaryType(p))
@@ -380,7 +376,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     }
   }
 
-  // #156 - BinaryType is the only actual array type
+  // #156 - BinaryType is the only actual array type - Literals.default is the scope, all others are reference arrays
   private def isBinaryType(p: ParamType) =
     Params.isBinaryType(p.classType)
 
@@ -453,8 +449,8 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     else
       str
 
-  def outerParamsCall(outerParams: ParameterInformation): String =
-    topLevelCall(paramsCall, outerParams)
+  //def outerParamsCall(outerParams: ParameterInformation): String =
+  //  topLevelCall(paramsCall, outerParams)
 }
 
 object Params {
@@ -507,23 +503,12 @@ object Params {
     val filteredA = filterOutArrays(a)
     val filteredAdditional = filterOutArraysB(additional)
 
-    val size = filteredA.size + filteredAdditional.size
-    val use =
-      //if (size <= 22)
-        filteredA ++ filteredAdditional
-      //else
-        //filteredA // additional are then handled via class level
+    val use = filteredA ++ filteredAdditional
 
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = use
 
     val pairs = prepFields(ctx, ordered, additionalParams = additional)
-
-    val combined =
-      //if (size <= 22)
-        pairs
-      //else
-        //pairs ++ prepFields(filteredAdditional)
 
     def paramsCall(seq: Seq[(VariableValue, Boolean)]) =
       seq.map { case (v, primitive) =>
@@ -538,7 +523,7 @@ object Params {
 
         s"$typ $stripped"
       }.distinct.mkString(", ")
-      , paramsCall(ordered), combined.size, combined,
+      , paramsCall(ordered), pairs.size, pairs,
       outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.variableName))),
       nonCombinedParams = pairs)
   }
