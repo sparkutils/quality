@@ -183,6 +183,28 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     }
   }
 
+  test("binary compilation and function grouping should work") {
+    evalCodeGensNoResolve {
+      funNRewrites {
+        resultChecker(
+          rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+            Rule(Id(30, 3), ExpressionRule(s"binid is not null and length(binid) > 0"))
+          )))), (Passed, Passed), Seq(Passed), dfF = _.selectExpr("id", "cast(cast(id as string) as binary) binid"))
+      }
+    }
+  }
+
+  test("array compilation and function grouping should work") {
+    evalCodeGensNoResolve {
+      funNRewrites {
+        resultChecker(
+          rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+            Rule(Id(30, 3), ExpressionRule(s"size(arr) > 0"))
+          )))), (Passed, Passed), Seq(Passed), dfF = _.selectExpr("id", "array(id) arr"))
+      }
+    }
+  }
+
   // fails on encoding 4.2
   test("testExpressions with CSE Proxy an no children") { evalCodeGensNoResolve {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -207,5 +229,4 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     res.getRuleSetResults.asScala shouldBe res.ruleSetResults
     res.ruleSetResults(Id(20, 1)).forall(_._2.result.contains("true")) shouldBe true
   } }
-
 }

@@ -157,10 +157,11 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
   val resultCheckerCodeGenSize = 1000
 
   def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), expected: Seq[RuleResult],
-                    seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq): Unit = evalCodeGens {
+                    seqF: Iterable[RuleResult] => Seq[RuleResult] = _.toSeq,
+                    dfF: DataFrame => DataFrame = identity): Unit = evalCodeGens {
     import quality.implicits._
 
-    val base = sparkSession.range(resultCheckerCodeGenSize)
+    val base = dfF(sparkSession.range(resultCheckerCodeGenSize).toDF())
 
     val processed = (
       if (inCodegen) {

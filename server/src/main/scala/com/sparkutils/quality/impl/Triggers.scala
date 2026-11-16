@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
-import com.sparkutils.quality.{PassedInt, QualityException, groupProcessorKey}
+import com.sparkutils.quality.{QualityException, groupProcessorKey}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParamsForNested
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
