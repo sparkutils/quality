@@ -1,5 +1,9 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
+import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerBase, RuleFolderRunnerEval, Runner}
+import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy}
 
 object GetRealChildren {
@@ -17,4 +21,17 @@ object GetRealChildren {
       case child => child
     }
 
+  def resolveWithOverride(resolveWith: Option[DataFrame], runner: Runner): Column = {
+    column(
+      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
+        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
+
+        resolved.withNewChildren(resolved.children.map {
+          // replace the expr
+          case PassThroughCompileEvals(child) => NonPassThrough(child)
+          case child => child
+        })
+      } getOrElse ZeroCodeGenWrap.wrap(runner)
+    )
+  }
 }

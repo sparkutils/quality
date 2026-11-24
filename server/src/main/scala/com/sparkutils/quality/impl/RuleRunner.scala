@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
-import com.sparkutils.quality.impl.util.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.util.GetRealChildren.{getRealChildren, resolveWithOverride}
 import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGenValues
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
@@ -63,17 +63,7 @@ protected[quality] object RuleRunnerImpl {
         new RuleRunner(cleaned, input,
           compileEvals, variablesPerFunc, variableFuncGroup, extraConfig)
 
-    column(
-      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
-        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
-
-        resolved.withNewChildren(resolved.children.map{
-          // replace the expr
-          case PassThroughCompileEvals(child) => NonPassThrough(child)
-          case child => NonPassThrough(child)
-        })
-      } getOrElse ZeroCodeGenWrap.wrap(runner)
-    )
+    resolveWithOverride(resolveWith, runner)
   }
 
 }

@@ -3,7 +3,8 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
-import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
+import com.sparkutils.quality.impl.util.GetRealChildren.resolveWithOverride
+import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerBase, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
 import com.sparkutils.quality.impl.util.{InputWrapper, NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
@@ -113,7 +114,7 @@ trait ClassicRuleFolderRunnerImports {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        expressions.map(PassThroughCompileEvals(_))
+        expressions.map(PassThroughCompileEvals)
       else
         expressions
 
@@ -129,16 +130,7 @@ trait ClassicRuleFolderRunnerImports {
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
           expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
-    column(
-      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
-        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
-
-        resolved.withNewChildren(resolved.children.map{
-          // replace the expr
-          case PassThroughCompileEvals(child) => NonPassThrough(child)
-          case child => NonPassThrough(child)
-        })
-      } getOrElse ZeroCodeGenWrap.wrap(runner)
-    )
+    resolveWithOverride(resolveWith, runner)
   }
+
 }

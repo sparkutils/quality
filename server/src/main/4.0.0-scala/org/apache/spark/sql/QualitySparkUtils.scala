@@ -1,25 +1,22 @@
 package org.apache.spark.sql
 
-import com.sparkutils.quality.impl.extension.ZeroCodeGen
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{ParameterInformation, PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.quality.impl.util.ParameterInformation
+import com.sparkutils.quality.impl.{RuleFolderRunnerBase, Runner}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, EmptyBlock, ExprCode, ExprValue, GenerateMutableProjection, JavaCode, ShimExprUtils, SubExprEliminationState, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, BoundReference, EqualNullSafe, Expression, ExpressionEquals, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, NamedExpression, Projection, UpdateFields}
-import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
-import org.apache.spark.sql.catalyst.plans.logical.{CatalystSerde, DeserializeToObject, LocalRelation, LogicalPlan, Project, UnaryNode}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ShimExprUtils, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, Literal, UpdateFields}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.aggregate.ScalaAggregator
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN, GroupResultsWithProcess, LambdaFunctions, MapTransform, RefCodeGen}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.qualityFunctions.{ClassicQualitySparkUtilsExt, FunN}
 import org.apache.spark.util.Utils
 
 import scala.collection.mutable
@@ -286,15 +283,12 @@ object ClassicQualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
-        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
-        r.withNewChildren(nexprs)
-      case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
-        val starter = r.children.head
-        val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+      case r: RuleFolderRunnerBase[_] =>
+        val starter = forExpr(getRealChildren(Seq(r.children.head)).head)
+        val nexprs = r.realChildren.map(forExpr)
         r.withNewChildren(starter +: nexprs)
-      case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
-        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+      case r: Runner =>
+        val nexprs = getRealChildren(r.children).map(forExpr)
         r.withNewChildren(nexprs)
       case _ => forExpr(expr)
     }

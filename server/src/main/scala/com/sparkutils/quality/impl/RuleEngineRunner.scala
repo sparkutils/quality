@@ -9,7 +9,7 @@ import PackId.packId
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
-import com.sparkutils.quality.impl.util.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.util.GetRealChildren.{getRealChildren, resolveWithOverride}
 import com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultIntGen
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
@@ -79,17 +79,7 @@ object RuleEngineRunnerImpl {
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
           forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
-    ShimUtils.column(
-      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
-        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
-
-        resolved.withNewChildren(resolved.children.map{
-          // replace the expr
-          case PassThroughCompileEvals(child) => NonPassThrough(child)
-          case child => NonPassThrough(child)
-        })
-      } getOrElse ZeroCodeGenWrap.wrap(runner)
-    )
+    resolveWithOverride(resolveWith, runner)
   }
 }
 

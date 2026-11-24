@@ -249,8 +249,8 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
     assert(fields.toSeq == Seq("foldedFields", "account", "product", "subcode"))
   }
 
-  // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine
-  def doTestSimpleProductionRules(): Unit = evalCodeGensNoResolve {
+  // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine until 4
+  def doTestSimpleProductionRules(): Unit = evalCodeGens {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("thecurrent1 -> updateField(updateField(thecurrent1, 'subcode', 1234), 'transfer_type', 'from')"))),

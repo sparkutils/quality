@@ -2,6 +2,7 @@ package org.apache.spark.sql
 
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{ ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
@@ -225,38 +226,36 @@ object ClassicQualitySparkUtils {
   protected def tryResolveReferences(
                                       sparkSession: SparkSession)(
                                       expr: Expression,
-                                      child: LogicalPlan): Expression =  {
-       val analyzer = sparkSession.sessionState.analyzer
+                                      child: LogicalPlan): Expression = {
+    val analyzer = sparkSession.sessionState.analyzer
 
-       def forExpr(expr: Expression) = {
-         val newPlan = FakePlan(expr, child)
-         //analyzer.execute(newPlan)
-         execute(newPlan, resolution(analyzer, sparkSession, newPlan))
-         match {
-           case FakePlan(resolvedExpr, _) =>
-             // Return even if it did not successfully resolve
-             resolvedExpr
-           case _ =>
-             // This is unexpected
-             throw new Exception(
-               s"Could not resolve expression $expr with child $child}")
-         }
-       }
-       // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
-      expr match {
-        case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
-          val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
-          r.withNewChildren(nexprs)
-        case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
-          val starter = r.children.head
-          val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
-          r.withNewChildren(starter +: nexprs)
-        case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
-          val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
-          r.withNewChildren(nexprs)
-        case _ => forExpr(expr)
+    def forExpr(expr: Expression) = {
+      val newPlan = FakePlan(expr, child)
+      //analyzer.execute(newPlan)
+      execute(newPlan, resolution(analyzer, sparkSession, newPlan))
+      match {
+        case FakePlan(resolvedExpr, _) =>
+          // Return even if it did not successfully resolve
+          resolvedExpr
+        case _ =>
+          // This is unexpected
+          throw new Exception(
+            s"Could not resolve expression $expr with child $child}")
       }
-     }
+    }
+    // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
+    expr match {
+      case r: RuleFolderRunnerBase[_] =>
+        val starter = forExpr(getRealChildren(Seq(r.children.head)).head)
+        val nexprs = r.realChildren.map(forExpr)
+        r.withNewChildren(starter +: nexprs)
+      case r: Runner =>
+        val nexprs = getRealChildren(r.children).map(forExpr)
+        r.withNewChildren(nexprs)
+      case _ => forExpr(expr)
+    }
+
+  }
 
      case class FakePlan(expr: Expression, child: LogicalPlan)
        extends UnaryNode {

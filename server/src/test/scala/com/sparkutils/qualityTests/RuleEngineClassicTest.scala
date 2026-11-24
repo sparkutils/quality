@@ -18,6 +18,9 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
 
   test("testSimpleProductionRules Classic") {
     classicOnly {
+      // NB this test must be NoResolve, with codegen and NoResolve it evals and cannot be forced
+      // as such the test can't be directly checked for UnevaluatedRule.  The folder test covers
+      // the resolve usage however
       evalCodeGensNoResolve {
         testPlan(FunNRewrite, disable = _ == 32) {
           doSimpleProductionRules()
@@ -27,7 +30,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
   }
 
   test("testFlattenResults") {
-    evalCodeGensNoResolve {
+    evalCodeGens {
       funNRewrites {
         doTestFlattenResults()
       }

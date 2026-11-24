@@ -32,6 +32,8 @@ Support OSS Spark 3.4 and Databricks 14.3 is now deprecated and will be removed 
 > While this can be combined with TopLevelBooleanGrouper it may be slower depending on the grouping logic
 > testing throughput via statsEvery can help choose the right setting.
 
+#38 - resolveWith support for folding re-instated
+
 ### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>16th September, 2026</small>
 
 This small feature release adds the if_relevant function.
