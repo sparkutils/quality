@@ -301,7 +301,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
 
   /* Reproduces input 21 incorrectly selecting the final rule under generated execution.
   *  Courtesy of Karthik Parameswaran */
-  def do159wrongMatchedRule(): Unit = {
+  def do159wrongMatchedRule(vpf: Int): Unit = {
     val spark = sparkSession
 
     val schema = new StructType().add("INPUT_ID", IntegerType).add("RAW_SELECTOR", IntegerType)
@@ -326,7 +326,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
     val output = new StructType().add("MATCHED_VALUE", StringType).add("MATCHED_NUMBER", IntegerType)
 
     val df = source.select(col("INPUT_ID"),
-      ruleEngineRunner(rules,Some(output)/*, variablesPerFunc = 20*/).as("together")
+      ruleEngineRunner(rules,Some(output), variablesPerFunc = vpf).as("together")
     ).select("INPUT_ID", "together.result.*")
     //df.orderBy("input_id").show(56)
 
@@ -385,7 +385,8 @@ class RuleEngineTest extends RuleEngineTestBase {
   } }
 
   test("159 wrongMatchedRule") { evalCodeGensNoResolve {
-    do159wrongMatchedRule()
+    do159wrongMatchedRule(40) // default
+    do159wrongMatchedRule(20) // grouping size would be 1, so early exit would not trigger per 159
   } }
 
   test("testSimpleProductionRules Connect") { connectOnly{
