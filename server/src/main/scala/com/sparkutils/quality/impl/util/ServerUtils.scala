@@ -503,11 +503,19 @@ object Params {
     val aNames = localA.map(_.code).toSet
 
     // 159 - global pairs _may_ also be needed for separate compilation (one is local Variable the other Global)
-    val missingPairs = ctx.currentVars.flatMap{
-      v =>
-        val p = Seq(v.value, v.isNull)
-        p.filterNot(v => aNames(v.code))
-    }
+    val missingPairs =
+      if (ctx.currentVars ne null)
+        ctx.currentVars.flatMap{
+          v =>
+            val p = Seq(v.value, v.isNull)
+            val t = p.filterNot(v => aNames(v.code))
+            if (t.length == 1) // one of them is local, take the other
+              t
+            else
+              Seq.empty
+        }
+      else
+        Seq.empty
 
     val a = localA ++ missingPairs
 

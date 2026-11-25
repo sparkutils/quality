@@ -299,33 +299,49 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
           RunOnPassProcessor(index, Id(index, 1), OutputExpression(output)))
     })))
 
-  /* Reproduces input 21 incorrectly selecting the final rule under generated execution. */
-  def wrongMatchedRule(spark: SparkSession): Unit = {
+  /* Reproduces input 21 incorrectly selecting the final rule under generated execution.
+  *  Courtesy of Karthik Parameswaran */
+  def do159wrongMatchedRule(): Unit = {
+    val spark = sparkSession
+
     val schema = new StructType().add("INPUT_ID", IntegerType).add("RAW_SELECTOR", IntegerType)
-    val inputs = (1 to 56).map(index => Row(index, index)) :+ Row(57, null)
-    val source = spark.createDataFrame(spark.sparkContext.parallelize(inputs, 1), schema)
-      .withColumn("SELECTOR", when(col("RAW_SELECTOR").isNotNull, col("RAW_SELECTOR") + lit(0)))
-      .withColumn("MATCHED_VALUE", lit(null).cast(StringType))
-      .withColumn("MATCHED_NUMBER", lit(null).cast(IntegerType))
+    import scala.collection.JavaConverters._
+    val inputs = ( (1 to 56).map(index => Row(index, index)) :+ Row(57, null) ).asJava
+
+    val source = {
+      val t = spark.createDataFrame(inputs, schema)
+        .withColumn("SELECTOR", when(col("RAW_SELECTOR").isNotNull, col("RAW_SELECTOR") + lit(0)))
+        .withColumn("MATCHED_VALUE", lit(null).cast(StringType))
+        .withColumn("MATCHED_NUMBER", lit(null).cast(IntegerType))
+
+      if (inCodegen) {
+        t.repartition(4)
+      } else
+        t
+    }
     val rules = suite((1 to 55).map { index =>
       (if (index == 55) "TRUE" else s"SELECTOR = $index") ->
         s"named_struct('MATCHED_VALUE', 'RULE_$index', 'MATCHED_NUMBER', $index)"
     })
     val output = new StructType().add("MATCHED_VALUE", StringType).add("MATCHED_NUMBER", IntegerType)
 
-    val rows = source.select(col("INPUT_ID"), ruleEngineRunner(rules, Some(output)).as("together"))
-      .select("INPUT_ID", "together.result.").collect()
+    val df = source.select(col("INPUT_ID"),
+      ruleEngineRunner(rules,Some(output)/*, variablesPerFunc = 20*/).as("together")
+    ).select("INPUT_ID", "together.result.*")
+    //df.orderBy("input_id").show(56)
+
+    val rows = df.collect()
+
     rows.foreach { row =>
       val inputId = row.getAs[Int]("INPUT_ID")
       val expected = math.min(inputId, 55)
-      assert(row.getAs[String]("MATCHED_VALUE") == s"RULE_$expected",
-        s"input $inputId: expected RULE_$expected, got ${row.getAs[String]("MATCHED_VALUE")}")
-      assert(row.getAs[Int]("MATCHED_NUMBER") == expected, s"input $inputId")
+      row.getAs[String]("MATCHED_VALUE") shouldBe s"RULE_$expected"
+      row.getAs[Int]("MATCHED_NUMBER") shouldBe expected
     }
 
   }
 
-  /** Reproduces outer coalesce null flags leaking into separately compiled runner code.
+  /* Reproduces outer coalesce null flags leaking into separately compiled runner code.
    * Courtesy of Karthik Parameswaran */
   def do159Null(): Unit = {
     val spark = sparkSession
@@ -336,7 +352,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
       fillerNames.map(name => StructField(name, StringType)))
 
     val data = Seq("", true, new java.math.BigDecimal("2.5")) ++ Seq.fill(40)(null)
-    val rawrows = new util.ArrayList[Row]()
+    val rawrows = new java.util.ArrayList[Row]()
     rawrows.add(Row.fromSeq(data))
 
     val source = spark.createDataFrame(rawrows, schema)
@@ -364,8 +380,12 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
 
 class RuleEngineTest extends RuleEngineTestBase {
 
-  test("159 null case") { evalCodeGensNoResolve {
+  test("159 global null pair") { evalCodeGensNoResolve {
     do159Null()
+  } }
+
+  test("159 wrongMatchedRule") { evalCodeGensNoResolve {
+    do159wrongMatchedRule()
   } }
 
   test("testSimpleProductionRules Connect") { connectOnly{

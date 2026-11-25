@@ -123,7 +123,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
                 QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map( p =>
                   p._2.apply(ctx, params, p._1.expression, false).code + s"${exprEnd()}\n")
                   , runner.variableFuncGroup, exprFuncName, argPairs,
-                  foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
+                  foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", s";\n${exprEnd()}\n")
                 )
               body
             }
