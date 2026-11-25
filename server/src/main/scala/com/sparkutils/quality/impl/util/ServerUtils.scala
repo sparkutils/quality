@@ -234,6 +234,7 @@ object ParameterInformation {
     else
       expr match {
         case VariableValue(Name,_) => true
+        case GlobalValue(Name,_) => true
         case _ => false
       }
 
@@ -454,16 +455,16 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
 object Params {
 
-  def stripBrackets(v: VariableValue): (String, String) = {
+  def stripBrackets(v: ExprValue): (String, String) = {
     val openb = v.toString().indexOf("[")
     if (openb == -1)
-      (v.variableName, "")
+      (v.code, "")
     else
-      (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
+      (v.code.dropRight(v.length - openb), v.code.drop(openb))
   }
 
-  def prepFields(ctx: CodegenContext, ordered: Seq[(VariableValue, Boolean)], runnerParams: Boolean = false,
-                 additionalParams: Seq[(VariableValue, Boolean)] = Seq.empty): Seq[ParamType] = {
+  def prepFields(ctx: CodegenContext, ordered: Seq[(ExprValue, Boolean)], runnerParams: Boolean = false,
+                 additionalParams: Seq[(ExprValue, Boolean)] = Seq.empty): Seq[ParamType] = {
     val isAdditionalParams = additionalParams.map(p => stripBrackets(p._1)._1).toSet
 
     ordered.map { case (v, box) =>
@@ -486,16 +487,29 @@ object Params {
     }.distinct
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+  def formatParams(ctx: CodegenContext, localA: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some((a, false))
+      case a: GlobalValue => Some((a, false))
       case _ => None
     }
     def filterOutArraysB(use: Seq[(ExprValue,Boolean)]) = use.flatMap {
       case (a: VariableValue, b) => Some((a, b))
+      case (a: GlobalValue, b) => Some((a, b))
       case _ => None
     }
+
+    val aNames = localA.map(_.code).toSet
+
+    // 159 - global pairs _may_ also be needed for separate compilation (one is local Variable the other Global)
+    val missingPairs = ctx.currentVars.flatMap{
+      v =>
+        val p = Seq(v.value, v.isNull)
+        p.filterNot(v => aNames(v.code))
+    }
+
+    val a = localA ++ missingPairs
 
     val filteredA = filterOutArrays(a)
     val filteredAdditional = filterOutArraysB(additional)
@@ -518,10 +532,10 @@ object Params {
       //else
         //pairs ++ prepFields(filteredAdditional)
 
-    def paramsCall(seq: Seq[(VariableValue, Boolean)]) =
+    def paramsCall(seq: Seq[(ExprValue, Boolean)]) =
       seq.map { case (v, primitive) =>
         if (v.javaType.isArray && callsKeepArrays)
-          v.variableName
+          v.code
         else
           stripBrackets(v)._1
       }.distinct.mkString(", ")
@@ -532,7 +546,7 @@ object Params {
         s"$typ $stripped"
       }.distinct.mkString(", ")
       , paramsCall(ordered), combined.size, combined,
-      outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.variableName))),
+      outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.code))),
       nonCombinedParams = pairs)
   }
 }
