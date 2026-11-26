@@ -234,6 +234,7 @@ object ParameterInformation {
     else
       expr match {
         case VariableValue(Name,_) => true
+        case GlobalValue(Name,_) => true
         case _ => false
       }
 
@@ -339,11 +340,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     s"$prefix$useArity<$returnTyp${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
-          aritySafe.map { p => "Object"
-/*            if (p._3.isPrimitive)
-              CodeGenerator.boxedType(p._3.getSimpleName)
-            else
-              p._1*/
+          aritySafe.map { _ => "Object"
           }.mkString(",")
         else
           "Object"
@@ -364,14 +361,14 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     aritySafe = (params ++ preppedTopLevel).distinct
 
     aritySafe.map { p =>
-      val (arrayExtraDecl, arrayExtraDim) =
-        if (p.isExtraDimensionArray)
-          (p.name, "[]") // s" = new ${p._3.componentType().getName}[1][]
+      val arrayExtraDim =
+        if (p.isExtraDimensionArray && !isBinaryType(p))
+          "[]"
         else
-          (p.name, "")
+          ""
 
       val typ =
-        if (p.isBoxed && p.classType.isArray)
+        if (p.isBoxed && p.classType.isArray && !isBinaryType(p))
           CodeGenerator.boxedType(p.classType.getComponentType.getSimpleName) + "[]"
         else
           CodeGenerator.typeName(p.classType)
@@ -379,6 +376,10 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       ctx.addMutableState(typ+arrayExtraDim, p.name, forceInline = true, useFreshName = false)
     }
   }
+
+  // #156 - BinaryType is the only actual array type - Literals.default is the scope, all others are reference arrays
+  private def isBinaryType(p: ParamType) =
+    Params.isBinaryType(p.classType)
 
   def aritySafeParamConversion(ctx: CodegenContext): String =
     if (arity <= 22)
@@ -393,11 +394,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
             else
               p.typeDecl
 
-        val (arrayExtraDim) =
-          if (p.classType.isArray)
-            ("[]")//
+        val arrayExtraDim =
+          if (p.classType.isArray && !isBinaryType(p))
+            "[]"
           else
-            ("")
+            ""
 
         s"${p.name} = ($cast$arrayExtraDim) ${p.name}_ppp;"
       }.mkString("\n")
@@ -413,11 +414,12 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
               CodeGenerator.boxedType(p.classType.getSimpleName)
             else
               p.typeDecl
-          val (arrayExtraDim) =
-            if (p.classType.isArray)
-              ("[]")// [0]
+
+          val arrayExtraDim =
+            if (p.classType.isArray && !isBinaryType(p))
+              "[]"
             else
-              ("")
+              ""
 
           s"${p.name} = ($cast$arrayExtraDim) $pp[$index];"
       }.mkString("\n")
@@ -448,22 +450,24 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     else
       str
 
-  def outerParamsCall(outerParams: ParameterInformation): String =
-    topLevelCall(paramsCall, outerParams)
+  //def outerParamsCall(outerParams: ParameterInformation): String =
+  //  topLevelCall(paramsCall, outerParams)
 }
 
 object Params {
+  private[quality] def isBinaryType(c: Class[_]) =
+    c.isArray && c.getComponentType == java.lang.Byte.TYPE
 
-  def stripBrackets(v: VariableValue): (String, String) = {
+  def stripBrackets(v: ExprValue): (String, String) = {
     val openb = v.toString().indexOf("[")
     if (openb == -1)
-      (v.variableName, "")
+      (v.code, "")
     else
-      (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
+      (v.code.dropRight(v.length - openb), v.code.drop(openb))
   }
 
-  def prepFields(ctx: CodegenContext, ordered: Seq[(VariableValue, Boolean)], runnerParams: Boolean = false,
-                 additionalParams: Seq[(VariableValue, Boolean)] = Seq.empty): Seq[ParamType] = {
+  def prepFields(ctx: CodegenContext, ordered: Seq[(ExprValue, Boolean)], runnerParams: Boolean = false,
+                 additionalParams: Seq[(ExprValue, Boolean)] = Seq.empty): Seq[ParamType] = {
     val isAdditionalParams = additionalParams.map(p => stripBrackets(p._1)._1).toSet
 
     ordered.map { case (v, box) =>
@@ -486,42 +490,52 @@ object Params {
     }.distinct
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+  def formatParams(ctx: CodegenContext, localA: Seq[ExprValue], additional: Seq[(VariableValue, Boolean)] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
 
     def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some((a, false))
+      case a: GlobalValue => Some((a, false))
       case _ => None
     }
     def filterOutArraysB(use: Seq[(ExprValue,Boolean)]) = use.flatMap {
       case (a: VariableValue, b) => Some((a, b))
+      case (a: GlobalValue, b) => Some((a, b))
       case _ => None
     }
+
+    val aNames = localA.map(_.code).toSet
+
+    // 159 - global pairs _may_ also be needed for separate compilation (one is local Variable the other Global)
+    val missingPairs =
+      if (ctx.currentVars ne null)
+        ctx.currentVars.flatMap{
+          v =>
+            val p = Seq(v.value, v.isNull)
+            val t = p.filterNot(v => aNames(v.code))
+            if (t.length == 1) // one of them is local, take the other
+              t
+            else
+              Seq.empty
+        }
+      else
+        Seq.empty
+
+    val a = localA ++ missingPairs
 
     val filteredA = filterOutArrays(a)
     val filteredAdditional = filterOutArraysB(additional)
 
-    val size = filteredA.size + filteredAdditional.size
-    val use =
-      //if (size <= 22)
-        filteredA ++ filteredAdditional
-      //else
-        //filteredA // additional are then handled via class level
+    val use = filteredA ++ filteredAdditional
 
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = use
 
     val pairs = prepFields(ctx, ordered, additionalParams = additional)
 
-    val combined =
-      //if (size <= 22)
-        pairs
-      //else
-        //pairs ++ prepFields(filteredAdditional)
-
-    def paramsCall(seq: Seq[(VariableValue, Boolean)]) =
+    def paramsCall(seq: Seq[(ExprValue, Boolean)]) =
       seq.map { case (v, primitive) =>
         if (v.javaType.isArray && callsKeepArrays)
-          v.variableName
+          v.code
         else
           stripBrackets(v)._1
       }.distinct.mkString(", ")
@@ -531,8 +545,8 @@ object Params {
 
         s"$typ $stripped"
       }.distinct.mkString(", ")
-      , paramsCall(ordered), combined.size, combined,
-      outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.variableName))),
+      , paramsCall(ordered), pairs.size, pairs,
+      outerCallParams = paramsCall(ordered.filterNot(p => isProbablyLocalCompilationScope(ctx, p._1.code))),
       nonCombinedParams = pairs)
   }
 }

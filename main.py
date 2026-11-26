@@ -40,7 +40,7 @@ def define_env(env):
 
   @env.macro
   def api_version():
-    return withPath("api.txt", lambda f: readAndStrip(f))
+    return withPath("connect_api.txt", lambda f: readAndStrip(f))
 
   @env.macro
   def api_stub_version():

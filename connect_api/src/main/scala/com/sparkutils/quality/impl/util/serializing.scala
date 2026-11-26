@@ -94,7 +94,7 @@ object Serializing {
   }
 
   protected[quality] object HasOutput {
-    implicit val rule: HasOutput[Rule] =
+    def rule: HasOutput[Rule] =
       new HasOutput[Rule] {
         type P = RunOnPassProcessor
 
@@ -116,7 +116,7 @@ object Serializing {
         override def missingRule(t: Rule): Rule = t
       }
 
-    implicit val ruleSuite: HasOutput[RuleSuite] =
+    def ruleSuite: HasOutput[RuleSuite] =
       new HasOutput[RuleSuite] {
         type P = DefaultProcessor
 
@@ -127,6 +127,7 @@ object Serializing {
 
         override def missingRule(t: RuleSuite): Rule = Rule(t.id, ExpressionRule(ruleSuiteDefaultText))
       }
+
   }
 
   protected[quality] def iIntegrateOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id], get: Id => Option[Seq[OutputExpressionRow]]): (RuleSuiteMap, Map[Id, Set[Rule]]) = {
@@ -150,12 +151,16 @@ object Serializing {
     }
 
     val map =
-      ruleSuiteMap.mapValues { rsuite =>
+      ruleSuiteMap.map { case (id, rsuite) =>
 
         val outputSeq = get(rsuite.id).map(os => os).getOrElse(Seq.empty) ++ shared
         val map: Map[Id, OutputExpressionRow] = outputSeq.map(oe => Id(oe.functionId, oe.functionVersion) -> oe).toMap
 
-        runOn(rsuite,
+        // #160 - cache is ruleSuite level for output expressions
+        implicit val rsH = HasOutput.ruleSuite
+        implicit val ruleH = HasOutput.rule
+
+        id -> runOn(rsuite,
           rsuite.copy(ruleSets = rsuite.ruleSets.map {
             rs =>
               rs.copy(rules = rs.rules.map {
@@ -166,7 +171,7 @@ object Serializing {
 
       }
 
-    (map.toMap, Map() ++ notexists)
+    (map, Map() ++ notexists)
   }
 
   /**

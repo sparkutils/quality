@@ -7,7 +7,7 @@ import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import frameless.TypedEncoder
 import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
 import org.apache.spark.sql.functions.{col, explode}
-import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, IntegerType, StringType, StructField, StructType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.reflect.ClassTag
@@ -424,6 +424,26 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
 
   }
 
+  // #156 verification as collectrunner test is across all combos including grouped
+  test("binary production") {
+    import com.sparkutils.quality.implicits._
+
+    val s = sparkSession
+    import s.implicits._
+
+    testBaseInput[Boolean, Int, Array[Byte]](testData = Seq("1","2","3","4","5","6").map(_.getBytes), expected = Seq(
+      true,true,true,true,true,true
+    ), if (_) 1 else 0, _.select("exp").as[Boolean].collect())(
+      transformRuleSuite = (_: RuleSuite) =>  buildRules(
+        Seq(
+          (ExpressionRule("value is not null"), RunOnPassProcessor(1001, Id(1044,1),
+            OutputExpression("array(value is not null)")))
+        )
+      ),
+      dataType = Some(ArrayType(BooleanType))
+    )
+
+  }
 }
 
 class CollectRunnerTest extends CollectRunnerTestBase {

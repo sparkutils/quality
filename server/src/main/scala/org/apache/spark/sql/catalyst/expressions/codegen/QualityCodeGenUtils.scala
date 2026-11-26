@@ -223,40 +223,37 @@ object QualityCodeGenUtils {
                        arguments: Seq[(String, String)],
                        returnType: String = "void",
                        makeSplitFunction: String => String = identity,
-                       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
+                       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")
+                      ): String = {
     val blocks = buildCodeBlocks(expressions.grouped(groupingSize).map(_.mkString("\n")).toSeq)
 
-    if (blocks.length == 1) {
-      // inline execution if only one block
-      blocks.head
-    } else {
-      val func = ctx.freshName(funcName)
-      val argString = arguments.map { case (t, name) => s"$t $name" }.mkString(", ")
-      val functions = blocks.zipWithIndex.map { case (body, i) =>
-        val name = s"${func}_$i"
-        val code = s"""
-                      |private $returnType $name($argString) {
-                      |  ${makeSplitFunction(body)}
-                      |}
-         """.stripMargin
-        addNewFunctionInternal.invoke(ctx, name, code, java.lang.Boolean.FALSE).asInstanceOf[NewFunctionSpec]
-      }
-
-      val (outerClassFunctions, innerClassFunctions) = functions.partition(_.innerClassName.isEmpty)
-
-      val argsString = arguments.map(_._2).mkString(", ")
-      val outerClassFunctionCalls = outerClassFunctions.map(f => s"${f.functionName}($argsString)")
-
-      val innerClassFunctionCalls = generateInnerClassesFunctionCall.invoke(ctx,
-        innerClassFunctions,
-        func,
-        arguments,
-        returnType,
-        makeSplitFunction,
-        foldFunctions).asInstanceOf[Iterable[String]]
-
-      foldFunctions(outerClassFunctionCalls ++ innerClassFunctionCalls)
+    val func = ctx.freshName(funcName)
+    val argString = arguments.map { case (t, name) => s"$t $name" }.mkString(", ")
+    val functions = blocks.zipWithIndex.map { case (body, i) =>
+      val name = s"${func}_$i"
+      val code = s"""
+                    |private $returnType $name($argString) {
+                    |  ${makeSplitFunction(body)}
+                    |}
+       """.stripMargin
+      addNewFunctionInternal.invoke(ctx, name, code, java.lang.Boolean.FALSE).asInstanceOf[NewFunctionSpec]
     }
+
+    val (outerClassFunctions, innerClassFunctions) = functions.partition(_.innerClassName.isEmpty)
+
+    val argsString = arguments.map(_._2).mkString(", ")
+    val outerClassFunctionCalls = outerClassFunctions.map(f => s"${f.functionName}($argsString)")
+
+    val innerClassFunctionCalls = generateInnerClassesFunctionCall.invoke(ctx,
+      innerClassFunctions,
+      func,
+      arguments,
+      returnType,
+      makeSplitFunction,
+      foldFunctions).asInstanceOf[Iterable[String]]
+
+    foldFunctions(outerClassFunctionCalls ++ innerClassFunctionCalls)
+
   }
 
 

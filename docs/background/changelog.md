@@ -1,3 +1,17 @@
+### [0.2.2](https://github.com/sparkutils/quality/milestone/15?closed=1) <small>25th November, 2026</small>
+
+This patch release covers the following bugs:
+
+#156 - Binary type support in rules and triggers 
+
+#159 - Support GlobalValues as parameters (e.g. coalesce in rules) and grouping logic fixes 
+
+> Special thanks to Karthik Parameswaran for the test cases
+
+#160 - integrateOutputExpressions incorrectly caches output expressions
+
+> Special thanks to Hirdesh Agarwal for the test case
+
 ### [0.2.1](https://github.com/sparkutils/quality/milestone/14?closed=1) <small>16th September, 2026</small>
 
 This small feature release adds the if_relevant function.

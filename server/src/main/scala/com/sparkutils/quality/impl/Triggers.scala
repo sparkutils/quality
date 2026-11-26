@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
-import com.sparkutils.quality.{PassedInt, QualityException, groupProcessorKey}
+import com.sparkutils.quality.{QualityException, groupProcessorKey}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParamsForNested
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -122,8 +122,8 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map( p =>
                   p._2.apply(ctx, params, p._1.expression, false).code + s"${exprEnd()}\n")
-                  , runner.variableFuncGroup, exprFuncName, argPairs,
-                  foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
+                  , runner.variablesPerFunc, exprFuncName, argPairs,
+                  foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", s";\n${exprEnd()}\n")
                 )
               body
             }

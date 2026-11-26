@@ -8,7 +8,10 @@ import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.StructType
 import org.scalatest.Matchers
+
+import java.util
 
 case class TestOn(product: String, account: String, subcode: Int)
 
@@ -282,9 +285,109 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
     assert(res(5).contains(Seq((100, Seq(Posting("from", "4201"), Posting("to", "other_account1"))), justSeq)))
   }
 
+  import com.sparkutils.quality._
+  import org.apache.spark.sql.{Row, SparkSession}
+  import org.apache.spark.sql.functions._
+  import org.apache.spark.sql.types._
+
+  /* Constructs rules directly, with unique IDs and ascending first-match priority. */
+  private def suite(predicatesAndOutputs: Seq[(String, String)]): RuleSuite =
+    RuleSuite(Id(1, 1), Seq(RuleSet(Id(1, 1), predicatesAndOutputs.zipWithIndex.map {
+      case ((predicate, output), offset) =>
+        val index = offset + 1
+        Rule(Id(index, 1), ExpressionRule(predicate),
+          RunOnPassProcessor(index, Id(index, 1), OutputExpression(output)))
+    })))
+
+  /* Reproduces input 21 incorrectly selecting the final rule under generated execution.
+  *  Courtesy of Karthik Parameswaran */
+  def do159wrongMatchedRule(vpf: Int): Unit = {
+    val spark = sparkSession
+
+    val schema = new StructType().add("INPUT_ID", IntegerType).add("RAW_SELECTOR", IntegerType)
+    import scala.collection.JavaConverters._
+    val inputs = ( (1 to 56).map(index => Row(index, index)) :+ Row(57, null) ).asJava
+
+    val source = {
+      val t = spark.createDataFrame(inputs, schema)
+        .withColumn("SELECTOR", when(col("RAW_SELECTOR").isNotNull, col("RAW_SELECTOR") + lit(0)))
+        .withColumn("MATCHED_VALUE", lit(null).cast(StringType))
+        .withColumn("MATCHED_NUMBER", lit(null).cast(IntegerType))
+
+      if (inCodegen) {
+        t.repartition(4)
+      } else
+        t
+    }
+    val rules = suite((1 to 55).map { index =>
+      (if (index == 55) "TRUE" else s"SELECTOR = $index") ->
+        s"named_struct('MATCHED_VALUE', 'RULE_$index', 'MATCHED_NUMBER', $index)"
+    })
+    val output = new StructType().add("MATCHED_VALUE", StringType).add("MATCHED_NUMBER", IntegerType)
+
+    val df = source.select(col("INPUT_ID"),
+      ruleEngineRunner(rules,Some(output), variablesPerFunc = vpf).as("together")
+    ).select("INPUT_ID", "together.result.*")
+    //df.orderBy("input_id").show(56)
+
+    val rows = df.collect()
+
+    rows.foreach { row =>
+      val inputId = row.getAs[Int]("INPUT_ID")
+      val expected = math.min(inputId, 55)
+      row.getAs[String]("MATCHED_VALUE") shouldBe s"RULE_$expected"
+      row.getAs[Int]("MATCHED_NUMBER") shouldBe expected
+    }
+
+  }
+
+  /* Reproduces outer coalesce null flags leaking into separately compiled runner code.
+   * Courtesy of Karthik Parameswaran */
+  def do159Null(): Unit = {
+    val spark = sparkSession
+
+    val fillerNames = (1 to 40).map(index => s"EXTRA_$index")
+    val schema = StructType(Seq(StructField("RAW_LOG", StringType),
+      StructField("RAW_VALID", BooleanType), StructField("RAW_AMOUNT", DecimalType(20, 6))) ++
+      fillerNames.map(name => StructField(name, StringType)))
+
+    val data = Seq("", true, new java.math.BigDecimal("2.5")) ++ Seq.fill(40)(null)
+    val rawrows = new java.util.ArrayList[Row]()
+    rawrows.add(Row.fromSeq(data))
+
+    val source = spark.createDataFrame(rawrows, schema)
+
+    val coalesced = source.withColumn("PositionErrorLog", coalesce(col("RAW_LOG"), lit("")))
+      .withColumn("ValidPosition", coalesce(col("RAW_VALID"), lit(true)))
+    val derived = fillerNames.foldLeft(coalesced) { (frame, name) =>
+      frame.withColumn(name, coalesce(col(name), lit("")))
+    }
+    val output = new StructType().add("EclEffectiveInterestRate", DecimalType(20, 6))
+      .add("PositionErrorLog", StringType).add("ValidPosition", BooleanType)
+    val second = suite(Seq(
+      "ValidPosition = false" ->
+        "named_struct('EclEffectiveInterestRate', cast(0 as decimal(20,6)), 'PositionErrorLog', PositionErrorLog, 'ValidPosition', ValidPosition)",
+      "RAW_AMOUNT IS NOT NULL" ->
+        "named_struct('EclEffectiveInterestRate', RAW_AMOUNT / 100, 'PositionErrorLog', PositionErrorLog, 'ValidPosition', ValidPosition)",
+      "TRUE" ->
+        "named_struct('EclEffectiveInterestRate', cast(0 as decimal(20,6)), 'PositionErrorLog', PositionErrorLog, 'ValidPosition', ValidPosition)"))
+
+    val rows = derived.select(col("*"), ruleEngineRunner(second, Some(output)).as("second")).collect()
+    rows.length shouldBe 1
+  }
+
 }
 
 class RuleEngineTest extends RuleEngineTestBase {
+
+  test("159 global null pair") { evalCodeGensNoResolve {
+    do159Null()
+  } }
+
+  test("159 wrongMatchedRule") { evalCodeGensNoResolve {
+    do159wrongMatchedRule(40) // default
+    do159wrongMatchedRule(20) // grouping size would be 1, so early exit would not trigger per 159
+  } }
 
   test("testSimpleProductionRules Connect") { connectOnly{
     doSimpleProductionRules()
