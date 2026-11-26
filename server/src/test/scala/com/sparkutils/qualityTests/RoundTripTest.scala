@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.{ArrayType, StructType}
 import org.scalatest.Matchers
 
 trait RoundTripTestBase extends SharedPureConnectTests with RowTools with Matchers {
@@ -273,9 +274,53 @@ trait RoundTripTestBase extends SharedPureConnectTests with RowTools with Matche
     toOrdered(reRules) should equal(toOrdered(rules))
   }
 
+  //#160 integrateOutputExpressions cached globally not on rulesuite level
+  def doCachedOutputExpressionTest(): Unit = {
+    val spark = sparkSession
+    import spark.implicits._
+
+    def buildSuite(suiteId: Id, setId: Id, definitions: Seq[(Int, Int, String, String)], offset: Int = 0): RuleSuite = {
+      val rules = definitions.map { case (ruleId, salience, condition, o) =>
+        Rule(Id(ruleId, 1), ExpressionRule(condition),
+          RunOnPassProcessor(salience, Id(ruleId + offset, 1), OutputExpression(o)))
+      }
+      val suite = RuleSuite(suiteId, Seq(RuleSet(setId, rules)))
+      val outputs = definitions.map { case (ruleId, _, _, output) =>
+        (output, ruleId + offset, 1, suiteId.id, suiteId.version)
+      }.toDF("OUTPUT", "OUTPUT_ID", "OUTPUT_VERSION", "SUITE_ID", "SUITE_VERSION")
+
+      val library = readOutputExpressionsFromDF(outputs, col("OUTPUT"), col("OUTPUT_ID"),
+        col("OUTPUT_VERSION"), col("SUITE_ID"), col("SUITE_VERSION"))
+
+      val (integrated, missing) = integrateOutputExpressions(
+        Map[VersionedId, RuleSuite](suite.id -> suite), library, Some(Id(-1, -1)))
+      assert(missing.isEmpty, s"Missing outputs: $missing")
+      integrated(suite.id)
+    }
+
+    val processorOffset = 0
+    val originalSuite = buildSuite(Id(10, 1), Id(100, 3), Seq(
+      (1, 1, "false", "x"),
+      (2, 2, "1=1", "z")
+    ))
+    originalSuite.ruleSets.head.rules.map(_.runOnPassProcessor.rule) shouldBe Seq("x","z")
+    val nextSuite = buildSuite(Id(20, 2), Id(200, 4), Seq(
+      (1, 1, "true", "true"),
+      (2, 2, "1=1", "false"),
+      (3, 2, "1=1", "a"),
+    ), processorOffset)
+
+    // #160 would pick up originalSuite's as it was globally caching
+    nextSuite.ruleSets.head.rules.map(_.runOnPassProcessor.rule) shouldBe Seq("true", "false", "a")
+  }
+
 }
 
 class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers with RoundTripTestBase {
+
+  test("cached output expressions correctly use rule suite") {
+    doCachedOutputExpressionTest()
+  }
 
   test("verifyPacking") {
     import implicits._
